@@ -198,6 +198,8 @@ type Model struct {
 
 	pod   kube.Pod
 	found bool
+	// status is the title line's STATUS, from the raw pod (podStatus).
+	status podStatus
 	// gone is set once a load() reports the pod no longer exists (watch
 	// delete) — Body() renders the "pod gone" banner and every key becomes
 	// "go back" rather than the normal keymap.
@@ -261,6 +263,7 @@ type Model struct {
 // pod's name — browse's reloadEpoch pattern.
 type loadedMsg struct {
 	epoch  int
+	status podStatus
 	pod    kube.Pod
 	found  bool
 	events []kube.Event

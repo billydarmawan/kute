@@ -215,7 +215,7 @@ func PodFromObject(pod *corev1.Pod) Pod {
 		ContainerInfos:          buildContainerInfos(pod),
 		InitContainerInfos:      buildInitContainerInfos(pod),
 		EphemeralContainerInfos: buildEphemeralContainerInfos(pod),
-		LastTermination:         findLastTermination(pod.Status.ContainerStatuses),
+		LastTermination:         findLastTermination(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses),
 		GracePeriodSeconds: func() int64 {
 			if pod.Spec.TerminationGracePeriodSeconds != nil {
 				return *pod.Spec.TerminationGracePeriodSeconds
@@ -362,12 +362,13 @@ func applyContainerStatus(info *ContainerInfo, s corev1.ContainerStatus) {
 }
 
 // findLastTermination scans both current and last-known termination states
-// across every container and returns the most recent abnormal one (by
-// FinishedAt), for the 5a last-termination banner. Returns nil when no
-// container has ever terminated abnormally — a clean ExitCode 0 (e.g. a
-// completed Job's pod) never wins here, since it was never "why is it
-// broken."
-func findLastTermination(statuses []corev1.ContainerStatus) *LastTermination {
+// across every container — init containers (and native sidecars, which are
+// init containers) included, so a pod stuck in Init:CrashLoopBackOff gets its
+// banner — and returns the most recent abnormal one (by FinishedAt), for the
+// 5a last-termination banner. Returns nil when no container has ever
+// terminated abnormally — a clean ExitCode 0 (e.g. a completed Job's pod)
+// never wins here, since it was never "why is it broken."
+func findLastTermination(statusLists ...[]corev1.ContainerStatus) *LastTermination {
 	var best *corev1.ContainerStateTerminated
 	var bestStatus corev1.ContainerStatus
 	consider := func(s corev1.ContainerStatus, t *corev1.ContainerStateTerminated) {
@@ -380,9 +381,11 @@ func findLastTermination(statuses []corev1.ContainerStatus) *LastTermination {
 			best, bestStatus = t, s
 		}
 	}
-	for _, s := range statuses {
-		consider(s, s.State.Terminated)
-		consider(s, s.LastTerminationState.Terminated)
+	for _, statuses := range statusLists {
+		for _, s := range statuses {
+			consider(s, s.State.Terminated)
+			consider(s, s.LastTerminationState.Terminated)
+		}
 	}
 	if best == nil {
 		return nil

@@ -1227,13 +1227,36 @@ func TestOpenForwardHandoff(t *testing.T) {
 	}
 }
 
-func TestStatusClassShowsTerminatingOverStalePhase(t *testing.T) {
-	// A deleted pod keeps its last real phase ("Running") until the kubelet
-	// finishes tearing it down — Deleting must win regardless of Status.
-	pod := kube.Pod{Status: string(corev1.PodRunning), Deleting: true}
-	glyph, class, text := statusClass(pod)
-	if glyph != "◌" || class != "warn" || text != "Terminating" {
-		t.Fatalf("deleting pod should show ◌/warn/Terminating, got %s/%s/%s", glyph, class, text)
+// TestInitCrashLoopMatchesTheListAndGetsItsBanner: a pod whose init
+// container is crash-looping (a failing migration) reads Init:CrashLoopBackOff
+// in 5a's title — the Pods list's own wording — not the main containers'
+// PodInitializing, and its banner names the init container's failure.
+func TestInitCrashLoopMatchesTheListAndGetsItsBanner(t *testing.T) {
+	pod := runningPod("api-0", "default", "node-a")
+	pod.Status.Phase = corev1.PodPending
+	pod.Spec.InitContainers = []corev1.Container{{Name: "migrate", Image: "example.com/migrate:v1"}}
+	pod.Status.InitContainerStatuses = []corev1.ContainerStatus{{
+		Name: "migrate", RestartCount: 4,
+		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+		LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+			ExitCode: 3, Reason: "Error", FinishedAt: metav1.NewTime(time.Now().Add(-time.Minute)),
+		}},
+	}}
+	for i := range pod.Status.ContainerStatuses {
+		pod.Status.ContainerStatuses[i].Ready = false
+		pod.Status.ContainerStatuses[i].State = corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "PodInitializing"}}
+	}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindPod: {pod}}}
+	m := New(Config{Session: newSession(), Lister: lister, Namespace: "default", Name: "api-0"})
+	m.SetSize(120, 40)
+	m = step(t, m, m.Init()())
+
+	view := plain(m.Render())
+	if !strings.Contains(view, "Init:CrashLoopBackOff") || strings.Contains(view, "PodInitializing") {
+		t.Fatalf("title should read the list's Init:CrashLoopBackOff:\n%s", view)
+	}
+	if !strings.Contains(view, "Last termination") || !strings.Contains(view, "Container migrate exited with code 3") {
+		t.Fatalf("expected the init container's termination banner:\n%s", view)
 	}
 }
 

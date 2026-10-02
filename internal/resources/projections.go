@@ -141,28 +141,23 @@ func podReadyConditionFalse(p *corev1.Pod) bool {
 	return false
 }
 
-func projectPod(obj runtime.Object) Row {
-	p, ok := obj.(*corev1.Pod)
-	if !ok {
-		return metaRow(obj)
-	}
-	ns, name, age := metaOf(obj)
-	var ready, restarts int32
+// PodStatus is a pod's STATUS-column derivation — glyph, health class and
+// text (kubectl's wording: "Init:CrashLoopBackOff", "Completed", "Evicted",
+// "Terminating") — shared by 2a's Pods list and 5a's title line so the two
+// screens can't disagree about the same pod.
+func PodStatus(p *corev1.Pod) (glyph string, class StatusClass, status string) {
+	var ready int32
 	for _, cs := range p.Status.ContainerStatuses {
 		if cs.Ready {
 			ready++
 		}
-		restarts += cs.RestartCount
 	}
 	total := int32(len(p.Spec.Containers))
-	readyLabel := fmt.Sprintf("%d/%d", ready, total)
 
 	// status is the STATUS cell text — the mockup (docs/design §2a) shows the
 	// failure reason ("CrashLoopBackOff") and kubectl's "Completed" wording,
 	// not the raw phase.
-	status := string(p.Status.Phase)
-	var glyph string
-	var class StatusClass
+	status = string(p.Status.Phase)
 	switch {
 	case p.DeletionTimestamp != nil:
 		// The API never sets a "Terminating" phase — kubectl/k9s synthesize it
@@ -203,6 +198,26 @@ func projectPod(obj runtime.Object) Row {
 	default:
 		glyph, class = "▲", StatusWarn
 	}
+	return glyph, class, status
+}
+
+func projectPod(obj runtime.Object) Row {
+	p, ok := obj.(*corev1.Pod)
+	if !ok {
+		return metaRow(obj)
+	}
+	ns, name, age := metaOf(obj)
+	var ready, restarts int32
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.Ready {
+			ready++
+		}
+		restarts += cs.RestartCount
+	}
+	total := int32(len(p.Spec.Containers))
+	readyLabel := fmt.Sprintf("%d/%d", ready, total)
+
+	glyph, class, status := PodStatus(p)
 
 	node := p.Spec.NodeName
 	if node == "" {

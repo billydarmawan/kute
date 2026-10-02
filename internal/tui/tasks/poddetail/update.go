@@ -171,6 +171,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.pod = msg.pod
+	m.status = msg.status
 	m.applyUsage()
 	m.found = true
 	m.eventRows = msg.events
@@ -418,6 +419,7 @@ func (m *Model) moveSibling(delta int) tea.Cmd {
 	m.gone = false
 	m.found = false
 	m.pod = kube.Pod{}
+	m.status = podStatus{}
 	m.usage, m.usageOK = kube.PodMetrics{}, false
 	m.eventRows = nil
 	m.eventsErr = nil

@@ -154,9 +154,8 @@ func (m Model) readyContent(width int) string {
 
 func (m Model) titleLine(theme tui.Theme, width int) string {
 	name := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render(m.name)
-	glyph, class, text := statusClass(m.pod)
-	statusStyle := lipgloss.NewStyle().Foreground(statusColor(theme, class))
-	status := statusStyle.Render(glyph + " " + text)
+	statusStyle := lipgloss.NewStyle().Foreground(statusColor(theme, m.status.class))
+	status := statusStyle.Render(m.status.glyph + " " + m.status.text)
 	restarts := ""
 	if m.pod.Restarts > 0 {
 		restarts = lipgloss.NewStyle().Foreground(theme.Warn).Render(fmt.Sprintf("%s %d restarts", tui.GlyphRestarts, m.pod.Restarts))
@@ -601,8 +600,7 @@ func (m Model) eventsBlock(theme tui.Theme, width int) string {
 	// 9b's sibling events screen already escalates Warning to red for a
 	// currently-failing object (severityStyle); this pod IS the object, so
 	// its own current status class stands in for 9b's cross-object lookup.
-	_, class, _ := statusClass(m.pod)
-	failing := class == "fail"
+	failing := m.status.class == "fail"
 
 	lines := []string{title}
 	for _, e := range m.eventRows {

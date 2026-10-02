@@ -70,9 +70,11 @@ func (m Model) load() tea.Cmd {
 			}
 		}
 
+		glyph, class, text := resources.PodStatus(obj)
 		return loadedMsg{
-			epoch: epoch,
-			pod:   pod, found: true, events: eventRows, eventsErr: eventsErr, controller: controller, related: related,
+			epoch:  epoch,
+			status: podStatus{glyph: glyph, class: string(class), text: text},
+			pod:    pod, found: true, events: eventRows, eventsErr: eventsErr, controller: controller, related: related,
 			sources: podContainerSources(obj.Spec), configErrors: podConfigErrors(obj.Status),
 		}
 	}
@@ -398,26 +400,13 @@ func findPod(objs []runtime.Object, namespace, name string) *corev1.Pod {
 	return nil
 }
 
-// statusClass mirrors resources.projectPod's classification (docs/design
-// README.md §2a/§5a), but works from the already-projected kube.Pod (whose
-// Reason field, from kube.PodFromObject, already carries the waiting/
-// terminated reason) instead of a raw runtime.Object — the same reasoning
-// nodedetail.podGlyph documents for working off kube.Pod.
-func statusClass(p kube.Pod) (glyph, class, text string) {
-	switch {
-	case p.Deleting:
-		return "◌", "warn", "Terminating"
-	case p.Status == string(corev1.PodSucceeded):
-		return "○", "neutral", "Completed"
-	case p.Status == string(corev1.PodFailed):
-		return "✕", "fail", p.Reason
-	case strings.Contains(p.Reason, "CrashLoop"):
-		return "✕", "fail", p.Reason
-	case p.Status == string(corev1.PodPending):
-		return "▲", "warn", p.Reason
-	default:
-		return "●", "ok", p.Reason
-	}
+// podStatus is the title line's glyph, health class and text, derived from
+// the raw pod by resources.PodStatus — the same derivation 2a's STATUS
+// column uses, so the list and its detail screen never disagree (an
+// Init:CrashLoopBackOff pod, an Evicted one). class is a StatusClass value:
+// "ok", "warn", "fail" or "neutral".
+type podStatus struct {
+	glyph, class, text string
 }
 
 func usageText(v string) string {
