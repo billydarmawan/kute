@@ -119,3 +119,35 @@ func TestFluxCommitSubjectsPairsSubjectToRevision(t *testing.T) {
 		t.Errorf("only the stored-artifact message should contribute, got %v", got)
 	}
 }
+
+// TestFluxCommitSubjectsNeverPairsAnOlderCommitWithTheHead is M8: two
+// commits fetched within the Event TTL both keyed on the source's current
+// revision, so the head's row could carry the older commit's subject.
+func TestFluxCommitSubjectsNeverPairsAnOlderCommitWithTheHead(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	head := "main@sha1:bbbbbbbb"
+	revisionOf := func(string) string { return head }
+
+	// Unannotated: only the newest stored-artifact event stands for the
+	// current revision, in whatever order the events arrive.
+	unannotated := []Event{
+		{Object: "GitRepository/fleet", Message: "stored artifact for commit 'B: newer'", LastSeen: now},
+		{Object: "GitRepository/fleet", Message: "stored artifact for commit 'A: older'", LastSeen: now.Add(-20 * time.Minute)},
+	}
+	if got := FluxCommitSubjects(unannotated, revisionOf); got[head] != "B: newer" || len(got) != 1 {
+		t.Errorf("unannotated: got %v, want only the newest subject on the head revision", got)
+	}
+
+	// Annotated: each subject keys on its own revision.
+	annotated := []Event{
+		{Object: "GitRepository/fleet", Message: "stored artifact for commit 'B: newer'", LastSeen: now,
+			Annotations: map[string]string{"source.toolkit.fluxcd.io/revision": head}},
+		{Object: "GitRepository/fleet", Message: "stored artifact for commit 'A: older'", LastSeen: now.Add(-20 * time.Minute),
+			Annotations: map[string]string{"source.toolkit.fluxcd.io/revision": "main@sha1:aaaaaaaa"}},
+	}
+	got := FluxCommitSubjects(annotated, revisionOf)
+	if got[head] != "B: newer" || got["main@sha1:aaaaaaaa"] != "A: older" {
+		t.Errorf("annotated: got %v, want each subject on its own revision", got)
+	}
+}

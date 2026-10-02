@@ -279,17 +279,36 @@ func TimelineFromFluxEvents(events []Event, subjects map[string]string) []Timeli
 }
 
 // FluxCommitSubjects builds the revision→subject index for one namespace's
-// events: every "stored artifact for commit" message paired with the
-// revision its own source object reports.
+// events, pairing every "stored artifact for commit" message with the
+// revision it was stored for.
+//
+// The event's own revision annotation is that revision, and wins whenever
+// it is present. Without one the only stand-in is the revision the source
+// object reports *now* (revisionOf), which is true of the newest
+// stored-artifact event per source alone: a source that fetched two commits
+// within the Event TTL would otherwise pair both subjects with the head
+// revision, and whichever was iterated last — possibly the older commit —
+// would be printed against it.
 func FluxCommitSubjects(events []Event, revisionOf func(object string) string) map[string]string {
 	out := map[string]string{}
+	annotated := map[string]bool{}
+	newest := map[string]Event{} // per source object, unannotated only
 	for _, e := range events {
 		subject := FluxCommitSubject(e.Message)
 		if subject == "" {
 			continue
 		}
-		if rev := revisionOf(e.Object); rev != "" {
-			out[rev] = subject
+		if rev := FluxEventRevision(e); rev != "" {
+			out[rev], annotated[rev] = subject, true
+			continue
+		}
+		if prev, ok := newest[e.Object]; !ok || e.LastSeen.After(prev.LastSeen) {
+			newest[e.Object] = e
+		}
+	}
+	for object, e := range newest {
+		if rev := revisionOf(object); rev != "" && !annotated[rev] {
+			out[rev] = FluxCommitSubject(e.Message)
 		}
 	}
 	return out
