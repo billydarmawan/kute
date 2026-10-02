@@ -645,7 +645,7 @@ func (c *Cluster) Drain(ctx context.Context, node string) (int, error) {
 		if !ok || pod.Spec.NodeName != node {
 			continue
 		}
-		if isDaemonSetOwned(pod) || isMirror(pod) {
+		if !kube.DrainEvicts(pod) {
 			continue
 		}
 		if err := c.DeleteResource(ctx, kube.KindPod, pod.Namespace, pod.Name); err != nil {
@@ -1107,20 +1107,6 @@ func (c *Cluster) RolloutUndo(_ context.Context, namespace, name string, toRevis
 	c.notify(kube.KindDeployment)
 	c.notify(kube.KindReplicaSet)
 	return nil
-}
-
-func isDaemonSetOwned(pod *corev1.Pod) bool {
-	for _, ref := range pod.OwnerReferences {
-		if ref.Kind == "DaemonSet" {
-			return true
-		}
-	}
-	return false
-}
-
-func isMirror(pod *corev1.Pod) bool {
-	_, ok := pod.Annotations[corev1.MirrorPodAnnotationKey]
-	return ok
 }
 
 // --- GetYAML / ObjectEvents ---

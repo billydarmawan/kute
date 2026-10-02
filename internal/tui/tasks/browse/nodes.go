@@ -84,8 +84,12 @@ func (m Model) loadNodeMetrics(epoch int) tea.Cmd {
 // projectPod classifies each pod the same way the Pods list itself does, so
 // a node's tally always agrees with what browse would show if you jumped
 // into that node's pods.
-func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod func(runtime.Object) resources.Row) (map[string]nodeCapacity, map[string]int, int, map[string]resources.HealthCounts) {
-	capacity := map[string]nodeCapacity{}
+//
+// drainCount is the subset of each node's pods a drain would evict
+// (kube.DrainEvicts) — the drain confirm's count, which must not include the
+// DaemonSet and static pods Drain leaves in place.
+func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod func(runtime.Object) resources.Row) (capacity map[string]nodeCapacity, podCount map[string]int, total int, podHealth map[string]resources.HealthCounts, drainCount map[string]int) {
+	capacity = map[string]nodeCapacity{}
 	if objs, err := lister.ListRaw(ctx, kube.KindNode, ""); err == nil {
 		for _, obj := range objs {
 			n, ok := obj.(*corev1.Node)
@@ -99,9 +103,9 @@ func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod 
 		}
 	}
 
-	podCount := map[string]int{}
-	podHealth := map[string]resources.HealthCounts{}
-	total := 0
+	podCount = map[string]int{}
+	podHealth = map[string]resources.HealthCounts{}
+	drainCount = map[string]int{}
 	if objs, err := lister.ListRaw(ctx, kube.KindPod, ""); err == nil {
 		for _, obj := range objs {
 			p, ok := obj.(*corev1.Pod)
@@ -110,6 +114,9 @@ func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod 
 			}
 			podCount[p.Spec.NodeName]++
 			total++
+			if kube.DrainEvicts(p) {
+				drainCount[p.Spec.NodeName]++
+			}
 			if projectPod != nil {
 				h := podHealth[p.Spec.NodeName]
 				switch projectPod(obj).Status {
@@ -126,7 +133,7 @@ func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod 
 			}
 		}
 	}
-	return capacity, podCount, total, podHealth
+	return capacity, podCount, total, podHealth, drainCount
 }
 
 func nodeTerminalPod(p *corev1.Pod) bool {
@@ -291,10 +298,9 @@ func (m *Model) beginCordon(row resources.Row) tea.Cmd {
 // beginDrain confirms draining row — TierModal (verbs.Drain) — showing how
 // many pods the cache says will be evicted.
 func (m *Model) beginDrain(row resources.Row) tea.Cmd {
-	count := m.podCountByNode[row.Name]
 	return m.actions.Begin(verbs.Drain.Tier, tui.TaskAction{
 		ID:    "node-drain-" + row.Name,
-		Label: fmt.Sprintf("Drain %s? %d pods will be evicted.", row.Name, count),
+		Label: fmt.Sprintf("Drain %s? %d pods will be evicted.", row.Name, m.drainCountByNode[row.Name]),
 		Scope: tui.TaskScope{ResourceKind: string(kube.KindNode), ResourceName: row.Name, Verb: "drain", IsMutating: true},
 	})
 }

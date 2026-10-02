@@ -337,9 +337,15 @@ func TestDKeyConfirmsThenDrains(t *testing.T) {
 	if verbs.Drain.Key != "ctrl+d" {
 		t.Fatalf("Drain.Key = %q, want Bubble Tea key spelling ctrl+d", verbs.Drain.Key)
 	}
+	// Drain leaves DaemonSet and mirror (static) pods in place, so the
+	// confirm must not count them as evicted.
+	ds := schedPod("kube-system", "kube-proxy-x", "node-a", "64Mi")
+	ds.OwnerReferences = []metav1.OwnerReference{{Kind: "DaemonSet", Name: "kube-proxy"}}
+	mirror := schedPod("kube-system", "etcd-node-a", "node-a", "64Mi")
+	mirror.Annotations = map[string]string{corev1.MirrorPodAnnotationKey: "x"}
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindNode: {testNode("node-a")},
-		kube.KindPod:  {schedPod("default", "big", "node-a", "1Gi")},
+		kube.KindPod:  {schedPod("default", "big", "node-a", "1Gi"), ds, mirror},
 	}}
 	mut := &fakeMutator{}
 	m := New(Config{Session: newSession(), Lister: lister, NodeName: "node-a", Mutator: mut})
@@ -350,7 +356,7 @@ func TestDKeyConfirmsThenDrains(t *testing.T) {
 	if !m.actions.Active() {
 		t.Fatal("expected D to open a drain confirmation")
 	}
-	if !strings.Contains(plain(m.Render()), "1 pods will be evicted") {
+	if !strings.Contains(plain(m.Render()), "1 pods will be evicted.") {
 		t.Fatalf("expected evicted-pod count in confirm body:\n%s", plain(m.Render()))
 	}
 

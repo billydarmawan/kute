@@ -195,6 +195,9 @@ type Model struct {
 	diskState diskState
 	diskTicks int
 	allPods   []nodePodRow // every pod load() found on this node, before the filter
+	// evictable is how many of allPods a drain would evict
+	// (kube.DrainEvicts) — the drain confirm's count.
+	evictable int
 	pods      []nodePodRow // allPods after filterQuery — what's selectable/rendered
 	selected  int
 	offset    int
@@ -264,6 +267,7 @@ type loadedMsg struct {
 	allocatable allocation
 	capacity    allocation
 	pods        []nodePodRow
+	evictable   int
 	err         error
 }
 

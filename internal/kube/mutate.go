@@ -763,7 +763,7 @@ func (c *Cluster) Drain(ctx context.Context, node string) (int, error) {
 	evicted := 0
 	var errs []error
 	for _, pod := range pods.Items {
-		if pod.Spec.NodeName != node || isDaemonSetOwnedPod(pod) || isMirrorPod(pod) {
+		if pod.Spec.NodeName != node || !DrainEvicts(&pod) {
 			continue
 		}
 		eviction := &policyv1.Eviction{
@@ -1546,13 +1546,16 @@ func workloadResourceArg(kind ResourceKind) string {
 	}
 }
 
-func isDaemonSetOwnedPod(pod corev1.Pod) bool {
-	return slices.ContainsFunc(pod.OwnerReferences, func(ref metav1.OwnerReference) bool {
+// DrainEvicts reports whether Drain evicts pod: everything except
+// DaemonSet-owned pods (the controller would recreate them on the cordoned
+// node anyway) and mirror pods (the kubelet's static pods, which the API
+// server can't evict). It is the one definition the drain confirm's "N pods
+// will be evicted" count shares with Drain itself, so the two can't drift.
+func DrainEvicts(pod *corev1.Pod) bool {
+	if _, mirror := pod.Annotations[corev1.MirrorPodAnnotationKey]; mirror {
+		return false
+	}
+	return !slices.ContainsFunc(pod.OwnerReferences, func(ref metav1.OwnerReference) bool {
 		return ref.Kind == "DaemonSet"
 	})
-}
-
-func isMirrorPod(pod corev1.Pod) bool {
-	_, ok := pod.Annotations[corev1.MirrorPodAnnotationKey]
-	return ok
 }

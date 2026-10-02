@@ -498,10 +498,16 @@ func schedPod(ns, name, node string) *corev1.Pod {
 }
 
 func TestDKeyShowsDrainConfirmAndYExecutes(t *testing.T) {
+	// Drain leaves DaemonSet and mirror (static) pods in place, so the
+	// confirm must not count them as evicted.
+	ds := schedPod("kube-system", "kube-proxy-x", "node-a")
+	ds.OwnerReferences = []metav1.OwnerReference{{Kind: "DaemonSet", Name: "kube-proxy"}}
+	mirror := schedPod("kube-system", "etcd-node-a", "node-a")
+	mirror.Annotations = map[string]string{corev1.MirrorPodAnnotationKey: "x"}
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindNode: {nodeObj("node-a", true, false)},
 		kube.KindPod: {
-			schedPod("default", "p1", "node-a"), schedPod("default", "p2", "node-a"),
+			schedPod("default", "p1", "node-a"), schedPod("default", "p2", "node-a"), ds, mirror,
 		},
 	}}
 	mut := &fakeMutator{}
@@ -516,7 +522,7 @@ func TestDKeyShowsDrainConfirmAndYExecutes(t *testing.T) {
 		t.Fatal("expected D to open a drain confirmation")
 	}
 	view := plain(m.Render())
-	if !strings.Contains(view, "node-a") || !strings.Contains(view, "2 pods will be evicted") {
+	if !strings.Contains(view, "node-a") || !strings.Contains(view, "2 pods will be evicted.") {
 		t.Fatalf("drain confirm missing evicted-pod count:\n%s", view)
 	}
 

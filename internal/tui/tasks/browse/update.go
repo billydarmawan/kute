@@ -507,6 +507,7 @@ func (m *Model) applyRowsLoaded(msg rowsLoadedMsg) (tea.Model, tea.Cmd) {
 	m.podCountByNode = msg.podCountByNode
 	m.clusterPodTotal = msg.clusterPodTotal
 	m.nodePodHealth = msg.nodePodHealth
+	m.drainCountByNode = msg.drainCountByNode
 	m.cronJobSummaries = msg.cronJobSummaries
 	m.cronJobJobsErr = msg.cronJobJobsErr
 	m.jobListSummaries = msg.jobListSummaries

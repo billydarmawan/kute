@@ -217,6 +217,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	m.allocatable = msg.allocatable
 	m.capacity = msg.capacity
 	m.allPods = msg.pods
+	m.evictable = msg.evictable
 	m.applyPodUsage()
 	m.recomputeFiltered()
 
@@ -657,7 +658,8 @@ func (m *Model) beginCordon() tea.Cmd {
 // beginDrain confirms draining the node — TierModal (verbs.Drain) — showing
 // how many of its pods (the cache backing the bottom pane) will be evicted.
 // Counts allPods, not the (possibly filtered) pods list, since drain evicts
-// every pod on the node regardless of what the filter currently hides.
+// regardless of what the filter currently hides — less the DaemonSet and
+// static pods it leaves in place.
 // Routed through verbs.TierFor defensively, same reasoning as beginCordon
 // above — a no-op today since Drain's nominal tier is already TierModal.
 func (m *Model) beginDrain() tea.Cmd {
@@ -667,7 +669,7 @@ func (m *Model) beginDrain() tea.Cmd {
 	tier := verbs.TierFor(verbs.Drain, m.isProd())
 	return m.actions.Begin(tier, tui.TaskAction{
 		ID:    "node-drain-" + m.nodeName,
-		Label: fmt.Sprintf("Drain %s? %d pods will be evicted.", m.nodeName, len(m.allPods)),
+		Label: fmt.Sprintf("Drain %s? %d pods will be evicted.", m.nodeName, m.evictable),
 		Scope: tui.TaskScope{ResourceKind: string(kube.KindNode), ResourceName: m.nodeName, Verb: "drain", IsMutating: true},
 	})
 }

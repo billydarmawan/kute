@@ -75,6 +75,7 @@ func (m Model) load() tea.Cmd {
 		podDesc, _ := resources.DefaultRegistry().Descriptor(kube.KindPod)
 
 		var allocated allocation
+		evictable := 0
 		rows := make([]nodePodRow, 0, len(podObjs))
 		for _, obj := range podObjs {
 			p, ok := obj.(*corev1.Pod)
@@ -89,6 +90,9 @@ func (m Model) load() tea.Cmd {
 			cpuReq, memReq := kube.PodEffectiveRequests(p)
 			allocated.cpuMilli += cpuReq
 			allocated.memBytes += memReq
+			if kube.DrainEvicts(p) {
+				evictable++
+			}
 			rows = append(rows, nodePodRow{pod: pod, row: podDesc.Project(p)})
 		}
 		slices.SortStableFunc(rows, func(a, b nodePodRow) int {
@@ -104,6 +108,7 @@ func (m Model) load() tea.Cmd {
 			allocatable: nodeAllocatable(node),
 			capacity:    nodeCapacity(node),
 			pods:        rows,
+			evictable:   evictable,
 		}
 	}
 }

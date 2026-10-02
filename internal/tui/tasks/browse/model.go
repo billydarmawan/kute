@@ -550,6 +550,9 @@ type Model struct {
 	podCountByNode  map[string]int
 	clusterPodTotal int
 	nodePodHealth   map[string]resources.HealthCounts
+	// drainCountByNode is podCountByNode less the pods a drain leaves in
+	// place (kube.DrainEvicts) — the drain confirm's count.
+	drainCountByNode map[string]int
 
 	visible []filterMatch // rows after the filter, before 6b's fold/collapse
 	// expandedGroups tracks which 6b namespace groups the user has manually
@@ -677,6 +680,7 @@ type rowsLoadedMsg struct {
 	podCountByNode     map[string]int
 	clusterPodTotal    int
 	nodePodHealth      map[string]resources.HealthCounts
+	drainCountByNode   map[string]int
 	chartCacheNote     chartCacheNote
 	// cronJobSummaries/cronJobJobsErr ride along for KindCronJob only —
 	// loadCronJobRows' own aggregation output, applyRowsLoaded stores them
@@ -1101,6 +1105,7 @@ func (m Model) load() tea.Cmd {
 		var nodeCap map[string]nodeCapacity
 		var podCountByNode map[string]int
 		var nodePodHealth map[string]resources.HealthCounts
+		var drainCountByNode map[string]int
 		clusterPodTotal := 0
 		switch kind {
 		case kube.KindPod:
@@ -1115,7 +1120,7 @@ func (m Model) load() tea.Cmd {
 				nodeCount = n
 			}
 		case kube.KindNode:
-			nodeCap, podCountByNode, clusterPodTotal, nodePodHealth = loadNodeExtras(ctx, lister, podDesc.Project)
+			nodeCap, podCountByNode, clusterPodTotal, nodePodHealth, drainCountByNode = loadNodeExtras(ctx, lister, podDesc.Project)
 		case kube.KindHelmRelease:
 			helmReleases = helmReleasesFromObjs(helmObjs)
 			cacheNote = chartCacheNoteFor(lister, time.Now())
@@ -1125,7 +1130,7 @@ func (m Model) load() tea.Cmd {
 			kind: kind, columns: len(desc.Columns), cacheUnreadyAtRead: cacheUnreadyAtRead,
 			rows: rows, pods: pods, helmReleases: helmReleases, nodeCount: nodeCount,
 			nodeCapacity: nodeCap, podCountByNode: podCountByNode, clusterPodTotal: clusterPodTotal,
-			nodePodHealth: nodePodHealth, chartCacheNote: cacheNote,
+			nodePodHealth: nodePodHealth, drainCountByNode: drainCountByNode, chartCacheNote: cacheNote,
 		}
 	}
 }
@@ -1381,6 +1386,7 @@ func (m *Model) resetAndLoad() tea.Cmd {
 	m.podCountByNode = nil
 	m.clusterPodTotal = 0
 	m.nodePodHealth = nil
+	m.drainCountByNode = nil
 	m.cronJobSummaries = nil
 	m.cronJobJobsErr = nil
 	m.auxKindsDeniedNote = ""

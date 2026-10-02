@@ -1679,27 +1679,22 @@ func TestScaleCommandStringAcrossKinds(t *testing.T) {
 	}
 }
 
-func TestIsDaemonSetOwnedPod(t *testing.T) {
+func TestDrainEvicts(t *testing.T) {
 	t.Parallel()
-	owned := corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{Kind: "DaemonSet"}}}}
-	if !isDaemonSetOwnedPod(owned) {
-		t.Fatalf("expected DaemonSet-owned pod to be detected")
+	tests := []struct {
+		name string
+		pod  corev1.Pod
+		want bool
+	}{
+		{name: "plain", pod: corev1.Pod{}, want: true},
+		{name: "replicaset-owned", pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet"}}}}, want: true},
+		{name: "daemonset-owned", pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{Kind: "DaemonSet"}}}}, want: false},
+		{name: "mirror", pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{corev1.MirrorPodAnnotationKey: "true"}}}, want: false},
 	}
-	notOwned := corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet"}}}}
-	if isDaemonSetOwnedPod(notOwned) {
-		t.Fatalf("ReplicaSet-owned pod should not be treated as DaemonSet-owned")
-	}
-}
-
-func TestIsMirrorPod(t *testing.T) {
-	t.Parallel()
-	mirror := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{corev1.MirrorPodAnnotationKey: "true"}}}
-	if !isMirrorPod(mirror) {
-		t.Fatalf("expected mirror pod to be detected")
-	}
-	normal := corev1.Pod{}
-	if isMirrorPod(normal) {
-		t.Fatalf("pod without the mirror annotation should not be detected as a mirror pod")
+	for _, tt := range tests {
+		if got := DrainEvicts(&tt.pod); got != tt.want {
+			t.Errorf("DrainEvicts(%s) = %v, want %v", tt.name, got, tt.want)
+		}
 	}
 }
 
