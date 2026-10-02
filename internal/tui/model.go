@@ -237,6 +237,11 @@ type Task interface {
 // again — which, for a quiet kind, can be a very long wait. Reload should
 // do the same thing the task's own kube.ResourceChangedMsg case does, so a
 // resumed screen refreshes exactly like an active one would have.
+//
+// Reload need not re-arm the task's self-rescheduling chains (metrics poll,
+// clocks, spinners): their ticks are routed to the task that armed them and
+// held while it is parked (taskrouting.go), so popTask delivers them before
+// calling Reload and each chain picks up where it stopped.
 type Reloader interface {
 	Reload() tea.Cmd
 }
@@ -318,7 +323,12 @@ type BackMsg struct{}
 // never shadowed.
 type Model struct {
 	task  Task
-	stack []Task
+	stack []stackEntry
+	// taskID identifies m.task's slot for ownedMsg routing (see
+	// taskrouting.go): it survives the task's own value-copying Updates and
+	// moves into m.stack with it when something is pushed on top. nextTaskID
+	// is the last ID handed out; the zero value is the root task's.
+	taskID, nextTaskID uint64
 
 	width, height int
 	mode          Mode
@@ -466,8 +476,9 @@ func (m Model) WithKeycast(enabled bool) Model {
 // pops back to the browse task exactly like pressing 'e' from it live
 // would have gotten here in the first place.
 func (m Model) WithInitialPush(pushed Task) Model {
-	m.stack = append(m.stack, m.task)
+	m.push()
 	m.task = pushed
+	m.taskID = m.allocTaskID()
 	return m
 }
 
@@ -515,7 +526,7 @@ func (m Model) HelpOpen() bool { return m.helpOpen }
 func (m Model) QuitConfirmOpen() bool { return m.quitConfirm }
 
 func (m Model) Init() tea.Cmd {
-	return m.task.Init()
+	return m.taskInit()
 }
 
 // resizeTask pushes the last known terminal size onto a task that was just
@@ -539,8 +550,8 @@ func (m Model) resizeTask() {
 // or the seeded parent renders letterboxed the moment esc pops back to it.
 func (m Model) setAllSizes(width, height int) {
 	m.task.SetSize(width, height)
-	for _, t := range m.stack {
-		t.SetSize(width, height)
+	for _, e := range m.stack {
+		e.task.SetSize(width, height)
 	}
 }
 
@@ -564,10 +575,22 @@ func (m Model) setAllSizes(width, height int) {
 // replaying a state the task already has is a no-op. Callers that also
 // Init the task do so after activate, so a fresh screen opened offline
 // never arms a poll in the first place.
-func (m *Model) activate(t Task) tea.Cmd {
+//
+// id is the slot's routing identity (see taskrouting.go): a task the root
+// has just built takes a fresh one (activateFresh), a popped task gets its
+// own back so the timer and load messages held for it while it was parked
+// reach it again.
+func (m *Model) activate(t Task, id uint64) tea.Cmd {
 	m.task = t
+	m.taskID = id
 	m.resizeTask()
 	return m.replayConn()
+}
+
+// activateFresh activates a task the root has just built, under a new
+// routing identity.
+func (m *Model) activateFresh(t Task) tea.Cmd {
+	return m.activate(t, m.allocTaskID())
 }
 
 // replayConn delivers the root's current connection state to the active
@@ -580,7 +603,7 @@ func (m *Model) replayConn() tea.Cmd {
 	if t, ok := updated.(Task); ok {
 		m.task = t
 	}
-	return cmd
+	return ownCmd(m.taskID, cmd)
 }
 
 // routeGoto is what makes a jump "fire the same goto machinery as g": when
@@ -604,7 +627,7 @@ func (m *Model) routeGoto(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, false
 	}
 	fresh := m.buildBrowse()
-	m.stack = append(m.stack, m.task)
+	m.push()
 	// Activate (connection replay) first, then Init, then the jump itself:
 	// an offline replay must land before Init decides whether to arm polls,
 	// and Init must run at all — nothing else ever starts a fresh
@@ -612,13 +635,13 @@ func (m *Model) routeGoto(msg tea.Msg) (tea.Cmd, bool) {
 	// names would otherwise sit on "Loading …" forever. Retargeting after
 	// Init lets a real kind/namespace switch bump browse's epochs, so the
 	// superseded Init load and metrics chain are dropped on arrival.
-	activated := m.activate(fresh)
-	initCmd := m.task.Init()
+	activated := m.activateFresh(fresh)
+	initCmd := m.taskInit()
 	updated, cmd := m.task.Update(msg)
 	if task, ok := updated.(Task); ok {
 		m.task = task
 	}
-	return tea.Batch(activated, initCmd, cmd), true
+	return tea.Batch(activated, initCmd, ownCmd(m.taskID, cmd)), true
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -629,6 +652,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// msg directly.
 	var rewatch tea.Cmd
 	switch wm := msg.(type) {
+	case ownedMsg:
+		return m.routeOwned(wm)
 	case clusterEventMsg:
 		msg = wm.inner
 		rewatch = WatchCluster(wm.events, wm.conn)
@@ -644,13 +669,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Replaying the old outage would mark the reconnected browse
 		// offline.
 		m.conn = kube.ConnState{}
-		m.activate(msg.Task)
+		m.activateFresh(msg.Task)
 		m.stack = nil
 		m.showingSetup = false
 		m.buildSetup = msg.BuildSetup
 		m.buildBrowse = msg.BuildBrowse
 		m.neverConnected = msg.BuildSetup != nil
-		cmds := []tea.Cmd{m.task.Init()}
+		cmds := []tea.Cmd{m.taskInit()}
 		if msg.Events != nil {
 			cmds = append(cmds, WatchCluster(msg.Events, msg.Conn))
 		}
@@ -692,9 +717,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.neverConnected = false
 			if m.showingSetup && m.buildBrowse != nil {
 				m.showingSetup = false
-				replay := m.activate(m.buildBrowse())
+				replay := m.activateFresh(m.buildBrowse())
 				m.stack = nil
-				next := tea.Batch(replay, m.task.Init())
+				next := tea.Batch(replay, m.taskInit())
 				if rewatch != nil {
 					next = tea.Batch(next, rewatch)
 				}
@@ -702,9 +727,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case m.neverConnected && !m.showingSetup && m.buildSetup != nil && m.conn.Offline():
 			m.showingSetup = true
-			replay := m.activate(m.buildSetup(m.conn))
+			replay := m.activateFresh(m.buildSetup(m.conn))
 			m.stack = nil
-			next := tea.Batch(replay, m.task.Init())
+			next := tea.Batch(replay, m.taskInit())
 			if rewatch != nil {
 				next = tea.Batch(next, rewatch)
 			}
@@ -791,9 +816,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// equivalent detail/log/editor would risk carrying old object
 			// identity or an old stream into the new frame.
 			if len(m.stack) > 0 && m.buildBrowse != nil {
-				m.activate(m.buildBrowse())
+				m.activateFresh(m.buildBrowse())
 				m.stack = nil
-				return m, m.task.Init()
+				return m, m.taskInit()
 			}
 		}
 	case kube.ResourceChangedMsg:
@@ -921,21 +946,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rewatch = tea.Batch(rewatch, keycastCmd)
 	}
 
-	updated, cmd := m.task.Update(msg)
-	if task, ok := updated.(Task); ok {
-		if sameTask(task, m.task) {
-			m.task = task
-		} else {
-			if !transient(m.task) {
-				m.stack = append(m.stack, m.task)
-			}
-			// A push (or a transient task replacing itself): the child was
-			// built by its parent, which already batched the child's Init
-			// into cmd; it still needs the connection state.
-			m.task = task
-			cmd = tea.Batch(cmd, m.replayConn())
-		}
-	}
+	cmd := m.forward(msg)
 	if rewatch != nil {
 		cmd = tea.Batch(cmd, rewatch)
 	}
@@ -950,12 +961,24 @@ func (m *Model) popTask() tea.Cmd {
 	if len(m.stack) == 0 {
 		return nil
 	}
-	replay := m.activate(m.stack[len(m.stack)-1])
+	entry := m.stack[len(m.stack)-1]
 	m.stack = m.stack[:len(m.stack)-1]
-	if r, ok := m.task.(Reloader); ok {
-		return tea.Batch(replay, r.Reload())
+	cmds := []tea.Cmd{m.activate(entry.task, entry.id)}
+	// Catch up on what arrived for it while it was parked — its timer
+	// ticks above all, which are what keep its self-rescheduling chains
+	// (metrics poll, spinners, clocks, cache-sync retries) alive — after the
+	// connection replay, so a chain resumed during an outage sees the
+	// outage first and doesn't re-arm a poll.
+	cmds = append(cmds, m.deliverHeld(entry))
+	if m.taskID != entry.id {
+		// A held message made the resumed task push or replace itself;
+		// the refresh below belongs to it, and it now sits parked.
+		return tea.Batch(cmds...)
 	}
-	return replay
+	if r, ok := m.task.(Reloader); ok {
+		cmds = append(cmds, ownCmd(m.taskID, r.Reload()))
+	}
+	return tea.Batch(cmds...)
 }
 
 // handleShellKey routes keys the root shell owns: overlay navigation while
@@ -1343,9 +1366,9 @@ func (m *Model) openUpdatePanel() tea.Cmd {
 			m.session.State.MarkUpdateSeen(v)
 		}
 	}
-	m.stack = append(m.stack, m.task)
-	replay := m.activate(m.buildUpdate())
-	return tea.Batch(replay, m.task.Init())
+	m.push()
+	replay := m.activateFresh(m.buildUpdate())
+	return tea.Batch(replay, m.taskInit())
 }
 
 // movePalette routes an up/down press to the palette's linear list.
