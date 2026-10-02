@@ -714,7 +714,7 @@ func (c *Cluster) ensureHelmSecrets(namespace string) {
 		c.watcher.register(schema.GroupVersionResource{Version: "v1", Resource: "secrets"}, namespace, helmReleaseFieldSelector, func() {
 			c.recordWatchEstablished(gen, KindHelmRelease, namespace)
 		}, func(err error) {
-			c.recordWatchError(gen, KindHelmRelease, namespace, err)
+			c.recordWatchEnded(gen, KindHelmRelease, namespace, err)
 		})
 	}
 	// Best-effort: a failed registration just means no health signal here.

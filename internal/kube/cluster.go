@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -918,6 +919,37 @@ func (c *Cluster) recordWatchError(gen int, kind ResourceKind, namespace string,
 		c.watchUnhealthy[key] = true
 	}
 	c.health.onWatchError(err, c.allStartedKindsReadyLocked(), c.linkProvenLocked(), time.Now())
+}
+
+// recordWatchEnded is the transport observer's report that an established
+// WATCH body ended. A clean end — io.EOF, or the reader closing it — is how
+// every watch rotates when the apiserver's timeoutSeconds expires, so it only
+// marks that informer's watch unhealthy until its replacement WATCH is
+// established (which keeps a /livez success from turning the header green
+// across an HTTP 410's streaming relist, the case body-end detection exists
+// for). It never reaches health.onWatchError: reporting it there flipped the
+// header to Reconnecting on every routine rotation of every informer. A real
+// failure still does — any other read error goes through recordWatchError,
+// and a replacement WATCH that can't be opened reaches the reflector's own
+// WatchErrorHandler.
+func (c *Cluster) recordWatchEnded(gen int, kind ResourceKind, namespace string, err error) {
+	if !errors.Is(err, io.EOF) && !errors.Is(err, errWatchStreamClosed) {
+		c.recordWatchError(gen, kind, namespace, err)
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.generation != gen {
+		return
+	}
+	key := scopeKey{kind, namespace}
+	if !c.kindSyncedLockedKey(key) {
+		return
+	}
+	if c.watchUnhealthy == nil {
+		c.watchUnhealthy = map[scopeKey]bool{}
+	}
+	c.watchUnhealthy[key] = true
 }
 
 // recordWatchEstablished clears a post-sync watch failure when the matching

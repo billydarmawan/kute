@@ -128,6 +128,11 @@ func (t *observingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 // paths (notably an HTTP 410 followed by a streaming relist), allowing a
 // successful /livez probe to turn the header green before the replacement
 // WATCH exists.
+//
+// The body's end is not by itself a failure, though: the apiserver closes
+// every WATCH cleanly when the reflector's own timeoutSeconds (5–10 min)
+// expires, so io.EOF and errWatchStreamClosed are routine rotations — see
+// Cluster.recordWatchEnded for how the two are told apart.
 type observedWatchBody struct {
 	io.ReadCloser
 	ended func(error)
@@ -147,10 +152,14 @@ func (b *observedWatchBody) Close() error {
 	if err != nil {
 		b.finish(err)
 	} else {
-		b.finish(errors.New("kubernetes watch stream closed"))
+		b.finish(errWatchStreamClosed)
 	}
 	return err
 }
+
+// errWatchStreamClosed is the end a WATCH body reports when its reader closed
+// it without a read error — client-go tearing the stream down on its own.
+var errWatchStreamClosed = errors.New("kubernetes watch stream closed")
 
 func (b *observedWatchBody) finish(err error) {
 	b.once.Do(func() { b.ended(err) })

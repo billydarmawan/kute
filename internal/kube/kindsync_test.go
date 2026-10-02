@@ -2,7 +2,11 @@ package kube
 
 import (
 	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -479,5 +483,54 @@ func TestSyncedIsALatch(t *testing.T) {
 	}
 	if c.KindSynced(KindSecret, "") {
 		t.Fatal("KindSynced(Secret) = true for a registered-but-unstarted informer")
+	}
+}
+
+// TestCleanWatchRotationIsNotAnOutage pins M3: the apiserver ends every WATCH
+// cleanly when the reflector's timeoutSeconds expires, so an established
+// body reaching io.EOF is a routine rotation. It may hold the header off
+// green until the replacement WATCH is up, but it must never flip a synced,
+// connected cluster to Reconnecting — while a body that breaks mid-stream
+// still does.
+func TestCleanWatchRotationIsNotAnOutage(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		body      io.Reader
+		wantPhase ConnPhase
+	}{
+		{"clean EOF", strings.NewReader(""), ConnConnected},
+		{"broken stream", iotest.ErrReader(io.ErrUnexpectedEOF), ConnReconnecting},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := newSyncTestCluster()
+			defer close(c.stopCh)
+			c.watcher = newWatchObserver()
+			c.registerWatches(KindPod)
+			c.factory.Start(c.stopCh)
+			c.factory.WaitForCacheSync(c.stopCh)
+
+			rt := &observingRoundTripper{
+				gate: &authenticationGate{}, observer: c.watcher,
+				next: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(tc.body)}, nil
+				}),
+			}
+			req, _ := http.NewRequest(http.MethodGet, "https://cluster/api/v1/pods?watch=true", nil)
+			resp, err := rt.RoundTrip(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+
+			if got := c.ConnState().Phase; got != tc.wantPhase {
+				t.Fatalf("ConnState().Phase after the WATCH body ended = %v, want %v", got, tc.wantPhase)
+			}
+			if c.allStartedKindsSynced() {
+				t.Fatal("an ended WATCH left the header free to turn green before its replacement was established")
+			}
+		})
 	}
 }
