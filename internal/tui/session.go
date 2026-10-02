@@ -136,6 +136,42 @@ type Session struct {
 	// are literals baked in alongside the verb-sourced ones at the same call
 	// site.
 	HelpScope, HelpList, HelpResource, HelpMisc []KeyHint
+	// pendingKind is a restored kind browse could not open yet, and
+	// pendingKindContext the context it was restored for — see
+	// HoldPendingKind.
+	pendingKind        kube.ResourceKind
+	pendingKindContext string
+}
+
+// HoldPendingKind records kind as the kind the user was last on in the
+// current context, which browse fell back from because Registry can't
+// resolve it yet. At launch the registry is the built-ins only until the
+// detached Start's discovery lands, so a persisted CRD kind (a Flux
+// Kustomization, a Certificate, an HTTPRoute) opens on Pods: holding it here
+// is what lets the root shell jump to it on kube.CRDsDiscoveredMsg, and
+// SyncLocationToPerContext persist it rather than the Pod fallback, so
+// quitting before discovery finishes doesn't lose it for good.
+func (s *Session) HoldPendingKind(kind kube.ResourceKind) {
+	s.pendingKind = kind
+	s.pendingKindContext = s.Location.Context
+}
+
+// PendingKind is the kind HoldPendingKind recorded, or "" if there is none
+// or it belongs to a context other than the current one.
+func (s *Session) PendingKind() kube.ResourceKind {
+	if s == nil || s.pendingKindContext != s.Location.Context {
+		return ""
+	}
+	return s.pendingKind
+}
+
+// ClearPendingKind drops a held kind — the user navigated, or the kind
+// resolved and browse opened it.
+func (s *Session) ClearPendingKind() {
+	if s == nil {
+		return
+	}
+	s.pendingKind, s.pendingKindContext = "", ""
 }
 
 // CommandTarget is the cluster every kubectl/helm subprocess a screen
@@ -158,7 +194,8 @@ func (s *Session) CommandTarget() kube.CommandTarget {
 // away); RunWithConfig calls it once more at exit for whatever context is
 // still active — otherwise a session that only ever visits one context (e.g.
 // a single-cluster dev setup) would never persist its browsed
-// namespace/kind, since the switch-time snapshot never runs. A no-op when no
+// namespace/kind, since the switch-time snapshot never runs. A held
+// PendingKind is persisted in place of the Pod fallback browse is showing. A no-op when no
 // context is set (no reachable cluster, or --demo, whose location Session
 // never restores from PerContext anyway).
 func (s *Session) SyncLocationToPerContext() {
@@ -168,6 +205,9 @@ func (s *Session) SyncLocationToPerContext() {
 	pc := s.State.PerContext[s.Location.Context]
 	pc.Namespace = s.Location.Namespace
 	pc.Kind = string(s.Location.Kind)
+	if pending := s.PendingKind(); pending != "" {
+		pc.Kind = string(pending)
+	}
 	pc.Filter = s.Location.Filter
 	s.State.PerContext[s.Location.Context] = pc
 }

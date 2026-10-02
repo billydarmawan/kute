@@ -783,6 +783,11 @@ func New(cfg Config) Model {
 		if cfg.Session.Location.Kind != "" {
 			kind = cfg.Session.Location.Kind
 		}
+		// A kind an earlier instance had to fall back from (below) is still
+		// what the user was on — try it again now the registry may know it.
+		if pending := cfg.Session.PendingKind(); pending != "" {
+			kind = pending
+		}
 	}
 	// A persisted Location.Kind can name a CRD kind that isn't in reg yet
 	// (real-cluster startup builds browse before discovery has run, so
@@ -806,10 +811,19 @@ func New(cfg Config) Model {
 	// again doesn't just re-persist "Event") to Pod here is simpler than
 	// teaching NewModel/buildBrowseTask to redirect to tasks/events before
 	// the root model even exists.
+	//
+	// The unresolved CRD kind is held on the Session rather than dropped:
+	// the root shell jumps to it once discovery lands, and quitting first
+	// persists it instead of Pod (Session.HoldPendingKind).
 	desc, ok := reg.Descriptor(kind)
 	if !ok || kind == kube.KindEvent {
+		if !ok && cfg.Session != nil {
+			cfg.Session.HoldPendingKind(kind)
+		}
 		kind = kube.KindPod
 		desc, _ = reg.Descriptor(kind)
+	} else if cfg.Session != nil {
+		cfg.Session.ClearPendingKind()
 	}
 	// Mirror the resolved kind back unconditionally, not just in the
 	// fallback branch above: Session.Location is documented as the
@@ -1135,6 +1149,7 @@ func (m *Model) switchKind(kind kube.ResourceKind) tea.Cmd {
 	m.kind = kind
 	m.desc = desc
 	m.session.Location.Kind = kind
+	m.session.ClearPendingKind()
 	return m.resetAndLoad()
 }
 

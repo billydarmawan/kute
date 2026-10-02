@@ -629,6 +629,10 @@ func (m *Model) replayConn() tea.Cmd {
 // factory wired (the 10b no-kubeconfig setup screen never fires a jump, so
 // this is an untested but harmless dead branch).
 func (m *Model) routeGoto(msg tea.Msg) (tea.Cmd, bool) {
+	// Any jump is the user choosing where to be, so a kind browse was
+	// holding for discovery (Session.HoldPendingKind) no longer applies —
+	// and must not seed the fresh instance built below.
+	m.session.ClearPendingKind()
 	if len(m.stack) == 0 || m.buildBrowse == nil {
 		return nil, false
 	}
@@ -858,6 +862,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.session != nil && m.session.Cluster != nil {
 			m.session.Registry, m.session.Groups = resources.BuildDiscoveredRegistry(m.session.Cluster.DiscoveredKinds(), m.session.Cluster)
 			m.refreshGotoPaletteCorpus()
+		}
+		// The launch kind browse had to fall back from, now resolvable:
+		// open it, unless the user has since opened something on top.
+		if pending := m.session.PendingKind(); pending != "" && len(m.stack) == 0 {
+			if _, ok := m.session.Registry.Descriptor(pending); ok {
+				return m, func() tea.Msg { return GotoKindMsg{Kind: pending} }
+			}
 		}
 		return m, nil
 	case UpdateCheckedMsg:

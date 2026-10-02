@@ -314,6 +314,7 @@ func switchContextCmd(sess *Session, name string) tea.Cmd {
 	}
 
 	sess.SyncLocationToPerContext()
+	sess.ClearPendingKind()
 	restoreNS, restoreKind, restoreFilter := "default", kube.KindPod, ""
 	if pc, ok := sess.State.PerContext[name]; ok {
 		if pc.Namespace != "" {

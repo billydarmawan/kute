@@ -14,6 +14,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
+	"github.com/kute-dev/kute/internal/state"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 )
@@ -283,5 +284,40 @@ func TestArgoVerbsAreInertWithoutAMutator(t *testing.T) {
 	}
 	if strings.Contains(plain(m.Render()), "refresh") {
 		t.Errorf("keybar should not offer refresh without a mutator")
+	}
+}
+
+// TestLaunchKeepsAPersistedCRDKindUntilDiscovery pins M5: at launch the
+// registry is the built-ins only until discovery lands, so a persisted CRD
+// kind opens on Pods — but it must be held, not lost. Quitting before
+// discovery persists it rather than Pod, and once the kind resolves the
+// root's jump to it opens it and drops the hold.
+func TestLaunchKeepsAPersistedCRDKindUntilDiscovery(t *testing.T) {
+	session := newSession()
+	session.Location.Kind = kube.ResourceKind("Application")
+	session.Location.Namespace = "argocd"
+	session.State.PerContext = map[string]state.PerContext{}
+	m := New(Config{Session: session, Lister: fakeLister{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if m.kind != kube.KindPod || session.Location.Kind != kube.KindPod {
+		t.Fatalf("an unresolvable launch kind opened %q (Location %q), want the Pod fallback", m.kind, session.Location.Kind)
+	}
+	if got := session.PendingKind(); got != "Application" {
+		t.Fatalf("PendingKind = %q, want the persisted Application held for discovery", got)
+	}
+	session.SyncLocationToPerContext()
+	if got := session.State.PerContext[session.Location.Context].Kind; got != "Application" {
+		t.Fatalf("quitting before discovery persisted kind %q, want Application", got)
+	}
+
+	session.Registry, session.Groups = resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{applicationDK()}, nil)
+	m = step(t, m, tui.GotoKindMsg{Kind: kube.ResourceKind("Application")})
+	if m.kind != "Application" || session.Location.Kind != "Application" {
+		t.Fatalf("after discovery the jump opened %q (Location %q), want Application", m.kind, session.Location.Kind)
+	}
+	if got := session.PendingKind(); got != "" {
+		t.Fatalf("PendingKind = %q after the kind opened, want it dropped", got)
 	}
 }

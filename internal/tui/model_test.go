@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kute-dev/kute/internal/kube"
+	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 )
 
@@ -744,5 +746,40 @@ func TestWithRootFactoriesNoopWithoutCluster(t *testing.T) {
 	}
 	if !strings.Contains(updated.(tui.Model).View().Content, "browse-view") {
 		t.Fatalf("expected browse to stay active without a Cluster")
+	}
+}
+
+// TestCRDsDiscoveredOpensTheHeldLaunchKind pins M5's root half: a persisted
+// CRD kind browse had to fall back from at launch is opened once discovery
+// makes it resolvable — but not over a screen the user has since opened.
+func TestCRDsDiscoveredOpensTheHeldLaunchKind(t *testing.T) {
+	t.Parallel()
+	widget := kube.ResourceKind("Widget")
+	newSess := func() *tui.Session {
+		sess := testSession()
+		sess.Location.Context = "dev"
+		sess.Registry, sess.Groups = resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{{
+			Kind: "Widget", Plural: "widgets", Group: "example.com",
+			GVR:         schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"},
+			Established: true, CRDName: "widgets.example.com",
+		}}, nil)
+		sess.HoldPendingKind(widget)
+		return sess
+	}
+
+	model := tui.NewWithSession(&staticTask{name: "browse"}, newSess())
+	_, cmd := model.Update(kube.CRDsDiscoveredMsg{})
+	if cmd == nil {
+		t.Fatal("discovery resolving the held launch kind dispatched nothing")
+	}
+	if got, ok := cmd().(tui.GotoKindMsg); !ok || got.Kind != widget {
+		t.Fatalf("discovery dispatched %#v, want GotoKindMsg{Kind: Widget}", cmd())
+	}
+
+	sess := newSess()
+	model = tui.NewWithSession(&staticTask{name: "browse", next: &staticTask{name: "detail"}}, sess)
+	updated, _ := model.Update(tea.KeyPressMsg{Text: "open"})
+	if _, cmd := updated.(tui.Model).Update(kube.CRDsDiscoveredMsg{}); cmd != nil {
+		t.Fatalf("discovery jumped away from a screen the user opened: %#v", cmd())
 	}
 }
