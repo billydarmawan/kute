@@ -154,6 +154,18 @@ func (c *Controller) SetOffline(offline bool) {
 	c.offline = offline
 }
 
+// RefuseIfOffline reports whether the connection is mid-outage, and if so
+// puts Begin's own offline refusal on the result line — for a mutating
+// confirm a screen runs outside Begin (browse's 20a marked-set delete), so
+// it is refused the same way and with the same words.
+func (c *Controller) RefuseIfOffline() bool {
+	if !c.offline {
+		return false
+	}
+	c.fail("Mutating actions are disabled while offline.")
+	return true
+}
+
 // Active reports whether a confirmation prompt is currently showing.
 func (c Controller) Active() bool { return c.state == tui.TaskStateConfirming }
 
@@ -224,8 +236,7 @@ func (c Controller) NameMatches() bool {
 // remembering which so screens can render the right surface (inline keybar
 // prompt vs. the centered type-the-name modal).
 func (c *Controller) Begin(tier Tier, action tui.TaskAction) tea.Cmd {
-	if c.offline {
-		c.fail("Mutating actions are disabled while offline.")
+	if c.RefuseIfOffline() {
 		return nil
 	}
 	if c.mutator == nil {

@@ -49,14 +49,21 @@ type bulkDeleteResultMsg struct {
 	results []actions.TargetResult
 }
 
-// failed reports whether any target's delete failed.
-func (m bulkDeleteResultMsg) failed() bool {
-	for _, r := range m.results {
-		if r.Err != nil {
-			return true
+// retainFailedMarks is the marked set left after a bulk verb ran: only the
+// targets whose call failed (0.8.0 plan §3 Phase 2 task 11: "let the caller
+// retain only failed marks"), nil when every target succeeded.
+func retainFailedMarks(results []actions.TargetResult) map[string]bool {
+	var retained map[string]bool
+	for _, r := range results {
+		if r.Err == nil {
+			continue
 		}
+		if retained == nil {
+			retained = make(map[string]bool)
+		}
+		retained[markKey(r.Namespace, r.ResourceName)] = true
 	}
-	return false
+	return retained
 }
 
 // markKey identifies a row for the marked set — namespace+name rather than
@@ -151,6 +158,12 @@ func (m Model) markedRows() []resources.Row {
 func (m *Model) beginBulkDelete() tea.Cmd {
 	rows := m.markedRows()
 	if len(rows) == 0 || m.mutator == nil {
+		return nil
+	}
+	// Bulk delete runs its own confirm outside actions.Controller.Begin, so
+	// it needs Begin's OFFLINE gate explicitly (docs/design README.md §4a:
+	// "delete/exec/edit verbs are disabled while offline").
+	if m.actions.RefuseIfOffline() {
 		return nil
 	}
 	tier := verbs.TierForDelete(verbs.Delete, m.kind, m.isProd())

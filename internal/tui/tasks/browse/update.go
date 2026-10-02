@@ -315,9 +315,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// failed: <first error>" — is the controller's keybar result line
 		// (ActionResult), the same surface a single delete's failure uses.
 		m.actions.ReportBulkResult(actions.BulkResultMsg{Label: msg.label, Results: msg.results})
-		if !msg.failed() {
-			m.marks = nil
-		}
+		// Only the targets that failed stay marked, as for the controller's
+		// own bulk verbs below: a row that was deleted must not stay in the
+		// set, or the "N marked" strip, the keybar's "delete N" and a PROD
+		// retry's type-the-count target all overcount, and a StatefulSet
+		// pod recreated under the same name would come back already marked.
+		m.marks = retainFailedMarks(msg.results)
 		return m, m.load()
 	case actions.BulkResultMsg:
 		// 0.8.0 plan §3 Phase 2 task 11: "let the caller retain only failed
@@ -329,16 +332,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The outcome itself ("… (N)" / "N of M targets failed") is the
 		// controller's keybar result line (ActionResult).
 		m.actions.HandleBulkResult(msg)
-		failed := msg.Failed()
-		if len(failed) == 0 {
-			m.marks = nil
-		} else {
-			retained := make(map[string]bool, len(failed))
-			for _, f := range failed {
-				retained[markKey(f.Namespace, f.ResourceName)] = true
-			}
-			m.marks = retained
-		}
+		m.marks = retainFailedMarks(msg.Results)
 		return m, m.load()
 	case actions.ResultMsg:
 		m.actions.HandleResult(msg)

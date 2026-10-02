@@ -175,3 +175,55 @@ func TestBulkDeleteSuccessShowsSuccessResultLine(t *testing.T) {
 		t.Fatalf("expected the success line 'Delete pods (2)', got %+v", res)
 	}
 }
+
+// TestBulkDeletePartialFailureKeepsOnlyFailedMarks pins review 10 M2(b): a
+// partial failure used to keep every mark, so the rows that were deleted
+// stayed counted in "N marked" and the keybar's "delete N", and a same-named
+// recreated pod came back already marked.
+func TestBulkDeletePartialFailureKeepsOnlyFailedMarks(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-0"), pod("default", "api-1"), pod("default", "api-2")},
+	}}
+	mut := &selectiveDeleteMutator{fakeMutator: &fakeMutator{}, refuse: map[string]error{
+		"api-1": errors.New(`pods "api-1" is forbidden`),
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Mutator: mut})
+	m.SetSize(160, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "*"})
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+
+	if len(m.marks) != 1 || !m.marks[markKey("default", "api-1")] {
+		t.Fatalf("expected only the failed api-1 to stay marked, got %v", m.marks)
+	}
+}
+
+// TestBulkDeleteRefusedWhileOffline pins review 10 M2(a): a marked-set
+// delete runs its own confirm outside actions.Controller.Begin and so
+// skipped its OFFLINE gate — marks + D + y deleted while reconnecting,
+// though a single-row delete is refused.
+func TestBulkDeleteRefusedWhileOffline(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-0"), pod("default", "api-1")},
+	}}
+	mut := &fakeMutator{}
+	m := New(Config{Session: newSession(), Lister: lister, Mutator: mut})
+	m.SetSize(160, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "*"})
+	m = step(t, m, kube.ConnStateMsg{Phase: kube.ConnReconnecting, Err: "i/o timeout"})
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	if m.pendingBulkDelete != nil {
+		t.Fatal("expected D on a marked set to be refused while offline, got an open confirm")
+	}
+	if res := m.ActionResult(); !res.Failed || !strings.Contains(res.Text, "offline") {
+		t.Fatalf("expected the offline refusal on the result line, got %+v", res)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if len(mut.deleted) != 0 {
+		t.Fatalf("expected nothing deleted while offline, got %v", mut.deleted)
+	}
+}
