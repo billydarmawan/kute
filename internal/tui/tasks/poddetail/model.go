@@ -139,6 +139,10 @@ type Config struct {
 	Siblings       []SiblingRef
 	SiblingIndex   int
 	LoadTimeout    time.Duration
+	// Demo is true for --demo — see browse.Config.Demo's doc comment;
+	// guards execCmd's direct paths ('x' on a single-container pod, ↵ on an
+	// ephemeral row) so they never run a real kubectl against a fake pod.
+	Demo bool
 }
 
 type Model struct {
@@ -162,6 +166,7 @@ type Model struct {
 	openConfig   OpenConfigMapDataFunc
 	openFlux     OpenFluxDetailFunc
 	timeout      time.Duration
+	demo         bool
 	// execFeedback carries a non-zero directly-run kubectl-exec exit's
 	// message (single-container pods exec straight from poddetail without
 	// pushing execpicker) — mirrors browse.Model's own execFeedback field.
@@ -300,6 +305,7 @@ func New(cfg Config) Model {
 		openConfig:   cfg.OpenConfigMapData,
 		openFlux:     cfg.OpenFluxDetail,
 		timeout:      cfg.LoadTimeout,
+		demo:         cfg.Demo,
 		namespace:    cfg.Namespace,
 		name:         cfg.Name,
 		siblings:     cfg.Siblings,

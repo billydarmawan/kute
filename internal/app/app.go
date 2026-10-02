@@ -662,7 +662,7 @@ func buildBrowseTask(cfg Config, sess *tui.Session, cluster *kube.Cluster) *brow
 	openNodeDebug := openNodeDebugFunc(sess, cluster, false)
 	openExec := openExecFunc(sess, kubectlShellDetector{cluster: cluster}, openExecDebug, false)
 	openForward := openForwardFunc(sess, lister, cluster)
-	openPodDetail := openPodDetailFunc(sess, cluster, openLogs, openYAML, openExec, openForward, kubectlShellDetector{cluster: cluster}, openDebug)
+	openPodDetail := openPodDetailFunc(sess, cluster, openLogs, openYAML, openExec, openForward, kubectlShellDetector{cluster: cluster}, openDebug, false)
 	openNodeDetail := openNodeDetailFunc(sess, cluster, openPodDetail, openLogs, openYAML, openExec, openDebug, openForward, openNodeDebug)
 	openEvents := openEventsFunc(sess, cluster, openYAML)
 	openTimeline := openTimelineFunc(sess, cluster, openEvents)
@@ -754,7 +754,7 @@ func buildDemoBrowseTask(sess *tui.Session, demoCluster *fake.Cluster, clusterNa
 	openNodeDebug := openNodeDebugFunc(sess, demoCluster, true)
 	openExec := openExecFunc(sess, demoCluster, openExecDebug, true)
 	openForward := openForwardFuncDemo(sess, lister, sess.Forwards, demoCluster)
-	openPodDetail := openPodDetailFunc(sess, demoCluster, openLogs, openYAML, openExec, openForward, demoCluster, openDebug)
+	openPodDetail := openPodDetailFunc(sess, demoCluster, openLogs, openYAML, openExec, openForward, demoCluster, openDebug, true)
 	openNodeDetail := openNodeDetailFunc(sess, demoCluster, openPodDetail, openLogs, openYAML, openExec, openDebug, openForward, openNodeDebug)
 	openEvents := openEventsFunc(sess, demoCluster, openYAML)
 	openTimeline := openTimelineFunc(sess, demoCluster, openEvents)
@@ -1004,7 +1004,7 @@ func openNodeDetailFunc(sess *tui.Session, active seams, openPodDetail browse.Op
 // the same seams active already satisfies for browse/nodedetail. shells/
 // openDebug wire §41a/§41b/§41c's shell pre-check (debug.go). The pushed
 // debug panel owns the authoritative access review and who-can handoff.
-func openPodDetailFunc(sess *tui.Session, active seams, openLogs browse.OpenLogsFunc, openYAML browse.OpenYAMLFunc, openExec func(namespace, name string, containers []kube.ContainerInfo, width, height int) (tea.Model, tea.Cmd), openForward browse.OpenForwardFunc, shells poddetail.ShellDetector, openDebug func(namespace, name string, containers []kube.ContainerInfo, podPhase string, waiting bool, width, height int) (tea.Model, tea.Cmd)) browse.OpenPodDetailFunc {
+func openPodDetailFunc(sess *tui.Session, active seams, openLogs browse.OpenLogsFunc, openYAML browse.OpenYAMLFunc, openExec func(namespace, name string, containers []kube.ContainerInfo, width, height int) (tea.Model, tea.Cmd), openForward browse.OpenForwardFunc, shells poddetail.ShellDetector, openDebug func(namespace, name string, containers []kube.ContainerInfo, podPhase string, waiting bool, width, height int) (tea.Model, tea.Cmd), demo bool) browse.OpenPodDetailFunc {
 	openObjectEvents := openObjectEventsFunc(sess, active, openYAML)
 	openObjectTimeline := openObjectTimelineFunc(sess, active, openObjectEvents)
 	return func(pod kube.Pod, siblings []browse.PodSiblingRef, index int, width, height int) (tea.Model, tea.Cmd) {
@@ -1035,6 +1035,7 @@ func openPodDetailFunc(sess *tui.Session, active seams, openLogs browse.OpenLogs
 			Name:           pod.Name,
 			Siblings:       refs,
 			SiblingIndex:   index,
+			Demo:           demo,
 		})
 		pd.SetSize(width, height)
 		return &pd, pd.Init()

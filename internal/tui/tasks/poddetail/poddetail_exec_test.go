@@ -1,6 +1,7 @@
 package poddetail
 
 import (
+	"errors"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -91,5 +92,38 @@ func TestExecMultiContainerPushesPicker(t *testing.T) {
 	}
 	if len(gotContainers) != 2 {
 		t.Fatalf("expected both containers handed to OpenExec, got %v", gotContainers)
+	}
+}
+
+// TestDemoExecSkipsRealKubectl confirms --demo never hands the tty to a real
+// kubectl from 5a — neither 'x' on a single-container pod nor ↵ on an
+// ephemeral row — since there's no cluster behind kube/fake to attach to,
+// only whatever context the kubeconfig happens to point at.
+func TestDemoExecSkipsRealKubectl(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pod  *corev1.Pod
+		key  string
+		down int
+	}{
+		{"x on a single container", runningPod("api-0", "default", "node-a"), "x", 0},
+		{"enter on an ephemeral row", podWithEphemeralContainer("api-0", "default", "node-a"), "enter", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindPod: {tc.pod}}}
+			m := New(Config{Session: newSession(), Lister: lister, Namespace: "default", Name: "api-0", Demo: true})
+			m.SetSize(120, 40)
+			m = step(t, m, m.Init()())
+			m.moveContainerSelection(tc.down)
+
+			_, cmd := m.Update(tea.KeyPressMsg{Text: tc.key})
+			if cmd == nil {
+				t.Fatal("expected a Cmd")
+			}
+			msg, ok := cmd().(execResultMsg)
+			if !ok || !errors.Is(msg.err, kube.ErrDemoUnavailable) {
+				t.Fatalf("expected execResultMsg{kube.ErrDemoUnavailable}, got %#v", cmd())
+			}
+		})
 	}
 }

@@ -114,7 +114,7 @@ func (m *Model) routePodShellsProbed(msg podShellsProbedMsg) (tea.Model, tea.Cmd
 		return m.openPodDebug(msg.namespace, msg.podName, msg.containers, m.pod.Status, waiting)
 	}
 	if len(msg.containers) == 1 {
-		return m, execCmd(m.session.CommandTarget(), msg.namespace, msg.podName, msg.containers[0].Name)
+		return m, execCmd(m.session.CommandTarget(), msg.namespace, msg.podName, msg.containers[0].Name, m.demo)
 	}
 	if m.openExec == nil {
 		return m, nil
