@@ -971,7 +971,10 @@ func entrySummary(e kube.TimelineEntry) string {
 		// ci-bot" — no subject slot: Argo's own sync-completed Event
 		// carries no commit-message text to parse, unlike Flux's, and
 		// there is no other on-cluster source for one (§34a).
-		parts := []string{"Sync applied", strings.ToLower(e.Object), e.GitRevision}
+		parts := []string{"Sync applied", strings.ToLower(e.Object)}
+		if e.GitRevision != "" {
+			parts = append(parts, e.GitRevision)
+		}
 		if e.By != "" {
 			parts = append(parts, e.By)
 		}

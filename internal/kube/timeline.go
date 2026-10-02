@@ -416,7 +416,7 @@ func FluxTracksSourceRevision(apiKind string) bool {
 type ArgoSyncStatus struct {
 	Ref      string // status.operationState.operation.sync.revision, e.g. "main"
 	Revision string // status.operationState.syncResult.revision, the bare SHA it resolved to
-	By       string // "auto-sync", or status.operationState.initiatedBy.username
+	By       string // "auto-sync" when initiatedBy.automated, else initiatedBy.username ("" when Argo recorded none)
 }
 
 // ArgoOperationCompletedReason is the Event Reason
@@ -454,7 +454,23 @@ func ShortArgoRevision(ref, sha string) string {
 // the sync it just completed; an event whose object statusOf can't resolve
 // (already gone, or the lister isn't wired) is skipped rather than rendered
 // with blank fields.
+//
+// That status is the Application's *current* operationState, so it
+// describes only the newest OperationCompleted per Application. An older
+// one gets the revision Argo named in its own message, when it did, and no
+// initiator — stamping the newest sync's SHA and initiator on every earlier
+// row would make each one claim the latest sync.
 func TimelineFromArgoEvents(events []Event, statusOf func(object string) (ArgoSyncStatus, bool)) []TimelineEntry {
+	newest := map[string]time.Time{}
+	for _, e := range events {
+		if e.Reason != ArgoOperationCompletedReason {
+			continue
+		}
+		key := e.Namespace + "/" + e.Object
+		if t, ok := newest[key]; !ok || e.LastSeen.After(t) {
+			newest[key] = e.LastSeen
+		}
+	}
 	var out []TimelineEntry
 	for _, e := range events {
 		if e.Reason != ArgoOperationCompletedReason {
@@ -464,6 +480,10 @@ func TimelineFromArgoEvents(events []Event, statusOf func(object string) (ArgoSy
 		if !ok {
 			continue
 		}
+		revision, by := ShortArgoRevision(status.Ref, status.Revision), status.By
+		if e.LastSeen.Before(newest[e.Namespace+"/"+e.Object]) {
+			revision, by = argoMessageRevision(e.Message), ""
+		}
 		out = append(out, TimelineEntry{
 			Time:             e.LastSeen,
 			Kind:             TimelineSync,
@@ -471,11 +491,30 @@ func TimelineFromArgoEvents(events []Event, statusOf func(object string) (ArgoSy
 			ObjectAPIVersion: e.ObjectAPIVersion,
 			Namespace:        e.Namespace,
 			Reason:           e.Reason,
-			GitRevision:      ShortArgoRevision(status.Ref, status.Revision),
-			By:               status.By,
+			GitRevision:      revision,
+			By:               by,
 		})
 	}
 	return out
+}
+
+// argoSyncMessage matches application-controller's own OperationCompleted
+// message, "Sync operation to <revision> succeeded".
+var argoSyncMessage = regexp.MustCompile(`^Sync operation to (\S+) `)
+
+// argoMessageRevision is the revision an OperationCompleted message names,
+// shortened like ShortArgoRevision's SHA but with no ref — the message
+// doesn't carry one — or "" when the message isn't that shape.
+func argoMessageRevision(message string) string {
+	m := argoSyncMessage.FindStringSubmatch(message)
+	if len(m) != 2 {
+		return ""
+	}
+	rev := m[1]
+	if len(rev) == 40 && strings.Trim(rev, "0123456789abcdef") == "" {
+		rev = rev[:7]
+	}
+	return rev
 }
 
 // ShortFluxRevision collapses "master@sha1:efd398be…" to "master@efd398b",

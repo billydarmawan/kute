@@ -1429,8 +1429,8 @@ func TestArgoSyncRowResolvesFromApplicationStatus(t *testing.T) {
 }
 
 // TestArgoSyncByFallsBackToAutoSync pins §34a's "was this a human or the
-// machine?" distinction: an automated sync (or one with no recorded
-// username) reads as "auto-sync", never fabricated as anyone's name.
+// machine?" distinction: an automated sync reads as "auto-sync", never
+// fabricated as anyone's name.
 func TestArgoSyncByFallsBackToAutoSync(t *testing.T) {
 	app := argoApplicationFixture("kute-frontend", "main", "9d04c7ea0000000000000000000000000000000", "", true)
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
@@ -1449,6 +1449,34 @@ func TestArgoSyncByFallsBackToAutoSync(t *testing.T) {
 	}
 	if got.By != "auto-sync" {
 		t.Errorf("By = %q, want %q", got.By, "auto-sync")
+	}
+}
+
+// TestArgoSyncWithNoInitiatorCreditsNobody pins the other half: a manual
+// sync that recorded no username — a bare operation patch, kute's own S
+// among them — is not the machine, so it names nobody rather than
+// "auto-sync".
+func TestArgoSyncWithNoInitiatorCreditsNobody(t *testing.T) {
+	app := argoApplicationFixture("kute-frontend", "main", "9d04c7ea0000000000000000000000000000000", "", false)
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.ResourceKind("Application"): {app},
+	}}
+	events := []kube.Event{
+		{Type: "Normal", Reason: "OperationCompleted", Object: "Application/kute-frontend", Namespace: "default", Count: 1, LastSeen: time.Now()},
+	}
+	m := New(Config{Session: newSession(), Events: fakeEvents{events: events}, Lister: lister, Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	got, ok := syncRow(m)
+	if !ok {
+		t.Fatalf("expected a sync row, rows: %+v", m.rows)
+	}
+	if got.By != "" {
+		t.Errorf("By = %q, want none", got.By)
+	}
+	if view := plain(m.Render()); strings.Contains(view, "auto-sync") {
+		t.Fatalf("a sync with no initiator must not read as auto-sync:\n%s", view)
 	}
 }
 

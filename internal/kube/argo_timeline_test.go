@@ -76,3 +76,37 @@ func TestShortArgoRevision(t *testing.T) {
 		}
 	}
 }
+
+// TestTimelineFromArgoEventsStampsStatusOnlyOnTheNewestSync pins that the
+// Application's current operationState describes its newest sync alone: an
+// older OperationCompleted row takes the revision its own message names and
+// no initiator, rather than repeating the newest sync's SHA and initiator.
+func TestTimelineFromArgoEventsStampsStatusOnlyOnTheNewestSync(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	events := []Event{
+		{Object: "Application/kute-billing", Namespace: "argocd", Reason: "OperationCompleted", LastSeen: now,
+			Message: "Sync operation to e41b90cdeadbeef0123456789abcdef012345678 succeeded"},
+		{Object: "Application/kute-billing", Namespace: "argocd", Reason: "OperationCompleted", LastSeen: now.Add(-30 * time.Minute),
+			Message: "Sync operation to 9d04c7ea11111111111111111111111111111111 succeeded"},
+		{Object: "Application/kute-billing", Namespace: "argocd", Reason: "OperationCompleted", LastSeen: now.Add(-time.Hour),
+			Message: "application synced"},
+	}
+	statusOf := func(string) (ArgoSyncStatus, bool) {
+		return ArgoSyncStatus{Ref: "main", Revision: "e41b90cdeadbeef0123456789abcdef012345678", By: "ci-bot"}, true
+	}
+
+	got := TimelineFromArgoEvents(events, statusOf)
+	if len(got) != 3 {
+		t.Fatalf("expected three sync entries, got %+v", got)
+	}
+	if got[0].GitRevision != "main@e41b90c" || got[0].By != "ci-bot" {
+		t.Errorf("newest = %q by %q, want main@e41b90c by ci-bot", got[0].GitRevision, got[0].By)
+	}
+	if got[1].GitRevision != "9d04c7e" || got[1].By != "" {
+		t.Errorf("older = %q by %q, want the message's own 9d04c7e and no initiator", got[1].GitRevision, got[1].By)
+	}
+	if got[2].GitRevision != "" || got[2].By != "" {
+		t.Errorf("oldest = %q by %q, want neither when the message names no revision", got[2].GitRevision, got[2].By)
+	}
+}
