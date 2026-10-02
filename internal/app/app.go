@@ -809,73 +809,15 @@ func buildDemoBrowseFactory(sess *tui.Session, demoCluster *fake.Cluster, cluste
 }
 
 // attemptReconnect is tasks/setup's Reconnect hook (10b's 'r'/'k', 4c's
-// 'e'): optionally repoints $KUBECONFIG, builds a fresh cluster, and only
-// then stops any existing one (so its informer goroutines don't leak). On success it
-// starts that cluster's informers (bounded, like 7a's SwitchContext) and
-// hands back a tui.ReplaceRootMsg carrying a fresh browse task plus the new
-// cluster's event channels — the root shell forwards those via
-// tui.WatchCluster without needing a *tea.Program reference, since this Cmd
-// runs long after RunWithConfig's own forwardEvents goroutine (bound to
-// whatever cluster existed at process start) was already launched.
+// 'e'): optionally repoints $KUBECONFIG and rebuilds the cluster through
+// rebuildCluster.
 func attemptReconnect(cfg Config, sess *tui.Session, path string) tea.Cmd {
-	return func() tea.Msg {
+	return rebuildCluster(cfg, sess, func() (*kube.Cluster, error) {
 		if path != "" {
 			_ = os.Setenv("KUBECONFIG", path)
 		}
-		// Built before the old cluster is touched: a build that fails (a
-		// broken context entry, a missing cert file) leaves 4c up with r
-		// bound to the old cluster's RetryNow, which only works while that
-		// cluster's health loop is still running.
-		cluster, err := kube.NewCluster()
-		if err != nil {
-			return setup.RetryFailedMsg{Err: err}
-		}
-		// Same reasoning as tui.switchContextCmd's reset, and for the same
-		// window: cluster.Start below blocks while the new caches sync, and
-		// any read still running against the cluster just stopped would
-		// otherwise land in a screen that has moved on.
-		sess.ResetClusterContext()
-		if sess.Cluster != nil {
-			sess.Cluster.Stop()
-		}
-		// A scoped session that reconnects must stay scoped — otherwise a
-		// namespace-bound identity's fresh cluster launches cluster-wide and
-		// every informer goes back to the denied cluster-wide LIST the flag
-		// exists to avoid (docs/lazy-informers.md §5.6).
-		// Same slot BuildSession gives it, before a single informer starts.
-		if cfg.ScopeNamespace != "" {
-			cluster.SetNamespaceScope(cfg.ScopeNamespace)
-		}
-
-		ctx, cancel := context.WithTimeout(sess.Context(), reconnectStartTimeout)
-		defer cancel()
-		_ = cluster.Start(ctx) // best-effort: an unreachable cluster still hands back ReplaceRootMsg; 4c's neverConnected watch takes over from there.
-
-		if sess.Forwards == nil {
-			sess.Forwards = kube.NewForwardManager()
-		}
-		if sess.DebugCopies == nil {
-			sess.DebugCopies = kube.NewDebugCopyRegistry()
-		}
-		sess.Cluster = cluster
-		sess.Lister = newSessionLister(cluster, sess.Forwards, sess.Charts)
-		sess.Metrics = cluster
-		sess.Location.Context = cluster.Context.ContextName
-		sess.Location.Namespace = cluster.Context.Namespace
-		// cluster.Start above already ran discovery synchronously (folded
-		// in, best-effort), so DiscoveredKinds is ready by now — no need
-		// for the async CRDsDiscoveredMsg hop this path's initial-connect
-		// counterpart (RunWithConfig) requires.
-		sess.Registry, sess.Groups = resources.BuildDiscoveredRegistry(cluster.DiscoveredKinds(), cluster)
-
-		return tui.ReplaceRootMsg{
-			Task:        buildBrowseTask(cfg, sess, cluster),
-			Events:      cluster.Events(),
-			Conn:        cluster.ConnEvents(),
-			BuildSetup:  buildSetupFactory(cfg, sess, cluster),
-			BuildBrowse: buildBrowseFactory(cfg, sess, cluster),
-		}
-	}
+		return kube.NewCluster()
+	})
 }
 
 // attemptSwitchContext is 4c's SWITCH CONTEXT list's '↵' (docs/design
@@ -885,44 +827,83 @@ func attemptReconnect(cfg Config, sess *tui.Session, path string) tea.Cmd {
 // current-context, so selecting a reachable sibling context actually
 // switches to it rather than retrying the same failing one.
 func attemptSwitchContext(cfg Config, sess *tui.Session, contextName string) tea.Cmd {
+	return rebuildCluster(cfg, sess, func() (*kube.Cluster, error) {
+		return kube.NewClusterForContext(contextName)
+	})
+}
+
+// rebuildCluster builds a fresh cluster with build, and only then stops the
+// existing one (so its informer goroutines don't leak). On success it starts
+// that cluster's informers (bounded, like 7a's SwitchContext) and hands back
+// a tui.ReplaceRootMsg carrying the new cluster's event channels — the root
+// shell forwards those via tui.WatchCluster without needing a *tea.Program
+// reference, since this Cmd runs long after RunWithConfig's own
+// forwardEvents goroutine (bound to whatever cluster existed at process
+// start) was already launched.
+//
+// The Cmd touches no Session field but the mutex-guarded context: the root
+// keeps reading sess.Cluster, Location and the rest while it runs (every
+// ConnStateMsg, the c palette 4c leaves open), so every Session write — and
+// the browse build that reads them — happens in ReplaceRootMsg.Commit, on
+// the Update loop.
+func rebuildCluster(cfg Config, sess *tui.Session, build func() (*kube.Cluster, error)) tea.Cmd {
+	old := sess.Cluster // captured on the Update loop, before the Cmd runs
 	return func() tea.Msg {
-		// Built first, and the old cluster kept running if that fails, as in
-		// attemptReconnect.
-		cluster, err := kube.NewClusterForContext(contextName)
+		// Built before the old cluster is touched: a build that fails (a
+		// broken context entry, a missing cert file) leaves 4c up with r
+		// bound to the old cluster's RetryNow, which only works while that
+		// cluster's health loop is still running.
+		cluster, err := build()
 		if err != nil {
 			return setup.RetryFailedMsg{Err: err}
 		}
-		sess.ResetClusterContext() // as in attemptReconnect, before the swap
-		if sess.Cluster != nil {
-			sess.Cluster.Stop()
-		}
-		// Scoped mode is session-wide and survives a context switch
-		// (docs/lazy-informers.md §5.6's Decisions) — this is
-		// a brand new *kube.Cluster, so that survival has to be re-applied
-		// explicitly, the same as attemptReconnect just above.
+		// A scoped session that reconnects must stay scoped — otherwise a
+		// namespace-bound identity's fresh cluster launches cluster-wide and
+		// every informer goes back to the denied cluster-wide LIST the flag
+		// exists to avoid (docs/lazy-informers.md §5.6). Scoped mode is
+		// session-wide and survives a context switch too (§5.6's Decisions).
+		// Same slot BuildSession gives it, before a single informer starts.
 		if cfg.ScopeNamespace != "" {
 			cluster.SetNamespaceScope(cfg.ScopeNamespace)
+		}
+		// Same reasoning as tui.switchContextCmd's reset, and for the same
+		// window: cluster.Start below blocks while the new caches sync, and
+		// any read still running against the cluster just stopped would
+		// otherwise land in a screen that has moved on.
+		sess.ResetClusterContext()
+		if old != nil {
+			old.Stop()
 		}
 
 		ctx, cancel := context.WithTimeout(sess.Context(), reconnectStartTimeout)
 		defer cancel()
-		_ = cluster.Start(ctx) // best-effort: an unreachable target still hands back ReplaceRootMsg; 4c's neverConnected watch takes over from there.
-
-		if sess.Forwards == nil {
-			sess.Forwards = kube.NewForwardManager()
-		}
-		if sess.DebugCopies == nil {
-			sess.DebugCopies = kube.NewDebugCopyRegistry()
-		}
-		sess.Cluster = cluster
-		sess.Lister = newSessionLister(cluster, sess.Forwards, sess.Charts)
-		sess.Metrics = cluster
-		sess.Location.Context = cluster.Context.ContextName
-		sess.Location.Namespace = cluster.Context.Namespace
-		sess.Registry, sess.Groups = resources.BuildDiscoveredRegistry(cluster.DiscoveredKinds(), cluster)
+		_ = cluster.Start(ctx) // best-effort: an unreachable cluster still hands back ReplaceRootMsg; 4c's neverConnected watch takes over from there.
 
 		return tui.ReplaceRootMsg{
-			Task:        buildBrowseTask(cfg, sess, cluster),
+			Commit: func() tui.Task {
+				if old != nil && old != cluster {
+					// Stop is idempotent; a second one undoes a 7a switch
+					// that revived the old cluster while this rebuild ran.
+					old.Stop()
+				}
+				if sess.Forwards == nil {
+					sess.Forwards = kube.NewForwardManager()
+				}
+				if sess.DebugCopies == nil {
+					sess.DebugCopies = kube.NewDebugCopyRegistry()
+				}
+				sess.Cluster = cluster
+				sess.Lister = newSessionLister(cluster, sess.Forwards, sess.Charts)
+				sess.Metrics = cluster
+				sess.Location.Context = cluster.Context.ContextName
+				sess.Location.Namespace = cluster.Context.Namespace
+				// cluster.Start above already ran discovery synchronously
+				// (folded in, best-effort), so DiscoveredKinds is ready by
+				// now — no need for the async CRDsDiscoveredMsg hop this
+				// path's initial-connect counterpart (RunWithConfig) requires.
+				sess.Registry, sess.Groups = resources.BuildDiscoveredRegistry(cluster.DiscoveredKinds(), cluster)
+				return buildBrowseTask(cfg, sess, cluster)
+			},
 			Events:      cluster.Events(),
 			Conn:        cluster.ConnEvents(),
 			BuildSetup:  buildSetupFactory(cfg, sess, cluster),

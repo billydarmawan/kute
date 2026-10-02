@@ -97,11 +97,11 @@ func clampInt(v, lo, hi int) int {
 
 // connectToSelected is 4c's '↵' (docs/design README.md §4c: "↵ connect to
 // selected"): a no-op for the current row (already selected, and pressing
-// r/e already cover retrying/redirecting it) or with no SwitchToContext
-// hook wired (NoConfig has none).
+// r/e already cover retrying/redirecting it), with no SwitchToContext
+// hook wired (NoConfig has none), or while a rebuild is already running.
 func (m *Model) connectToSelected() (tea.Cmd, bool) {
 	rows := m.switchContextRows()
-	if m.switchToContext == nil || m.switchSel < 0 || m.switchSel >= len(rows) {
+	if m.retrying || m.switchToContext == nil || m.switchSel < 0 || m.switchSel >= len(rows) {
 		return nil, false
 	}
 	row := rows[m.switchSel]

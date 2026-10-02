@@ -679,7 +679,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Replaying the old outage would mark the reconnected browse
 		// offline.
 		m.conn = kube.ConnState{}
-		m.activateFresh(msg.Task)
+		task := msg.Task
+		if msg.Commit != nil {
+			task = msg.Commit()
+		}
+		m.activateFresh(task)
 		m.stack = nil
 		m.showingSetup = false
 		m.buildSetup = msg.BuildSetup

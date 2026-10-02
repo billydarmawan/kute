@@ -406,3 +406,34 @@ func TestUnreachableScreenNamesExpiredCredentials(t *testing.T) {
 		t.Errorf("view lacks the keybar's recovery note:\n%s", view)
 	}
 }
+
+// One rebuild at a time: a second ↵ or r while one is running would race the
+// first to replace the root, and the losing cluster would never be stopped.
+func TestRebuildKeysIgnoredWhileRetrying(t *testing.T) {
+	var switches, reconnects int
+	m := New(Config{
+		Session:         &tui.Session{Theme: tui.Dark()},
+		State:           Unreachable,
+		ClusterName:     "microk8s-cluster",
+		OtherContexts:   []string{"prod-eks"},
+		SwitchToContext: func(string) tea.Cmd { switches++; return func() tea.Msg { return nil } },
+		Reconnect:       func(string) tea.Cmd { reconnects++; return func() tea.Msg { return nil } },
+	})
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if switches != 1 {
+		t.Errorf("SwitchToContext called %d times for two ↵ presses during one rebuild, want 1", switches)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "e"})
+	m.pathInput.SetValue("/tmp/kubeconfig")
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if reconnects != 0 {
+		t.Errorf("Reconnect called %d times while a switch was still running, want 0", reconnects)
+	}
+
+	m = step(t, m, RetryFailedMsg{Err: errors.New("unreachable")})
+	_ = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if switches != 2 {
+		t.Errorf("SwitchToContext called %d times after the first rebuild failed, want ↵ to work again", switches)
+	}
+}

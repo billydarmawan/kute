@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -274,5 +275,38 @@ func TestFailedRebuildKeepsTheOldCluster(t *testing.T) {
 		if readCtx.Err() != nil {
 			t.Errorf("%s: the old cluster's reads were cancelled by a rebuild that never happened", name)
 		}
+	}
+}
+
+// The rebuild runs in a tea.Cmd while the root keeps reading the Session
+// (every ConnStateMsg, the c palette), so the Cmd itself must write none of
+// it: every Session write happens in ReplaceRootMsg.Commit, on the Update loop.
+func TestRebuildWritesSessionOnlyInCommit(t *testing.T) {
+	writeTestKubeconfig(t, "ctx-a")
+	sess, old, err := BuildSession(Config{})
+	if err != nil || old == nil {
+		t.Fatalf("BuildSession() = %v, cluster %v", err, old)
+	}
+	// Cancelled up front so the new cluster's Start gives up at once rather
+	// than waiting out reconnectStartTimeout for a server that isn't there.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	sess.SetContext(ctx)
+	before := sess.Location
+
+	msg, ok := attemptSwitchContext(Config{}, sess, "ctx-b")().(tui.ReplaceRootMsg)
+	if !ok || msg.Commit == nil {
+		t.Fatalf("attemptSwitchContext() = %T, want a ReplaceRootMsg with a Commit", msg)
+	}
+	if sess.Cluster != old || sess.Location != before {
+		t.Fatalf("the rebuild's Cmd wrote the Session: cluster replaced %v, location %+v (was %+v)", sess.Cluster != old, sess.Location, before)
+	}
+
+	if task := msg.Commit(); task == nil {
+		t.Fatal("Commit returned no task")
+	}
+	t.Cleanup(sess.Cluster.Stop)
+	if sess.Cluster == old || sess.Location.Context != "ctx-b" {
+		t.Errorf("after Commit: cluster replaced %v, location %+v; want the new ctx-b cluster", sess.Cluster != old, sess.Location)
 	}
 }

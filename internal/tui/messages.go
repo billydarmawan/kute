@@ -138,7 +138,12 @@ type UpdateCheckedMsg struct {
 type OpenUpdatePanelMsg struct{}
 
 type ReplaceRootMsg struct {
-	Task        Task
+	Task Task
+	// Commit, when set, replaces Task: the root calls it on the Update loop
+	// and activates the task it returns. It is where a rebuild built in a
+	// tea.Cmd makes its Session writes (Cluster, Lister, Location, …), which
+	// must not happen on the Cmd's goroutine while the root reads them.
+	Commit      func() Task
 	Events      <-chan kube.ResourceChangedMsg
 	Conn        <-chan kube.ConnStateMsg
 	BuildSetup  func(kube.ConnState) Task

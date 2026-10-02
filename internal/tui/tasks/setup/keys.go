@@ -79,6 +79,11 @@ func (m *Model) syncPathInputWidth() {
 // cluster in place (RetryNow, no rebuild); every other case — NoConfig's
 // 'r'/'k', or Unreachable with an edited path — rebuilds via Reconnect.
 func (m *Model) doRetry(path string) (tea.Model, tea.Cmd) {
+	if m.retrying {
+		// One rebuild at a time: a second would race the first to replace
+		// the root, and the loser's cluster would run for the process's life.
+		return m, nil
+	}
 	switch {
 	case path == "" && m.state == Unreachable && m.retryNow != nil:
 		m.retryNow()
