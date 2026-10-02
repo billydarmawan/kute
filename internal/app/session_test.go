@@ -14,6 +14,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/state"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/tasks/setup"
 )
 
 // writeTestKubeconfig writes a minimal multi-context kubeconfig (no live
@@ -245,5 +246,33 @@ func TestNewModelDemoStartsInFlaggedNamespace(t *testing.T) {
 	view := ansi.Strip(updated.(tui.Model).View().Content)
 	if !strings.Contains(view, "ingress-nginx") {
 		t.Errorf("rendered view never names the --namespace value:\n%s", view)
+	}
+}
+
+// A 4c rebuild whose new cluster can't even be built must leave the old one
+// running: r on the 4c that stays up is bound to the old cluster's RetryNow,
+// and its in-flight reads have nothing newer to give way to.
+func TestFailedRebuildKeepsTheOldCluster(t *testing.T) {
+	writeTestKubeconfig(t, "ctx-a")
+	sess, old, err := BuildSession(Config{})
+	if err != nil || old == nil {
+		t.Fatalf("BuildSession() = %v, cluster %v", err, old)
+	}
+	sess.SetContext(t.Context())
+	readCtx := sess.ClusterContext()
+
+	for name, cmd := range map[string]tea.Cmd{
+		"switch":    attemptSwitchContext(Config{}, sess, "no-such-context"),
+		"reconnect": attemptReconnect(Config{}, sess, filepath.Join(t.TempDir(), "missing")),
+	} {
+		if _, ok := cmd().(setup.RetryFailedMsg); !ok {
+			t.Fatalf("%s: want RetryFailedMsg for a cluster that can't be built", name)
+		}
+		if sess.Cluster != old {
+			t.Errorf("%s: session cluster replaced after a failed build", name)
+		}
+		if readCtx.Err() != nil {
+			t.Errorf("%s: the old cluster's reads were cancelled by a rebuild that never happened", name)
+		}
 	}
 }

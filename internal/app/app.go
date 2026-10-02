@@ -809,8 +809,8 @@ func buildDemoBrowseFactory(sess *tui.Session, demoCluster *fake.Cluster, cluste
 }
 
 // attemptReconnect is tasks/setup's Reconnect hook (10b's 'r'/'k', 4c's
-// 'e'): optionally repoints $KUBECONFIG, stops any existing cluster (so its
-// informer goroutines don't leak), and builds a fresh one. On success it
+// 'e'): optionally repoints $KUBECONFIG, builds a fresh cluster, and only
+// then stops any existing one (so its informer goroutines don't leak). On success it
 // starts that cluster's informers (bounded, like 7a's SwitchContext) and
 // hands back a tui.ReplaceRootMsg carrying a fresh browse task plus the new
 // cluster's event channels — the root shell forwards those via
@@ -822,6 +822,14 @@ func attemptReconnect(cfg Config, sess *tui.Session, path string) tea.Cmd {
 		if path != "" {
 			_ = os.Setenv("KUBECONFIG", path)
 		}
+		// Built before the old cluster is touched: a build that fails (a
+		// broken context entry, a missing cert file) leaves 4c up with r
+		// bound to the old cluster's RetryNow, which only works while that
+		// cluster's health loop is still running.
+		cluster, err := kube.NewCluster()
+		if err != nil {
+			return setup.RetryFailedMsg{Err: err}
+		}
 		// Same reasoning as tui.switchContextCmd's reset, and for the same
 		// window: cluster.Start below blocks while the new caches sync, and
 		// any read still running against the cluster just stopped would
@@ -829,10 +837,6 @@ func attemptReconnect(cfg Config, sess *tui.Session, path string) tea.Cmd {
 		sess.ResetClusterContext()
 		if sess.Cluster != nil {
 			sess.Cluster.Stop()
-		}
-		cluster, err := kube.NewCluster()
-		if err != nil {
-			return setup.RetryFailedMsg{Err: err}
 		}
 		// A scoped session that reconnects must stay scoped — otherwise a
 		// namespace-bound identity's fresh cluster launches cluster-wide and
@@ -882,13 +886,15 @@ func attemptReconnect(cfg Config, sess *tui.Session, path string) tea.Cmd {
 // switches to it rather than retrying the same failing one.
 func attemptSwitchContext(cfg Config, sess *tui.Session, contextName string) tea.Cmd {
 	return func() tea.Msg {
-		sess.ResetClusterContext() // as in attemptReconnect, before the swap
-		if sess.Cluster != nil {
-			sess.Cluster.Stop()
-		}
+		// Built first, and the old cluster kept running if that fails, as in
+		// attemptReconnect.
 		cluster, err := kube.NewClusterForContext(contextName)
 		if err != nil {
 			return setup.RetryFailedMsg{Err: err}
+		}
+		sess.ResetClusterContext() // as in attemptReconnect, before the swap
+		if sess.Cluster != nil {
+			sess.Cluster.Stop()
 		}
 		// Scoped mode is session-wide and survives a context switch
 		// (docs/lazy-informers.md §5.6's Decisions) — this is
