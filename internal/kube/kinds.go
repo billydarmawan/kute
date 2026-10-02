@@ -168,6 +168,16 @@ func RegistryKindFor(group, kind string) ResourceKind {
 	return DiscoveredKind{Group: group, Kind: kind}.RegistryKind()
 }
 
+// APIGroupOf is the group of an apiVersion ("apps/v1" → "apps", "v1" →
+// "", the core group).
+func APIGroupOf(apiVersion string) string {
+	group, _, found := strings.Cut(apiVersion, "/")
+	if !found {
+		return ""
+	}
+	return group
+}
+
 // APIKind is the Kubernetes Kind behind k. Identical to string(k) for every
 // kind but a substituted one.
 //

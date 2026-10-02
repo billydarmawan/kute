@@ -1149,14 +1149,15 @@ func (c *Cluster) ObjectEvents(ctx context.Context, namespace string, kind kube.
 			continue
 		}
 		out = append(out, kube.Event{
-			Type:      ev.Type,
-			Reason:    ev.Reason,
-			Message:   ev.Message,
-			Object:    ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
-			Namespace: ev.Namespace,
-			Count:     max32(ev.Count, 1),
-			FirstSeen: ev.FirstTimestamp.Time,
-			LastSeen:  ev.LastTimestamp.Time,
+			Type:             ev.Type,
+			Reason:           ev.Reason,
+			Message:          ev.Message,
+			Object:           ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
+			ObjectAPIVersion: ev.InvolvedObject.APIVersion,
+			Namespace:        ev.Namespace,
+			Count:            max32(ev.Count, 1),
+			FirstSeen:        ev.FirstTimestamp.Time,
+			LastSeen:         ev.LastTimestamp.Time,
 			// Carried through because §32a's revision rows live in the
 			// event's annotations, not its message — dropping them here
 			// makes those rows silently vanish under the fake.
@@ -1179,14 +1180,15 @@ func (c *Cluster) NamespaceEvents(ctx context.Context, namespace string) ([]kube
 			continue
 		}
 		out = append(out, kube.Event{
-			Type:      ev.Type,
-			Reason:    ev.Reason,
-			Message:   ev.Message,
-			Object:    ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
-			Namespace: ev.Namespace,
-			Count:     max32(ev.Count, 1),
-			FirstSeen: ev.FirstTimestamp.Time,
-			LastSeen:  ev.LastTimestamp.Time,
+			Type:             ev.Type,
+			Reason:           ev.Reason,
+			Message:          ev.Message,
+			Object:           ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
+			ObjectAPIVersion: ev.InvolvedObject.APIVersion,
+			Namespace:        ev.Namespace,
+			Count:            max32(ev.Count, 1),
+			FirstSeen:        ev.FirstTimestamp.Time,
+			LastSeen:         ev.LastTimestamp.Time,
 			// Carried through because §32a's revision rows live in the
 			// event's annotations, not its message — dropping them here
 			// makes those rows silently vanish under the fake.

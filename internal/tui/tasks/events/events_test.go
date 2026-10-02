@@ -658,3 +658,35 @@ func TestEventCacheDeniedIsVisibleEvenWithGroupsAlreadyRendered(t *testing.T) {
 		t.Fatalf("state = %s, want permission-denied — a denial found on a background reload must win even over groups already on screen", m.state)
 	}
 }
+
+// TestEnterOnAFluxHelmReleaseEventOpensTheFluxObject is M10: ↵ built the
+// jump from the event's bare "HelmRelease/x", which is §18a's Helm kind, so
+// every helm-controller event landed on the Helm releases list where the
+// Flux object isn't listed. The involved object's apiVersion resolves it.
+func TestEnterOnAFluxHelmReleaseEventOpensTheFluxObject(t *testing.T) {
+	fluxHR := kube.DiscoveredKind{Kind: "HelmRelease", Plural: "helmreleases", Group: kube.FluxGroupHelm,
+		Versions: []kube.CRDVersion{{Name: "v2", Served: true, Storage: true}}, Established: true}
+	sess := newSession()
+	sess.Registry, sess.Groups = resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{fluxHR}, nil)
+
+	for _, tc := range []struct {
+		apiVersion string
+		want       kube.ResourceKind
+	}{
+		{kube.FluxGroupHelm + "/v2", kube.KindFluxHelmRelease},
+		{"", kube.KindHelmRelease}, // nothing to resolve with: the bare Kind
+	} {
+		events := []kube.Event{{Type: "Warning", Reason: "InstallFailed", Object: "HelmRelease/podinfo",
+			ObjectAPIVersion: tc.apiVersion, Namespace: "apps", Count: 1, LastSeen: time.Now()}}
+		m := New(Config{Session: sess, Events: fakeEvents{namespaceEvents: events}, Namespace: "apps"})
+		m.SetSize(120, 36)
+		m = step(t, m, m.Init()())
+		cmd, ok := m.openSelectedObject()
+		if !ok {
+			t.Fatalf("%q: ↵ dispatched nothing", tc.apiVersion)
+		}
+		if msg, _ := cmd().(tui.GotoResourceMsg); msg.Kind != tc.want || msg.Name != "podinfo" {
+			t.Errorf("%q: ↵ sent %#v, want kind %s", tc.apiVersion, cmd(), tc.want)
+		}
+	}
+}

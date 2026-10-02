@@ -707,6 +707,23 @@ func gotoDispatch(sess *Session, item palette.Item) tea.Cmd {
 	return nil
 }
 
+// EventObjectKind resolves an Event's involved object — its apiVersion and
+// bare Kind — to the registry kind that lists it. The bare Kind alone is
+// ambiguous wherever two groups serve it: a Flux HelmRelease's events name
+// "HelmRelease", which is §18a's synthetic Helm kind, where the Flux object
+// isn't listed. An empty apiVersion (an Event that didn't record one) keeps
+// the bare Kind, which is all there is to go on. sess may be nil.
+func EventObjectKind(sess *Session, apiVersion string, apiKind kube.ResourceKind) kube.ResourceKind {
+	if apiVersion == "" || apiKind == "" {
+		return apiKind
+	}
+	var reg resources.Registry
+	if sess != nil {
+		reg = sess.Registry
+	}
+	return reg.KindFor(kube.APIGroupOf(apiVersion), string(apiKind))
+}
+
 // GotoResource fires the same navigation gotoDispatch's gotoOpenResource
 // case does — pre-filled, without ever opening the palette — so 'g' and
 // every screen's own "jump to related object" action (poddetail's RELATED

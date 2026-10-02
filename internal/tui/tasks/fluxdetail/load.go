@@ -303,24 +303,16 @@ var readableTypedKinds = map[kube.ResourceKind]bool{
 }
 
 // inventoryKind resolves an inventory entry's (group, Kind) to the registry
-// key it is read and navigated by, and reports whether it is worth reading.
-//
-// kube.RegistryKindFor settles every collision it can see from the pair
-// alone; the registry settles the one it can't — two discovered groups
-// sharing an otherwise-unclaimed Kind, where discovery qualified the loser
-// (kube.AssignRegistryKinds). A discovered kind is readable (its Ready
+// key it is read and navigated by (resources.Registry.KindFor), and reports
+// whether it is worth reading. A discovered kind is readable (its Ready
 // condition or replica counts are objectReadiness's unstructured branch);
 // one the registry doesn't hold is not, since nothing could serve the read.
 func inventoryKind(reg resources.Registry, group, apiKind string) (kube.ResourceKind, bool) {
-	kind := kube.RegistryKindFor(group, apiKind)
+	kind := reg.KindFor(group, apiKind)
 	if readableTypedKinds[kind] {
 		return kind, true
 	}
 	d, ok := reg.Descriptor(kind)
-	if ok && d.Custom && d.APIGroup != group {
-		kind = kube.QualifiedKind(apiKind, group)
-		d, ok = reg.Descriptor(kind)
-	}
 	return kind, ok && d.Custom
 }
 

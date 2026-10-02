@@ -17,6 +17,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/config"
 	"github.com/kute-dev/kute/internal/kube"
+	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 )
@@ -1555,5 +1556,37 @@ func TestStalledCacheOnBackgroundReloadKeepsExistingFeedVisible(t *testing.T) {
 	}
 	if len(m.rows) == 0 {
 		t.Fatal("rows emptied by a background stall — the stall-vs-rerender regression")
+	}
+}
+
+// TestEnterOnAFluxHelmReleaseRowOpensTheFluxObject is M10: a helm-controller
+// event's row — §32a's ◆ revision row included — jumped by its bare
+// "HelmRelease" Kind to §18a's Helm list instead of the Flux object.
+func TestEnterOnAFluxHelmReleaseRowOpensTheFluxObject(t *testing.T) {
+	fluxHR := kube.DiscoveredKind{Kind: "HelmRelease", Plural: "helmreleases", Group: kube.FluxGroupHelm,
+		Versions: []kube.CRDVersion{{Name: "v2", Served: true, Storage: true}}, Established: true}
+	sess := newSession()
+	sess.Registry, sess.Groups = resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{fluxHR}, nil)
+	events := []kube.Event{{
+		Type: "Normal", Reason: "UpgradeSucceeded", Object: "HelmRelease/podinfo", Message: "upgraded",
+		ObjectAPIVersion: kube.FluxGroupHelm + "/v2", Namespace: "default", Count: 1, LastSeen: time.Now(),
+		Annotations: map[string]string{"helm.toolkit.fluxcd.io/revision": "6.5.4"},
+	}}
+	m := New(Config{Session: sess, Events: fakeEvents{events: events}, Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.rows) == 0 {
+		t.Fatal("no timeline rows")
+	}
+	for i := range m.rows {
+		m.selected = i
+		cmd, ok := m.openSelectedObject()
+		if !ok {
+			t.Fatalf("row %d: ↵ dispatched nothing", i)
+		}
+		if msg, _ := cmd().(tui.GotoResourceMsg); msg.Kind != kube.KindFluxHelmRelease {
+			t.Errorf("row %d (%v): ↵ sent %#v, want the Flux HelmRelease", i, m.rows[i].Kind, cmd())
+		}
 	}
 }

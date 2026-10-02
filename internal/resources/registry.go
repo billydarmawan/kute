@@ -31,6 +31,21 @@ func (r Registry) Kinds() []kube.ResourceKind {
 	return slices.Collect(maps.Keys(r.byKind))
 }
 
+// KindFor resolves an API (group, Kind) — an Event's involvedObject, an
+// inventory entry — to the registry key it is listed and navigated by.
+//
+// kube.RegistryKindFor settles every collision it can see from the pair
+// alone; the registry settles the one it can't — two discovered groups
+// sharing an otherwise-unclaimed Kind, where discovery qualified the loser
+// (kube.AssignRegistryKinds).
+func (r Registry) KindFor(group, apiKind string) kube.ResourceKind {
+	kind := kube.RegistryKindFor(group, apiKind)
+	if d, ok := r.Descriptor(kind); ok && d.Custom && d.APIGroup != group {
+		return kube.QualifiedKind(apiKind, group)
+	}
+	return kind
+}
+
 // Register adds or replaces d's entry — how discovered kinds (14a) and the
 // CustomResourceDefinition list (14b) join a DefaultRegistry() base at
 // connect/switch time (see BuildDiscoveredRegistry in crd.go). byKind is a

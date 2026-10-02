@@ -41,13 +41,16 @@ const (
 // TimelineEntry is one row of 16a/16b's merged clock, newest-first once run
 // through MergeTimeline.
 type TimelineEntry struct {
-	Time      time.Time
-	Kind      TimelineEntryKind
-	Object    string // "Kind/Name", e.g. "Pod/nva-worker-9k2ss"
-	Namespace string
-	Severity  string // "Warning" | "Normal" — TimelineEvent only
-	Reason    string
-	Message   string
+	Time   time.Time
+	Kind   TimelineEntryKind
+	Object string // "Kind/Name", e.g. "Pod/nva-worker-9k2ss"
+	// ObjectAPIVersion is the involved object's apiVersion when the entry
+	// came from an Event (see Event.ObjectAPIVersion); empty otherwise.
+	ObjectAPIVersion string
+	Namespace        string
+	Severity         string // "Warning" | "Normal" — TimelineEvent only
+	Reason           string
+	Message          string
 	// Revision/Image are set on TimelineRollout entries only — the 16b
 	// revision rail reads them directly rather than re-parsing Message.
 	Revision int
@@ -92,13 +95,14 @@ func TimelineFromEvents(groups []EventGroup) []TimelineEntry {
 	out := make([]TimelineEntry, 0, len(groups))
 	for _, g := range groups {
 		out = append(out, TimelineEntry{
-			Time:      g.LastSeen,
-			Kind:      TimelineEvent,
-			Object:    g.Object,
-			Namespace: g.Namespace,
-			Severity:  g.Type,
-			Reason:    g.Reason,
-			Message:   g.Message,
+			Time:             g.LastSeen,
+			Kind:             TimelineEvent,
+			Object:           g.Object,
+			ObjectAPIVersion: g.ObjectAPIVersion,
+			Namespace:        g.Namespace,
+			Severity:         g.Type,
+			Reason:           g.Reason,
+			Message:          g.Message,
 		})
 	}
 	return out
@@ -266,13 +270,14 @@ func TimelineFromFluxEvents(events []Event, subjects map[string]string) []Timeli
 			continue
 		}
 		out = append(out, TimelineEntry{
-			Time:          e.LastSeen,
-			Kind:          TimelineRevision,
-			Object:        e.Object,
-			Namespace:     e.Namespace,
-			Reason:        e.Reason,
-			GitRevision:   ShortFluxRevision(rev),
-			CommitSubject: subjects[rev],
+			Time:             e.LastSeen,
+			Kind:             TimelineRevision,
+			Object:           e.Object,
+			ObjectAPIVersion: e.ObjectAPIVersion,
+			Namespace:        e.Namespace,
+			Reason:           e.Reason,
+			GitRevision:      ShortFluxRevision(rev),
+			CommitSubject:    subjects[rev],
 		})
 	}
 	return out
@@ -398,13 +403,14 @@ func TimelineFromArgoEvents(events []Event, statusOf func(object string) (ArgoSy
 			continue
 		}
 		out = append(out, TimelineEntry{
-			Time:        e.LastSeen,
-			Kind:        TimelineSync,
-			Object:      e.Object,
-			Namespace:   e.Namespace,
-			Reason:      e.Reason,
-			GitRevision: ShortArgoRevision(status.Ref, status.Revision),
-			By:          status.By,
+			Time:             e.LastSeen,
+			Kind:             TimelineSync,
+			Object:           e.Object,
+			ObjectAPIVersion: e.ObjectAPIVersion,
+			Namespace:        e.Namespace,
+			Reason:           e.Reason,
+			GitRevision:      ShortArgoRevision(status.Ref, status.Revision),
+			By:               status.By,
 		})
 	}
 	return out

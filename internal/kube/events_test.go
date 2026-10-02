@@ -210,3 +210,23 @@ func TestEventFromObjectSeriesNilKeepsLegacyFields(t *testing.T) {
 		t.Fatalf("Count = %d, want the legacy Count field 3", got.Count)
 	}
 }
+
+// TestEventKeepsInvolvedObjectAPIVersion is M10's data half: without the
+// apiVersion, an event on a Flux HelmRelease can't be told from one on
+// §18a's Helm kind, and its ↵ lands on the wrong list.
+func TestEventKeepsInvolvedObjectAPIVersion(t *testing.T) {
+	t.Parallel()
+	ev := &corev1.Event{InvolvedObject: corev1.ObjectReference{
+		APIVersion: FluxGroupHelm + "/v2", Kind: "HelmRelease", Name: "podinfo",
+	}}
+	got := eventFromObject(ev)
+	if got.ObjectAPIVersion != FluxGroupHelm+"/v2" {
+		t.Fatalf("ObjectAPIVersion = %q", got.ObjectAPIVersion)
+	}
+	if groups := DedupeEvents([]Event{got}); groups[0].ObjectAPIVersion != got.ObjectAPIVersion {
+		t.Fatalf("DedupeEvents dropped the apiVersion: %+v", groups[0])
+	}
+	if APIGroupOf(got.ObjectAPIVersion) != FluxGroupHelm || APIGroupOf("v1") != "" {
+		t.Fatal("APIGroupOf")
+	}
+}

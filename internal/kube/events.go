@@ -11,14 +11,18 @@ import (
 
 // Event is the projected view of a corev1.Event this app renders (9a/9b).
 type Event struct {
-	Type      string // "Normal" or "Warning"
-	Reason    string
-	Message   string
-	Object    string // "Kind/Name", e.g. "Pod/nva-worker-9k2ss"
-	Namespace string
-	Count     int32
-	FirstSeen time.Time
-	LastSeen  time.Time
+	Type    string // "Normal" or "Warning"
+	Reason  string
+	Message string
+	Object  string // "Kind/Name", e.g. "Pod/nva-worker-9k2ss"
+	// ObjectAPIVersion is involvedObject.apiVersion — what makes Object's
+	// bare Kind resolvable to a registry kind (ObjectKind): "HelmRelease"
+	// alone names §18a's Helm kind, not the Flux object that emitted it.
+	ObjectAPIVersion string
+	Namespace        string
+	Count            int32
+	FirstSeen        time.Time
+	LastSeen         time.Time
 	// Annotations is the Event object's own metadata.annotations. Flux's
 	// controllers put the reconciled revision there
 	// (kustomize.toolkit.fluxcd.io/revision), which is the exact,
@@ -31,13 +35,14 @@ type Event struct {
 // underlying Event object sharing the same reason+object+message folded
 // into one row, with the summed count and most recent timestamp.
 type EventGroup struct {
-	Type      string
-	Reason    string
-	Message   string
-	Object    string
-	Namespace string
-	Count     int32
-	LastSeen  time.Time
+	Type             string
+	Reason           string
+	Message          string
+	Object           string
+	ObjectAPIVersion string // see Event.ObjectAPIVersion
+	Namespace        string
+	Count            int32
+	LastSeen         time.Time
 }
 
 // ObjectEvents returns every cached Event whose involvedObject matches
@@ -145,15 +150,16 @@ func eventFromObject(ev *corev1.Event) Event {
 		count = 1
 	}
 	return Event{
-		Type:        ev.Type,
-		Reason:      ev.Reason,
-		Message:     ev.Message,
-		Object:      ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
-		Namespace:   ev.Namespace,
-		Count:       count,
-		FirstSeen:   first,
-		LastSeen:    last,
-		Annotations: ev.Annotations,
+		Type:             ev.Type,
+		Reason:           ev.Reason,
+		Message:          ev.Message,
+		Object:           ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
+		ObjectAPIVersion: ev.InvolvedObject.APIVersion,
+		Namespace:        ev.Namespace,
+		Count:            count,
+		FirstSeen:        first,
+		LastSeen:         last,
+		Annotations:      ev.Annotations,
 	}
 }
 
@@ -171,15 +177,15 @@ func eventFromObject(ev *corev1.Event) Event {
 // ordered newest-first; screens partition warnings-first or otherwise
 // re-sort on top of this base order.
 func DedupeEvents(events []Event) []EventGroup {
-	type key struct{ reason, namespace, object, message string }
+	type key struct{ reason, namespace, object, apiVersion, message string }
 	groups := make(map[key]*EventGroup, len(events))
 	order := make([]key, 0, len(events))
 
 	for _, e := range events {
-		k := key{e.Reason, e.Namespace, e.Object, e.Message}
+		k := key{e.Reason, e.Namespace, e.Object, e.ObjectAPIVersion, e.Message}
 		g, ok := groups[k]
 		if !ok {
-			g = &EventGroup{Reason: e.Reason, Message: e.Message, Object: e.Object, Namespace: e.Namespace}
+			g = &EventGroup{Reason: e.Reason, Message: e.Message, Object: e.Object, ObjectAPIVersion: e.ObjectAPIVersion, Namespace: e.Namespace}
 			groups[k] = g
 			order = append(order, k)
 		}

@@ -203,6 +203,7 @@ func (m Model) openSelectedObject() (tea.Cmd, bool) {
 	if kind == "" || name == "" {
 		return nil, false
 	}
+	kind = tui.EventObjectKind(m.session, row.group.ObjectAPIVersion, kind)
 	return tui.GotoResource(m.session, kind, row.group.Namespace, name), true
 }
 
@@ -224,6 +225,7 @@ func (m Model) openSelectedYAML() (tea.Model, tea.Cmd, bool) {
 	if kind == "" || name == "" {
 		return nil, nil, false
 	}
+	kind = tui.EventObjectKind(m.session, row.group.ObjectAPIVersion, kind)
 	task, cmd := m.openYAML(kind, row.group.Namespace, name, m.width, m.height)
 	return task, cmd, task != nil
 }

@@ -244,6 +244,7 @@ func (m Model) openSelectedObject() (tea.Cmd, bool) {
 	if kind == "" || name == "" {
 		return nil, false
 	}
+	kind = tui.EventObjectKind(m.session, row.ObjectAPIVersion, kind)
 	return tui.GotoResource(m.session, kind, row.Namespace, name), true
 }
 
