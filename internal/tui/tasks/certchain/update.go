@@ -42,6 +42,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case loadedMsg:
 		return m, m.applyLoaded(msg)
+	case tui.CacheSyncRetryMsg:
+		if msg.Gen == m.syncRetryGen && m.lister != nil {
+			return m, m.load()
+		}
 	case actions.ResultMsg:
 		m.actions.HandleResult(msg)
 		if msg.Err == nil {
@@ -81,7 +85,19 @@ func (m Model) reloadsOn(kind kube.ResourceKind) bool {
 func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
 	if msg.err != nil {
 		m.state, m.feedback = tui.TaskStateError, msg.err.Error()
+		if kube.IsPermissionError(msg.err) {
+			m.state = tui.TaskStatePermissionDenied
+		}
 		return nil
+	}
+	var retry tea.Cmd
+	if msg.pending {
+		m.syncRetryGen++
+		retry = tui.ScheduleCacheSyncRetry(m.syncRetryGen)
+	}
+	if msg.gone && msg.pending {
+		// The Certificate cache is still filling: not gone, not yet here.
+		return retry
 	}
 	if msg.gone {
 		m.state = tui.TaskStateError
@@ -92,6 +108,7 @@ func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
 	m.secretRef, m.issuerRef = msg.secretRef, msg.issuerRef
 	m.haveSecret, m.haveIssuer = msg.haveSecret, msg.haveIssuer
 	m.attempts = msg.attempts
+	m.chainNote = msg.chainNote
 	m.state = tui.TaskStateReady
 	if strings.HasPrefix(m.feedback, "loading ") {
 		m.feedback = ""
@@ -112,7 +129,7 @@ func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
 			}
 		}
 	}
-	return nil
+	return retry
 }
 
 func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

@@ -198,6 +198,11 @@ type loadedMsg struct {
 
 	gatewayClass string
 	listeners    []listenerRow
+
+	// certsPending is set when a TLS cert lookup missed against a Secret
+	// cache still filling — applyLoaded retries, since a Secret that
+	// genuinely isn't there syncs without a change event.
+	certsPending bool
 }
 
 func New(cfg Config) Model {

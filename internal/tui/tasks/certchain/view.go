@@ -116,6 +116,11 @@ func (m Model) readyBody(width, height int) string {
 		b.WriteString(banner)
 		b.WriteString("\n\n")
 	}
+	if m.chainNote != "" {
+		warn := lipgloss.NewStyle().Foreground(m.Theme().Warn)
+		b.WriteString(warn.Render("⚠ " + m.chainNote))
+		b.WriteString("\n")
+	}
 	b.WriteString(m.chainTable(width, height).Render())
 	if refs := m.refsStrip(); refs != "" {
 		b.WriteString("\n")
@@ -287,7 +292,7 @@ func (m Model) refText(ref refInfo, selected bool) string {
 		nameStyle = nameStyle.Bold(true).Foreground(theme.Accent)
 	}
 	statusStyle := lipgloss.NewStyle().Foreground(theme.Good)
-	if ref.External {
+	if ref.External || ref.Unknown {
 		statusStyle = lipgloss.NewStyle().Foreground(theme.TextDim)
 	} else if !ref.Exists || (ref.HasReady && !ref.Ready) {
 		statusStyle = lipgloss.NewStyle().Foreground(theme.Bad)

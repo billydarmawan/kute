@@ -2,15 +2,19 @@ package certchain
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/kube/fake"
+	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 )
 
@@ -219,5 +223,73 @@ func TestIssuerRefExternalGroupIsNeutralAndUnread(t *testing.T) {
 	m := Model{issuerRef: ref, haveIssuer: true}
 	if _, _, ok := m.selectedTarget(); ok {
 		t.Fatal("an external issuer ref must not be a jump target")
+	}
+}
+
+// gatedLister wraps the demo cluster with per-kind cache state: kinds in
+// unsynced haven't filled, kinds in errs stopped with that error.
+type gatedLister struct {
+	resources.RawLister
+	unsynced map[kube.ResourceKind]bool
+	errs     map[kube.ResourceKind]error
+}
+
+func (l gatedLister) KindSynced(kind kube.ResourceKind, _ string) bool { return !l.unsynced[kind] }
+func (l gatedLister) KindError(kind kube.ResourceKind, _ string) error { return l.errs[kind] }
+
+// gatedModel loads web-tls from the demo cluster through those gates, empty
+// lists for every gated kind (what a Forbidden or unfilled cache returns).
+func gatedModel(t *testing.T, unsynced map[kube.ResourceKind]bool, errs map[kube.ResourceKind]error) (Model, tea.Cmd) {
+	t.Helper()
+	base := fake.NewDemo()
+	lister := gatedLister{RawLister: emptyFor{base, unsynced, errs}, unsynced: unsynced, errs: errs}
+	sess := &tui.Session{Theme: tui.Dark(), Location: tui.Location{Context: "microk8s-cluster", Namespace: "default"}}
+	m := New(Config{Session: sess, Lister: lister, Namespace: "default", Name: "web-tls"})
+	m.SetSize(120, 30)
+	upd, cmd := m.Update(m.load()())
+	return *upd.(*Model), cmd
+}
+
+type emptyFor struct {
+	base     resources.RawLister
+	unsynced map[kube.ResourceKind]bool
+	errs     map[kube.ResourceKind]error
+}
+
+func (e emptyFor) ListRaw(ctx context.Context, kind kube.ResourceKind, ns string) ([]runtime.Object, error) {
+	if _, gated := e.errs[kind]; gated || e.unsynced[kind] {
+		return nil, nil // a gated cache reads empty, error-free, like the real one
+	}
+	return e.base.ListRaw(ctx, kind, ns)
+}
+
+// A Forbidden CertificateRequest cache must not pass for a healthy
+// single-node chain: the screen says the chain may be incomplete, and why.
+func TestForbiddenChainKindIsSurfaced(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "certificaterequests"}, "", errors.New("nope"))
+	m, _ := gatedModel(t, nil, map[kube.ResourceKind]error{kube.KindCertificateRequest: forbidden})
+	if !strings.Contains(m.chainNote, "permission denied") {
+		t.Fatalf("chainNote = %q, want a permission-denied note", m.chainNote)
+	}
+	if view := plain(m.Render()); !strings.Contains(view, "chain may be incomplete") {
+		t.Fatalf("view missing the incomplete-chain note:\n%s", view)
+	}
+}
+
+// A Secret or issuer missing from an unreadable cache is unknown, not
+// "missing"; one missing from a cache still filling retries.
+func TestRefsOnUnreadableCachesAreNotMissing(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "", errors.New("nope"))
+	m, _ := gatedModel(t, nil, map[kube.ResourceKind]error{kube.KindSecret: forbidden})
+	if !m.secretRef.Unknown || m.secretRef.StatusText != "permission denied" {
+		t.Fatalf("secretRef = %+v, want an unknown permission-denied ref", m.secretRef)
+	}
+
+	m, cmd := gatedModel(t, map[kube.ResourceKind]bool{kube.KindClusterIssuer: true}, nil)
+	if !m.issuerRef.Unknown || m.issuerRef.StatusText != "loading…" {
+		t.Fatalf("issuerRef = %+v, want an unknown loading ref", m.issuerRef)
+	}
+	if cmd == nil {
+		t.Fatal("expected a cache-sync retry while the ClusterIssuer cache fills")
 	}
 }

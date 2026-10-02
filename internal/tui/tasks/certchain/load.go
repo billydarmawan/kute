@@ -13,6 +13,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
+	"github.com/kute-dev/kute/internal/tui"
 )
 
 // load reads the Certificate, walks its ownerRef chain one hop at a time,
@@ -35,25 +36,45 @@ func (m Model) load() tea.Cmd {
 		}
 		cert, ok := findByName(certs, name)
 		if !ok {
-			return loadedMsg{gone: true}
+			pending, kerr := cacheState(lister, namespace, kube.KindCertificate)
+			if kerr != nil {
+				return loadedMsg{err: kerr}
+			}
+			return loadedMsg{gone: true, pending: pending}
 		}
 
 		chain := []chainNode{certNode(cert)}
 		attempts := 0
+		pending := false
+		var chainErr error
+		// readChain lists one chain kind and folds its cache state in: an
+		// unfilled or stopped cache truncates the chain silently otherwise.
+		readChain := func(kind kube.ResourceKind) []runtime.Object {
+			objs, err := lister.ListRaw(ctx, kind, namespace)
+			p, kerr := cacheState(lister, namespace, kind)
+			pending = pending || p
+			if err == nil {
+				err = kerr
+			}
+			if chainErr == nil && err != nil {
+				chainErr = err
+			}
+			return objs
+		}
 
-		crs, _ := lister.ListRaw(ctx, kube.KindCertificateRequest, namespace)
+		crs := readChain(kube.KindCertificateRequest)
 		owned := ownedBy(crs, kube.KindCertificate.APIKind(), name)
 		attempts = len(owned)
 
 		if currentCR, ok := newest(owned); ok {
 			chain = append(chain, certRequestNode(currentCR, 1))
 
-			orders, _ := lister.ListRaw(ctx, kube.KindOrder, namespace)
+			orders := readChain(kube.KindOrder)
 			ownedOrders := ownedBy(orders, kube.KindCertificateRequest.APIKind(), currentCR.GetName())
 			if currentOrder, ok := newest(ownedOrders); ok {
 				chain = append(chain, orderNode(currentOrder, 2))
 
-				challenges, _ := lister.ListRaw(ctx, kube.KindChallenge, namespace)
+				challenges := readChain(kube.KindChallenge)
 				ownedChallenges := ownedBy(challenges, kube.KindOrder.APIKind(), currentOrder.GetName())
 				sortByCreation(ownedChallenges)
 				for _, ch := range ownedChallenges {
@@ -61,12 +82,24 @@ func (m Model) load() tea.Cmd {
 				}
 			}
 		}
+		chainNote := ""
+		switch {
+		case chainErr != nil && kube.IsPermissionError(chainErr):
+			chainNote = "chain may be incomplete — permission denied: " + chainErr.Error()
+		case chainErr != nil:
+			chainNote = "chain may be incomplete — " + chainErr.Error()
+		case pending:
+			chainNote = "chain may be incomplete — still loading"
+		}
 
 		fail := buildFailure(chain)
 		secretRef, haveSecret := resolveSecretRef(ctx, lister, namespace, cert)
 		issuerRef, haveIssuer := resolveIssuerRef(ctx, lister, namespace, cert)
+		pending = pending || secretRef.pending || issuerRef.pending
 
 		return loadedMsg{
+			pending:    pending,
+			chainNote:  chainNote,
 			fail:       fail,
 			chain:      chain,
 			secretRef:  secretRef,
@@ -351,10 +384,42 @@ func resolveSecretRef(ctx context.Context, lister resources.RawLister, namespace
 	}
 	if ref.Exists {
 		ref.StatusText = "exists"
-	} else {
+	} else if !markUnknown(&ref, lister, namespace, err) {
 		ref.StatusText = "missing"
 	}
 	return ref, true
+}
+
+// cacheState is one kind's cache answer for namespace: pending while it is
+// still filling, or the reason it stopped (KindsError — Forbidden, a LIST
+// that keeps failing). Settled is not the same as empty.
+func cacheState(lister resources.RawLister, namespace string, kind kube.ResourceKind) (pending bool, err error) {
+	if !tui.KindsSynced(lister, namespace, kind) {
+		return true, nil
+	}
+	return false, tui.KindsError(lister, namespace, kind)
+}
+
+// markUnknown turns a ref lookup that missed into an honest unknown when
+// the miss proves nothing — the cache for ref.Kind at namespace hasn't
+// filled, or can't be read — and reports whether it did. Otherwise the
+// caller's "missing" stands.
+func markUnknown(ref *refInfo, lister resources.RawLister, namespace string, listErr error) bool {
+	pending, kerr := cacheState(lister, namespace, ref.Kind)
+	if kerr == nil {
+		kerr = listErr
+	}
+	switch {
+	case pending:
+		ref.Unknown, ref.pending, ref.StatusText = true, true, "loading…"
+	case kerr != nil && kube.IsPermissionError(kerr):
+		ref.Unknown, ref.StatusText = true, "permission denied"
+	case kerr != nil:
+		ref.Unknown, ref.StatusText = true, "unavailable"
+	default:
+		return false
+	}
+	return true
 }
 
 // resolveIssuerRef reports the Certificate's issuerRef existence and, when
@@ -398,6 +463,7 @@ func resolveIssuerRef(ctx context.Context, lister resources.RawLister, namespace
 		}
 	}
 	switch {
+	case !ref.Exists && markUnknown(&ref, lister, issuerNamespace, err):
 	case !ref.Exists:
 		ref.StatusText = "missing"
 	case ref.Ready:

@@ -124,6 +124,10 @@ type refInfo struct {
 	// External marks an issuerRef into a non-cert-manager group: no Kind,
 	// never read, never a jump target, rendered neutral.
 	External bool
+	// Unknown marks a ref whose cache is still filling or unreadable: its
+	// StatusText says why, rendered neutral rather than a red "missing".
+	Unknown bool
+	pending bool
 }
 
 // Model is §35a's screen.
@@ -153,6 +157,11 @@ type Model struct {
 	haveSecret bool
 	haveIssuer bool
 	attempts   int
+	// chainNote flags a chain read whose cache hadn't filled or had stopped
+	// filling (Forbidden, failing LIST) — the chain shown may be truncated,
+	// and saying so beats a healthy-looking one-node chain.
+	chainNote    string
+	syncRetryGen int
 
 	// now is the clock the age columns and the failure card's "N ago" render
 	// from, refreshed on a tick — never a clock read inside View/Render
@@ -178,6 +187,11 @@ type loadedMsg struct {
 	attempts   int
 	gone       bool
 	err        error
+	// pending is set when a read missed against a cache still filling;
+	// applyLoaded schedules a retry, since an object that genuinely isn't
+	// there syncs without a change event.
+	pending   bool
+	chainNote string
 }
 
 // New builds the screen, filling defaults for zero values per repo

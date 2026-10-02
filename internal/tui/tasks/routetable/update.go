@@ -187,6 +187,10 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	if retry == nil && msg.certsPending {
+		m.syncRetryGen++
+		retry = tui.ScheduleCacheSyncRetry(m.syncRetryGen)
+	}
 	return m, retry
 }
 

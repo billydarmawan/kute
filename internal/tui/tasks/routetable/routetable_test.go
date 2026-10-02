@@ -757,3 +757,73 @@ func TestLoadGatewayCrossNamespaceCertificateRef(t *testing.T) {
 		t.Fatalf("listeners = %+v, want the https listener's cert read from certs/wild-tls", m.listeners)
 	}
 }
+
+// secretGateLister answers every read from lister, with the Secret cache's
+// own sync/error state set per test.
+type secretGateLister struct {
+	lister       fakeLister
+	secretSynced bool
+	secretErr    error
+}
+
+func (l secretGateLister) ListRaw(ctx context.Context, kind kube.ResourceKind, namespace string) ([]runtime.Object, error) {
+	return l.lister.ListRaw(ctx, kind, namespace)
+}
+
+func (l secretGateLister) KindSynced(kind kube.ResourceKind, _ string) bool {
+	return kind != kube.KindSecret || l.secretSynced
+}
+
+func (l secretGateLister) KindError(kind kube.ResourceKind, _ string) error {
+	if kind == kube.KindSecret {
+		return l.secretErr
+	}
+	return nil
+}
+
+func tlsIngress() *networkingv1.Ingress {
+	ing := testIngress()
+	ing.Spec.TLS = []networkingv1.IngressTLS{{Hosts: []string{"web.local"}, SecretName: "web-tls"}}
+	return ing
+}
+
+// A TLS Secret missing from a Forbidden Secret cache proves nothing about
+// the cluster: the fact says the Secret can't be read, neutral, never a red
+// "secret not found".
+func TestIngressTLSFactOnForbiddenSecretsIsNotNotFound(t *testing.T) {
+	lister := secretGateLister{
+		lister:       fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindIngress: {tlsIngress()}}},
+		secretSynced: true,
+		secretErr:    apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "", errors.New("nope")),
+	}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.tlsFacts) == 0 {
+		t.Fatal("expected a TLS fact")
+	}
+	if f := m.tlsFacts[0]; f.expiry != "secrets: permission denied" || f.class != resources.StatusNeutral {
+		t.Fatalf("tls fact = %+v, want a neutral permission-denied fact", f)
+	}
+}
+
+// A Secret cache still filling reads as loading and schedules a retry —
+// a Secret that genuinely isn't there syncs without a change event.
+func TestIngressTLSFactWhileSecretsFillAsksForRetry(t *testing.T) {
+	lister := secretGateLister{
+		lister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindIngress: {tlsIngress()}}},
+	}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+	m.SetSize(120, 36)
+	msg := m.load()()
+	updated, cmd := m.Update(msg)
+	m = *updated.(*Model)
+
+	if len(m.tlsFacts) == 0 || m.tlsFacts[0].expiry != "loading…" {
+		t.Fatalf("tls facts = %+v, want a loading fact", m.tlsFacts)
+	}
+	if cmd == nil {
+		t.Fatal("expected a cache-sync retry while the Secret cache fills")
+	}
+}

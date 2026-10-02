@@ -16,6 +16,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
+	"github.com/kute-dev/kute/internal/tui"
 )
 
 // load dispatches to the flavor-specific loader for m.kind — the single
@@ -75,10 +76,12 @@ func (m Model) loadIngress() tea.Cmd {
 		// wildcardFactIdx is the "no Hosts named" block that covers every
 		// rule (mirrors httpsHosts[""] above).
 		var facts []tlsFact
+		certsPending := false
 		hostFactIdx := map[string]int{}
 		wildcardFactIdx := -1
 		for i, t := range ing.Spec.TLS {
-			expiry, ec := resolveCertExpiry(ctx, lister, ns, t.SecretName)
+			expiry, ec, pending := resolveCertExpiry(ctx, lister, ns, t.SecretName)
+			certsPending = certsPending || pending
 			facts = append(facts, tlsFact{secretName: t.SecretName, hosts: t.Hosts, expiry: expiry, class: ec})
 			if len(t.Hosts) == 0 {
 				wildcardFactIdx = i
@@ -135,7 +138,7 @@ func (m Model) loadIngress() tea.Cmd {
 
 		return loadedMsg{
 			flavor: flavorIngress, ingressClass: class, ingressHostCount: len(hostSet),
-			rows: rows, tlsFacts: facts,
+			rows: rows, tlsFacts: facts, certsPending: certsPending,
 		}
 	}
 }
@@ -187,43 +190,60 @@ func backendPortText(ctx context.Context, lister resources.RawLister, ns, svcNam
 }
 
 // resolveCertExpiry parses a TLS Secret's tls.crt to report expiry, per
-// docs/design README.md §23a: "yellow <30d, red expired".
-func resolveCertExpiry(ctx context.Context, lister resources.RawLister, ns, secretName string) (text string, class resources.StatusClass) {
+// docs/design README.md §23a: "yellow <30d, red expired". A miss is only
+// "secret not found" once the Secret cache for ns has settled without an
+// error: a still-filling cache reports pending (the caller schedules a
+// retry, since a namespace with no such Secret syncs without an event), and
+// a Forbidden one — common, many users can't list Secrets — says so,
+// neutral, instead of a permanent red claim about the cluster.
+func resolveCertExpiry(ctx context.Context, lister resources.RawLister, ns, secretName string) (text string, class resources.StatusClass, pending bool) {
 	if lister == nil || secretName == "" {
-		return "–", resources.StatusNeutral
+		return "–", resources.StatusNeutral, false
 	}
 	objs, err := lister.ListRaw(ctx, kube.KindSecret, ns)
 	if err != nil {
-		return "–", resources.StatusNeutral
+		return "–", resources.StatusNeutral, false
 	}
+	var secret *corev1.Secret
 	for _, obj := range objs {
-		secret, ok := obj.(*corev1.Secret)
-		if !ok || secret.Name != secretName {
-			continue
-		}
-		raw := secret.Data["tls.crt"]
-		if len(raw) == 0 {
-			return "no cert data", resources.StatusWarn
-		}
-		block, _ := pem.Decode(raw)
-		if block == nil {
-			return "invalid cert", resources.StatusWarn
-		}
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return "invalid cert", resources.StatusWarn
-		}
-		days, expired, class := resources.CertExpiry(cert.NotAfter, time.Now())
-		switch {
-		case expired && days == 0:
-			return "expired <1d ago", class
-		case expired:
-			return fmt.Sprintf("expired %dd ago", days), class
-		default:
-			return fmt.Sprintf("expires in %dd", days), class
+		if s, ok := obj.(*corev1.Secret); ok && s.Name == secretName {
+			secret = s
+			break
 		}
 	}
-	return "secret not found", resources.StatusFail
+	if secret == nil {
+		if !tui.KindsSynced(lister, ns, kube.KindSecret) {
+			return "loading…", resources.StatusNeutral, true
+		}
+		if kerr := tui.KindsError(lister, ns, kube.KindSecret); kerr != nil {
+			if kube.IsPermissionError(kerr) {
+				return "secrets: permission denied", resources.StatusNeutral, false
+			}
+			return "secrets: unavailable", resources.StatusNeutral, false
+		}
+		return "secret not found", resources.StatusFail, false
+	}
+	raw := secret.Data["tls.crt"]
+	if len(raw) == 0 {
+		return "no cert data", resources.StatusWarn, false
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil {
+		return "invalid cert", resources.StatusWarn, false
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "invalid cert", resources.StatusWarn, false
+	}
+	days, expired, class := resources.CertExpiry(cert.NotAfter, time.Now())
+	switch {
+	case expired && days == 0:
+		return "expired <1d ago", class, false
+	case expired:
+		return fmt.Sprintf("expired %dd ago", days), class, false
+	default:
+		return fmt.Sprintf("expires in %dd", days), class, false
+	}
 }
 
 // loadRoute resolves 23b's HTTPRoute/GRPCRoute/TCPRoute flavor: one row per
@@ -246,9 +266,9 @@ func (m Model) loadRoute() tea.Cmd {
 
 		rows := routeRowsFromRoute(ctx, lister, ns, u)
 		parentText, attached, parentNS, parentName, sectionName := parentSummary(ns, u)
-		listenerText := ""
+		listenerText, certsPending := "", false
 		if parentName != "" {
-			listenerText = resolveParentListenerDetail(ctx, lister, parentNS, parentName, sectionName)
+			listenerText, certsPending = resolveParentListenerDetail(ctx, lister, parentNS, parentName, sectionName)
 		}
 
 		hostnames, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "hostnames")
@@ -264,6 +284,7 @@ func (m Model) loadRoute() tea.Cmd {
 			parentGatewayNS: parentNS, parentGatewayName: parentName,
 			parentListenerText: listenerText,
 			routeHostText:      hostText, routeRuleCount: len(rulesRaw),
+			certsPending: certsPending,
 		}
 	}
 }
@@ -274,11 +295,11 @@ func (m Model) loadRoute() tea.Cmd {
 // expires in 61d") — best-effort: a Gateway that can't be read, or a listener
 // name that no longer matches, still returns the bare "gw/<name>" identity
 // rather than an empty line.
-func resolveParentListenerDetail(ctx context.Context, lister resources.RawLister, gatewayNS, gatewayName, sectionName string) string {
+func resolveParentListenerDetail(ctx context.Context, lister resources.RawLister, gatewayNS, gatewayName, sectionName string) (text string, certsPending bool) {
 	base := "gw/" + gatewayName
 	u, err := findUnstructured(ctx, lister, kube.KindGateway, gatewayNS, gatewayName)
 	if err != nil {
-		return base
+		return base, false
 	}
 	listenersSpec, _, _ := unstructured.NestedSlice(u.Object, "spec", "listeners")
 	for _, l := range listenersSpec {
@@ -295,17 +316,17 @@ func resolveParentListenerDetail(ctx context.Context, lister resources.RawLister
 		detail := fmt.Sprintf("%s · listener %s:%d", base, proto, port)
 		certRefs, found, _ := unstructured.NestedSlice(lm, "tls", "certificateRefs")
 		if !found || len(certRefs) == 0 {
-			return detail
+			return detail, false
 		}
 		cr, ok := certRefs[0].(map[string]any)
 		if !ok {
-			return detail
+			return detail, false
 		}
 		secretName, _, _ := unstructured.NestedString(cr, "name")
-		expiry, _ := resolveCertExpiry(ctx, lister, certRefNamespace(cr, gatewayNS), secretName)
-		return fmt.Sprintf("%s · secret/%s %s", detail, secretName, expiry)
+		expiry, _, pending := resolveCertExpiry(ctx, lister, certRefNamespace(cr, gatewayNS), secretName)
+		return fmt.Sprintf("%s · secret/%s %s", detail, secretName, expiry), pending
 	}
-	return base
+	return base, false
 }
 
 // certRefNamespace is a listener certificateRef's own namespace, defaulting
@@ -599,6 +620,7 @@ func (m Model) loadGateway() tea.Cmd {
 		}
 
 		var rows []listenerRow
+		certsPending := false
 		listenersSpec, _, _ := unstructured.NestedSlice(u.Object, "spec", "listeners")
 		for _, l := range listenersSpec {
 			lm, ok := l.(map[string]any)
@@ -617,7 +639,9 @@ func (m Model) loadGateway() tea.Cmd {
 			if certRefs, found, _ := unstructured.NestedSlice(lm, "tls", "certificateRefs"); found && len(certRefs) > 0 {
 				if cr, ok := certRefs[0].(map[string]any); ok {
 					secretName, _, _ := unstructured.NestedString(cr, "name")
-					tlsText, tlsClass = resolveCertExpiry(ctx, lister, certRefNamespace(cr, ns), secretName)
+					var pending bool
+					tlsText, tlsClass, pending = resolveCertExpiry(ctx, lister, certRefNamespace(cr, ns), secretName)
+					certsPending = certsPending || pending
 				}
 			}
 
@@ -627,6 +651,6 @@ func (m Model) loadGateway() tea.Cmd {
 			})
 		}
 
-		return loadedMsg{flavor: flavorGateway, gatewayClass: gwClass, listeners: rows}
+		return loadedMsg{flavor: flavorGateway, gatewayClass: gwClass, listeners: rows, certsPending: certsPending}
 	}
 }
