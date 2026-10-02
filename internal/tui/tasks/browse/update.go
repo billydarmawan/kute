@@ -282,6 +282,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.epoch == m.metricsEpoch && m.pollsMetrics() {
 			return m, tea.Batch(m.loadMetricsCmd(m.metricsEpoch), m.scheduleMetricsTick(m.metricsEpoch))
 		}
+	case setResourcesMetricsMsg:
+		m.applySetResourcesMetrics(msg)
+		return m, nil
 	case podMetricsLoadedMsg:
 		if msg.epoch == m.metricsEpoch && msg.namespace == m.countNamespace() && msg.err == nil {
 			m.podMetrics = msg.metrics
@@ -761,8 +764,8 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case verbs.SetImage.Key:
 		m.beginSetImage()
 	case "V":
-		if resourceEditable(m.kind) && m.mutator != nil {
-			m.beginSetResources()
+		if resourceEditable(m.kind) && m.mutator != nil && m.beginSetResources() {
+			return m, m.loadSetResourcesMetrics()
 		}
 	case verbs.Meta.Key:
 		if metapanel.Editable(m.kind) && m.mutator != nil {
@@ -823,7 +826,9 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// claim 'r' (and then be refused by actions as offline).
 			m.retrier.RetryNow()
 		case resourceEditable(m.kind) && m.state == tui.TaskStateReady && m.mutator != nil:
-			m.beginSetResources()
+			if m.beginSetResources() {
+				return m, m.loadSetResourcesMetrics()
+			}
 		case m.fluxVerbsApply():
 			// §30a's reconcile. Ahead of the error retry case below because
 			// a Flux list in TaskStateReady is by definition not in the

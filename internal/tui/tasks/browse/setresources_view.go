@@ -238,7 +238,8 @@ func (m Model) setResourcesNewCell(f resourceField, selected bool, theme tui.The
 // against f's own current quantity as the denominator (the request/limit
 // row's own configured value — the NEW typed value is a decision being
 // made, not what's being measured against), or "metrics unavailable" in dim
-// when no usage sample exists for the active container at all.
+// when no usage sample exists for the active container at all ("loading…"
+// while the panel's one metrics read is still in flight).
 func (t *setResourcesTarget) usageCell(f resourceField, selected bool, theme tui.Theme) string {
 	withBg := func(s lipgloss.Style) lipgloss.Style {
 		if selected {
@@ -249,6 +250,9 @@ func (t *setResourcesTarget) usageCell(f resourceField, selected bool, theme tui
 	fill := withBg(lipgloss.NewStyle())
 	dim := withBg(lipgloss.NewStyle().Foreground(theme.TextDim))
 	if !t.usageOK {
+		if t.metricsLoading {
+			return dim.Render("loading…")
+		}
 		return dim.Render("metrics unavailable")
 	}
 

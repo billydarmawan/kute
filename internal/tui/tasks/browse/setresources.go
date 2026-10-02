@@ -107,10 +107,13 @@ type setResourcesTarget struct {
 	// pods are the workload's own live pods (workloadPods), the source for
 	// both the per-container usage sample and the OOMKill callout.
 	pods []*corev1.Pod
-	// containerMetrics is one ContainerMetricsByNamespace snapshot taken at
-	// beginSetResources time — namespace-scoped, re-sliced per container on
-	// each tab switch rather than re-fetched.
+	// containerMetrics is one ContainerMetricsByNamespace snapshot fetched
+	// off the update loop when the panel opens (loadSetResourcesMetrics) —
+	// namespace-scoped, re-sliced per container on each tab switch and
+	// carried across post-apply refreshes rather than re-fetched, since only
+	// the spec changed. metricsLoading is true until that fetch answers.
 	containerMetrics map[string]map[string]kube.PodMetrics
+	metricsLoading   bool
 
 	containers   []kube.ContainerInfo
 	containerIdx int
@@ -202,6 +205,7 @@ func (m *Model) beginSetResources() bool {
 	if !ok {
 		return false
 	}
+	t.metricsLoading = m.metrics != nil
 	m.pendingSetResources = t
 	m.selectSetResourcesContainer(0)
 	return true
@@ -219,25 +223,62 @@ func (m *Model) buildSetResourcesTarget(kind kube.ResourceKind, namespace, name 
 	return &setResourcesTarget{
 		kind: kind, namespace: namespace, name: name,
 		obj: obj, containers: containers, desiredCount: desiredCount,
-		pods:             workloadPods(m.session.ClusterContext(), m.lister, kind, namespace, name),
-		containerMetrics: m.containerMetricsSnapshot(namespace),
+		pods: workloadPods(m.session.ClusterContext(), m.lister, kind, namespace, name),
 	}, true
 }
 
-// containerMetricsSnapshot reads one ContainerMetricsByNamespace poll — nil
-// when browse has no metrics reader wired or the read fails, in which case
-// every field renders "metrics unavailable" rather than blocking the editor
-// (docs/design README.md §25a: "No metrics → USAGE column reads 'metrics
-// unavailable' dim, editor still works").
-func (m *Model) containerMetricsSnapshot(namespace string) map[string]map[string]kube.PodMetrics {
-	if m.metrics == nil {
+// setResourcesMetricsMsg carries loadSetResourcesMetrics' one snapshot back
+// to the panel it was fetched for.
+type setResourcesMetricsMsg struct {
+	kind            kube.ResourceKind
+	namespace, name string
+	metrics         map[string]map[string]kube.PodMetrics
+}
+
+// loadSetResourcesMetrics reads one ContainerMetricsByNamespace snapshot for
+// the just-opened panel in a tea.Cmd under browse's own timeout — never in
+// Update, where a metrics.k8s.io APIService that hangs rather than failing
+// would freeze every key. A failed read lands as nil metrics, so every field
+// renders "metrics unavailable" rather than blocking the editor (docs/design
+// README.md §25a: "No metrics → USAGE column reads 'metrics unavailable'
+// dim, editor still works").
+func (m *Model) loadSetResourcesMetrics() tea.Cmd {
+	t := m.pendingSetResources
+	if t == nil || m.metrics == nil {
 		return nil
 	}
-	metrics, err := m.metrics.ContainerMetricsByNamespace(m.session.ClusterContext(), namespace)
-	if err != nil {
-		return nil
+	reader := m.metrics
+	kind, namespace, name := t.kind, t.namespace, t.name
+	timeout := m.timeout
+	parent := m.session.ClusterContext()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parent, timeout)
+		defer cancel()
+		metrics, err := reader.ContainerMetricsByNamespace(ctx, namespace)
+		if err != nil {
+			metrics = nil
+		}
+		return setResourcesMetricsMsg{kind: kind, namespace: namespace, name: name, metrics: metrics}
 	}
-	return metrics
+}
+
+// applySetResourcesMetrics stores msg's snapshot on the still-open panel it
+// was fetched for and recomputes the active container's usage only — the
+// four fields may already hold typed values, so they're left alone.
+func (m *Model) applySetResourcesMetrics(msg setResourcesMetricsMsg) {
+	t := m.pendingSetResources
+	if t == nil || !t.metricsLoading || t.kind != msg.kind || t.namespace != msg.namespace || t.name != msg.name {
+		return
+	}
+	t.containerMetrics = msg.metrics
+	t.metricsLoading = false
+	t.cpuMilli, t.memBytes, t.usageOK = containerUsage(t.containerMetrics, t.pods, t.activeContainer().Name)
+}
+
+// carrySetResourcesMetrics moves from's metrics snapshot onto a rebuilt
+// target, so a post-apply refresh re-reads only the spec.
+func carrySetResourcesMetrics(from, to *setResourcesTarget) {
+	to.containerMetrics, to.metricsLoading = from.containerMetrics, from.metricsLoading
 }
 
 // selectSetResourcesContainer switches the panel's active container tab
@@ -658,6 +699,7 @@ func (m *Model) handleSetResourcesResult(msg actions.ResultMsg) tea.Cmd {
 		m.pendingSetResources = nil
 		return nil
 	}
+	carrySetResourcesMetrics(t, fresh)
 	m.pendingSetResources = fresh
 	idx := 0
 	for i, c := range fresh.containers {
@@ -678,6 +720,7 @@ func (m *Model) refreshSetResourcesTarget() {
 	if !ok {
 		return
 	}
+	carrySetResourcesMetrics(t, fresh)
 	m.pendingSetResources = fresh
 	idx := 0
 	for i, c := range fresh.containers {

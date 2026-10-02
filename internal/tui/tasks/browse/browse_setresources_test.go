@@ -1,6 +1,7 @@
 package browse
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	kubefake "github.com/kute-dev/kute/internal/kube/fake"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // resourcesDeployment is "nva-worker": a single "worker" container with
@@ -471,11 +473,73 @@ func TestBeginSetResourcesShowsLiveUsageFromProviderKeyedMetrics(t *testing.T) {
 	if !m.beginSetResources() {
 		t.Fatal("beginSetResources returned false")
 	}
+	m = step(t, m, m.loadSetResourcesMetrics()())
 	tgt := m.pendingSetResources
 	if !tgt.usageOK {
 		t.Fatal("usageOK = false: the panel never joined the pod's metrics sample")
 	}
 	if tgt.cpuMilli != 182 || tgt.memBytes != 300<<20 {
 		t.Errorf("usage = (%dm, %d bytes), want (182m, %d bytes) from default/%s", tgt.cpuMilli, tgt.memBytes, 300<<20, pod.Name)
+	}
+}
+
+// countingContainerMetrics counts ContainerMetricsByNamespace calls, so a
+// test can prove the read never happens inside Update.
+type countingContainerMetrics struct {
+	fakeMetrics
+	calls *int
+}
+
+func (c countingContainerMetrics) ContainerMetricsByNamespace(ctx context.Context, ns string) (map[string]map[string]kube.PodMetrics, error) {
+	*c.calls++
+	return c.fakeMetrics.ContainerMetricsByNamespace(ctx, ns)
+}
+
+// TestSetResourcesMetricsReadNeverBlocksUpdate pins review 06 M4: opening
+// 25a must not read metrics-server synchronously inside Update (a hung
+// metrics.k8s.io APIService froze every key), and a watch event refreshing
+// the post-apply panel must reuse the panel's snapshot rather than read it
+// again — only the spec changed.
+func TestSetResourcesMetricsReadNeverBlocksUpdate(t *testing.T) {
+	dep := resourcesDeployment("default", "nva-worker")
+	rs, pod := resourcesOwnerChain("default", "nva-worker")
+	lister := resourcesLister(dep, rs, pod)
+	calls := 0
+	metrics := countingContainerMetrics{calls: &calls, fakeMetrics: fakeMetrics{containerMetrics: map[string]map[string]kube.PodMetrics{
+		kube.PodKey("default", pod.Name): {"worker": {CPUMilli: 182, MemBytes: 300 << 20}},
+	}}}
+	session := newSession()
+	session.Location.Kind = kube.KindDeployment
+	m := New(Config{Session: session, Lister: lister, Metrics: metrics, Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Text: verbs.SetResources.Key})
+	m = *updated.(*Model)
+	if m.pendingSetResources == nil {
+		t.Fatal("expected the set resources panel to open")
+	}
+	if calls != 0 {
+		t.Fatalf("Update read container metrics %d times, want 0 — the read belongs in a tea.Cmd", calls)
+	}
+	if !strings.Contains(plain(m.Render()), "loading…") {
+		t.Fatalf("expected USAGE to read loading… while the metrics read is in flight:\n%s", plain(m.Render()))
+	}
+	if cmd == nil {
+		t.Fatal("expected a metrics read command")
+	}
+	m = step(t, m, cmd())
+	if calls != 1 || !m.pendingSetResources.usageOK {
+		t.Fatalf("calls = %d, usageOK = %v after the read landed, want 1/true", calls, m.pendingSetResources.usageOK)
+	}
+
+	m.pendingSetResources.message = "set resources: worker"
+	updated, _ = m.Update(kube.ResourceChangedMsg{Kind: kube.KindDeployment})
+	m = *updated.(*Model)
+	if calls != 1 {
+		t.Fatalf("a watch-event refresh read container metrics again (calls = %d), want the snapshot reused", calls)
+	}
+	if !m.pendingSetResources.usageOK || m.pendingSetResources.cpuMilli != 182 {
+		t.Fatalf("refresh dropped the usage snapshot: usageOK=%v cpu=%d", m.pendingSetResources.usageOK, m.pendingSetResources.cpuMilli)
 	}
 }
