@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -809,14 +808,21 @@ func buildDemoBrowseFactory(sess *tui.Session, demoCluster *fake.Cluster, cluste
 }
 
 // attemptReconnect is tasks/setup's Reconnect hook (10b's 'r'/'k', 4c's
-// 'e'): optionally repoints $KUBECONFIG and rebuilds the cluster through
-// rebuildCluster.
+// 'e'): optionally repoints the kubeconfig and rebuilds the cluster through
+// rebuildCluster, resolving the context the way launch does (--context, else
+// the most recent one the file still has) rather than the file's own
+// current-context, and reopening on the same namespace/kind restore and -n.
 func attemptReconnect(cfg Config, sess *tui.Session, path string) tea.Cmd {
-	return rebuildCluster(cfg, sess, func() (*kube.Cluster, error) {
+	// Snapshotted here, on the Update loop: the Cmd must not read Session.
+	recents := state.State{RecentContexts: slices.Clone(sess.State.RecentContexts)}
+	return rebuildCluster(cfg, sess, path, true, func() (*kube.Cluster, error) {
 		if path != "" {
-			_ = os.Setenv("KUBECONFIG", path)
+			// The override every kubeconfig read resolves through. Setting
+			// $KUBECONFIG instead did nothing under --kubeconfig, which the
+			// override outranks.
+			kube.SetKubeconfigPath(path)
 		}
-		return kube.NewCluster()
+		return kube.NewClusterForContext(startupContext(cfg, recents))
 	})
 }
 
@@ -827,7 +833,7 @@ func attemptReconnect(cfg Config, sess *tui.Session, path string) tea.Cmd {
 // current-context, so selecting a reachable sibling context actually
 // switches to it rather than retrying the same failing one.
 func attemptSwitchContext(cfg Config, sess *tui.Session, contextName string) tea.Cmd {
-	return rebuildCluster(cfg, sess, func() (*kube.Cluster, error) {
+	return rebuildCluster(cfg, sess, "", false, func() (*kube.Cluster, error) {
 		return kube.NewClusterForContext(contextName)
 	})
 }
@@ -846,7 +852,12 @@ func attemptSwitchContext(cfg Config, sess *tui.Session, contextName string) tea
 // ConnStateMsg, the c palette 4c leaves open), so every Session write — and
 // the browse build that reads them — happens in ReplaceRootMsg.Commit, on
 // the Update loop.
-func rebuildCluster(cfg Config, sess *tui.Session, build func() (*kube.Cluster, error)) tea.Cmd {
+//
+// kubeconfig, when set, is the path build pointed kube at, recorded on the
+// Session for the kubectl commands kute runs. relaunch applies -n on top of
+// the restored location, as launch does; a switch to a named context
+// doesn't, as 7a's doesn't.
+func rebuildCluster(cfg Config, sess *tui.Session, kubeconfig string, relaunch bool, build func() (*kube.Cluster, error)) tea.Cmd {
 	old := sess.Cluster // captured on the Update loop, before the Cmd runs
 	return func() tea.Msg {
 		// Built before the old cluster is touched: a build that fails (a
@@ -892,11 +903,20 @@ func rebuildCluster(cfg Config, sess *tui.Session, build func() (*kube.Cluster, 
 				if sess.DebugCopies == nil {
 					sess.DebugCopies = kube.NewDebugCopyRegistry()
 				}
+				if kubeconfig != "" {
+					sess.Kubeconfig = kubeconfig
+				}
 				sess.Cluster = cluster
 				sess.Lister = newSessionLister(cluster, sess.Forwards, sess.Charts)
 				sess.Metrics = cluster
-				sess.Location.Context = cluster.Context.ContextName
-				sess.Location.Namespace = cluster.Context.Namespace
+				sess.ClearPendingKind()
+				sess.Location = restoredLocation(sess.State, cluster.Context)
+				if relaunch && cfg.Namespace != "" {
+					sess.Location.Namespace = cfg.Namespace
+				}
+				if cfg.ScopeNamespace != "" {
+					sess.Location.Namespace = cfg.ScopeNamespace
+				}
 				// cluster.Start above already ran discovery synchronously
 				// (folded in, best-effort), so DiscoveredKinds is ready by
 				// now — no need for the async CRDsDiscoveredMsg hop this

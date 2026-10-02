@@ -71,17 +71,7 @@ func BuildSession(cfg Config) (sess *tui.Session, cluster *kube.Cluster, err err
 		return sess, nil, err
 	}
 	sess.Cluster = cluster
-	sess.Location.Context = cluster.Context.ContextName
-	sess.Location.Namespace = cluster.Context.Namespace
-	if pc, ok := sessionState.PerContext[cluster.Context.ContextName]; ok {
-		if pc.Namespace != "" {
-			sess.Location.Namespace = pc.Namespace
-		}
-		if pc.Kind != "" {
-			sess.Location.Kind = kube.ResourceKind(pc.Kind)
-		}
-		sess.Location.Filter = pc.Filter
-	}
+	sess.Location = restoredLocation(sessionState, cluster.Context)
 	// -n/--namespace is the highest-precedence namespace source, so it's
 	// applied last: an explicit flag has to beat both the context's own
 	// default namespace and the per-context restore above.
@@ -100,6 +90,24 @@ func BuildSession(cfg Config) (sess *tui.Session, cluster *kube.Cluster, err err
 		cluster.SetNamespaceScope(cfg.ScopeNamespace)
 	}
 	return sess, cluster, nil
+}
+
+// restoredLocation is where a freshly built cluster for ctx opens: the
+// context's own namespace, overridden by that context's persisted
+// namespace/kind/filter (state.PerContext) — the same restore 7a's switch
+// does. Shared by launch and 4c/10b's rebuilds so the two never drift.
+func restoredLocation(st state.State, ctx kube.Context) tui.Location {
+	loc := tui.Location{Context: ctx.ContextName, Namespace: ctx.Namespace}
+	if pc, ok := st.PerContext[ctx.ContextName]; ok {
+		if pc.Namespace != "" {
+			loc.Namespace = pc.Namespace
+		}
+		if pc.Kind != "" {
+			loc.Kind = kube.ResourceKind(pc.Kind)
+		}
+		loc.Filter = pc.Filter
+	}
+	return loc
 }
 
 // startupContext picks the kubeconfig context to launch against: --context

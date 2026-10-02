@@ -254,6 +254,7 @@ func TestNewModelDemoStartsInFlaggedNamespace(t *testing.T) {
 // running: r on the 4c that stays up is bound to the old cluster's RetryNow,
 // and its in-flight reads have nothing newer to give way to.
 func TestFailedRebuildKeepsTheOldCluster(t *testing.T) {
+	t.Cleanup(func() { kube.SetKubeconfigPath("") })
 	writeTestKubeconfig(t, "ctx-a")
 	sess, old, err := BuildSession(Config{})
 	if err != nil || old == nil {
@@ -294,9 +295,10 @@ func TestRebuildWritesSessionOnlyInCommit(t *testing.T) {
 	sess.SetContext(ctx)
 	before := sess.Location
 
-	msg, ok := attemptSwitchContext(Config{}, sess, "ctx-b")().(tui.ReplaceRootMsg)
+	raw := attemptSwitchContext(Config{}, sess, "ctx-b")()
+	msg, ok := raw.(tui.ReplaceRootMsg)
 	if !ok || msg.Commit == nil {
-		t.Fatalf("attemptSwitchContext() = %T, want a ReplaceRootMsg with a Commit", msg)
+		t.Fatalf("attemptSwitchContext() = %#v, want a ReplaceRootMsg with a Commit", raw)
 	}
 	if sess.Cluster != old || sess.Location != before {
 		t.Fatalf("the rebuild's Cmd wrote the Session: cluster replaced %v, location %+v (was %+v)", sess.Cluster != old, sess.Location, before)
@@ -308,5 +310,45 @@ func TestRebuildWritesSessionOnlyInCommit(t *testing.T) {
 	t.Cleanup(sess.Cluster.Stop)
 	if sess.Cluster == old || sess.Location.Context != "ctx-b" {
 		t.Errorf("after Commit: cluster replaced %v, location %+v; want the new ctx-b cluster", sess.Cluster != old, sess.Location)
+	}
+}
+
+// 10b's k / 4c's e after a launch with a wrong --kubeconfig: the typed path
+// must win over the flag (it used to set $KUBECONFIG, which the flag
+// outranks, so every retry read the same wrong file), and the rebuilt
+// session must land where launch would have — the most recent context the
+// file has, with that context's own namespace and kind — not on the file's
+// current-context.
+func TestReconnectWithTypedKubeconfigOutranksFlagAndRestoresLocation(t *testing.T) {
+	t.Cleanup(func() { kube.SetKubeconfigPath("") })
+	writeTestKubeconfig(t, "ctx-a")
+	right := os.Getenv("KUBECONFIG")
+	t.Setenv("KUBECONFIG", "")
+	cfg := Config{Kubeconfig: filepath.Join(t.TempDir(), "wrong")}
+
+	sess, cluster, err := BuildSession(cfg)
+	if err == nil || cluster != nil {
+		t.Fatalf("BuildSession() = %v, cluster %v; want a failure for the wrong --kubeconfig", err, cluster)
+	}
+	sess.State = state.State{
+		RecentContexts: []string{"ctx-b"},
+		PerContext:     map[string]state.PerContext{"ctx-b": {Namespace: "payments", Kind: string(kube.KindDeployment)}},
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // Start gives up at once instead of waiting on a server that isn't there
+	sess.SetContext(ctx)
+
+	raw := attemptReconnect(cfg, sess, right)()
+	msg, ok := raw.(tui.ReplaceRootMsg)
+	if !ok {
+		t.Fatalf("attemptReconnect() = %#v, want ReplaceRootMsg: the typed path was not used", raw)
+	}
+	msg.Commit()
+	t.Cleanup(sess.Cluster.Stop)
+	if got := sess.Location; got.Context != "ctx-b" || got.Namespace != "payments" || got.Kind != kube.KindDeployment {
+		t.Errorf("Location = %+v, want ctx-b/payments/Deployment restored as at launch", got)
+	}
+	if sess.Kubeconfig != right {
+		t.Errorf("Session.Kubeconfig = %q, want the typed path %q for kubectl", sess.Kubeconfig, right)
 	}
 }
