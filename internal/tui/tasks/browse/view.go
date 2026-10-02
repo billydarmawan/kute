@@ -142,28 +142,17 @@ func (m Model) Header() tui.HeaderState {
 	}
 }
 
-// stripLineCount is how many Strips lines the current state renders — kept
-// in sync with Strips itself so selection.go's tableDataRows can budget the
-// table viewport correctly. §36a's CronJob behavior strip is NOT counted
-// here — per the design mockup it renders at the bottom of the table body,
-// not among these top-of-screen strips; see tableDataRows/tableBody's own
-// reservation for it instead.
+// stripLineCount is how many Strips lines the current state renders, so
+// selection.go's tableDataRows can budget the table viewport correctly.
+// Counted from Strips itself rather than mirrored by hand: a hand-kept
+// mirror drifted (the offline banner's rule line, the aux-kinds and follow
+// notes), and every line it missed pushed the cursor below the last
+// rendered row. §36a's CronJob behavior strip is NOT counted here — per the
+// design mockup it renders at the bottom of the table body, not among these
+// top-of-screen strips; see tableDataRows/tableBody's own reservation for
+// it instead.
 func (m Model) stripLineCount() int {
-	switch m.state {
-	case tui.TaskStateEmpty, tui.TaskStateLoading:
-		return 1
-	case tui.TaskStateReady:
-		n := 1
-		if m.offline() {
-			n = 2 // banner + stale strip, replacing the health strip
-		}
-		if m.filterActive {
-			n++
-		}
-		return n
-	default:
-		return 0
-	}
+	return len(m.Strips(m.width))
 }
 
 // Strips shows the table's column header line in the empty state (10c: "the
