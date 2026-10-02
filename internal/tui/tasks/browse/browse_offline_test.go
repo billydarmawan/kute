@@ -280,3 +280,30 @@ func TestUnauthenticatedBannerSaysReauthenticateInsteadOfCountingDown(t *testing
 		t.Errorf("banner = %q, want the explicit retry key", banner)
 	}
 }
+
+// TestOfflineRetryKeyWinsOverRowVerbs: an offline list keeps its rows in
+// TaskStateReady, so on a kind whose 'r' is a row verb (Deployments' set
+// resources) the banner's "r retry now" must still reach the retrier rather
+// than opening the row verb.
+func TestOfflineRetryKeyWinsOverRowVerbs(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindDeployment: {deploymentObj("default", "api")},
+	}}
+	retrier := &fakeRetrier{}
+	session := newSession()
+	session.Location.Kind = kube.KindDeployment
+	m := New(Config{Session: session, Lister: lister, Mutator: &fakeMutator{}, Retrier: retrier})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	m = step(t, m, kube.ConnStateMsg{Phase: kube.ConnReconnecting, Err: "boom"})
+
+	updated, _ := m.updateKey(tea.KeyPressMsg{Text: "r"})
+	m = *updated.(*Model)
+
+	if retrier.calls != 1 {
+		t.Fatalf("RetryNow calls = %d, want 1", retrier.calls)
+	}
+	if m.pendingSetResources != nil {
+		t.Fatal("offline 'r' opened the set-resources panel instead of retrying")
+	}
+}

@@ -815,12 +815,18 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case verbs.SetResources.Key:
 		switch {
+		case m.offline() && m.retrier != nil:
+			// 4a's "r retry now", promised by the offline banner and
+			// keybar. First, because an offline list keeps its rows in
+			// TaskStateReady, so every row verb below would otherwise
+			// claim 'r' (and then be refused by actions as offline).
+			m.retrier.RetryNow()
 		case resourceEditable(m.kind) && m.state == tui.TaskStateReady && m.mutator != nil:
 			m.beginSetResources()
 		case m.fluxVerbsApply():
-			// §30a's reconcile. Ahead of the retry cases below because a
-			// Flux list in TaskStateReady is by definition not in the
-			// offline/error states those handle.
+			// §30a's reconcile. Ahead of the error retry case below because
+			// a Flux list in TaskStateReady is by definition not in the
+			// error states it handles.
 			if row, ok := m.selectedRow(); ok {
 				return m, m.beginFluxReconcile(row)
 			}
@@ -840,8 +846,6 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		case m.kind == kube.KindForward && m.state == tui.TaskStateReady:
 			return m, m.restartSelectedForward()
-		case m.offline() && m.retrier != nil:
-			m.retrier.RetryNow()
 		case m.state == tui.TaskStatePermissionDenied || m.state == tui.TaskStateError:
 			// Permission errors need a manual retry because RBAC will not change
 			// during this session; a load error is already being retried by the
