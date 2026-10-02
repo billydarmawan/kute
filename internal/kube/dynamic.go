@@ -299,7 +299,7 @@ func listDynamic(info dynamicKindInfo, namespace string) ([]runtime.Object, erro
 // as the round trip took, once per custom kind touched.
 func (c *Cluster) ensurePrinterColumns(kind ResourceKind) {
 	c.mu.Lock()
-	if c.crdColumnsFetched[kind] || c.crdColumnsInFlight[kind] {
+	if c.crdColumnsFetched[kind] || c.crdColumnsInFlight[kind] || c.hasCuratedColumnsLocked(kind) {
 		c.mu.Unlock()
 		return
 	}
@@ -326,6 +326,26 @@ func (c *Cluster) ensurePrinterColumns(kind ResourceKind) {
 			c.notify(gen, KindCustomResourceDefinition)
 		}
 	}()
+}
+
+// hasCuratedColumnsLocked reports whether kind is one of the discovered kinds
+// resources.BuildDiscoveredRegistry gives a curated descriptor with fixed
+// columns — Flux (by group), Argo CD's Application and cert-manager's
+// Certificate (by group and Kind) — so its CRD's printer columns would never
+// be read, and fetching them is a full CRD Get (schema and all, and Flux's
+// are among the largest) plus a registry rebuild for nothing. Keep the
+// predicates in step with BuildDiscoveredRegistry's switch. c.mu must be
+// held.
+func (c *Cluster) hasCuratedColumnsLocked(kind ResourceKind) bool {
+	for _, dk := range c.discovered {
+		if dk.RegistryKind() != kind {
+			continue
+		}
+		return IsFluxGroup(dk.Group) ||
+			(IsArgoGroup(dk.Group) && dk.Kind == "Application") ||
+			(dk.Group == CertManagerGroup && dk.Kind == string(KindCertificate))
+	}
+	return false
 }
 
 // clearPrinterColumnsInFlight drops kind's in-flight marker, gated on gen so
@@ -407,7 +427,11 @@ func (c *Cluster) fetchPrinterColumns(ctx context.Context, gen int, kind Resourc
 	}
 	c.crdColumnsFetched[kind] = true
 	for i := range c.discovered {
-		if ResourceKind(c.discovered[i].Kind) != kind {
+		// The registry key, as the CRD-name lookup above used: a substituted
+		// or qualified kind's bare Kind is not its key, and matching on it
+		// dropped the columns (or landed them on a same-Kind neighbour) while
+		// crdColumnsFetched already said they were in.
+		if c.discovered[i].RegistryKind() != kind {
 			continue
 		}
 		// Only the fields the cheap discovery pass couldn't supply. GVR

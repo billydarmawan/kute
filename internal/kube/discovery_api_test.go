@@ -2,6 +2,7 @@ package kube
 
 import (
 	"testing"
+	"testing/synctest"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -431,4 +432,83 @@ func TestSupersededStartLeavesDiscoveryAndVersionAlone(t *testing.T) {
 	if got := c.TimeZoneCapability(); got != TimeZoneCapabilityUnknown {
 		t.Fatalf("superseded version probe wrote %v into the new context, want Unknown", got)
 	}
+}
+
+// TestFetchPrinterColumnsLandsOnAQualifiedKind: a CRD whose Kind collides
+// with a built-in is addressed by its qualified registry key, and the fetched
+// columns must be written back under that same key — not dropped while the
+// kind is marked fetched for good.
+func TestFetchPrinterColumnsLandsOnAQualifiedKind(t *testing.T) {
+	t.Parallel()
+	crd := crdObject("services", "serving.knative.dev", "Service", []map[string]any{
+		{"name": "URL", "type": "string", "jsonPath": ".status.url"},
+	})
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{crdGVR: "CustomResourceDefinitionList"}, crd)
+	c := newDiscoveryTestCluster(
+		[]*metav1.APIResourceList{{
+			GroupVersion: "serving.knative.dev/v1",
+			APIResources: []metav1.APIResource{{Name: "services", Kind: "Service", Namespaced: true}},
+		}},
+		crdMeta("services.serving.knative.dev"),
+	)
+	c.dynClient = dyn
+	c.refreshDiscovery(t.Context(), c.generation, c.clientset)
+
+	kind := QualifiedKind("Service", "serving.knative.dev")
+	if changed := c.fetchPrinterColumns(t.Context(), c.generation, kind); !changed {
+		t.Fatal("fetchPrinterColumns reported no change for a qualified kind whose CRD declares a column")
+	}
+	if got := c.DiscoveredKinds()[0].PrinterColumns; len(got) != 1 || got[0].Name != "URL" {
+		t.Fatalf("printer columns = %+v, want URL", got)
+	}
+}
+
+// TestCuratedKindsFetchNoCRD: Flux kinds, Argo CD's Application and
+// cert-manager's Certificate render fixed curated columns, so reading one
+// must not pull its full CRD (schema and all) for printer columns nobody
+// reads.
+func TestCuratedKindsFetchNoCRD(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		crds := []*unstructured.Unstructured{
+			crdObject("kustomizations", FluxGroupKustomize, "Kustomization", []map[string]any{{"name": "Ready", "type": "string", "jsonPath": ".status.x"}}),
+			crdObject("helmreleases", FluxGroupHelm, "HelmRelease", []map[string]any{{"name": "Ready", "type": "string", "jsonPath": ".status.x"}}),
+			crdObject("applications", ArgoGroup, "Application", []map[string]any{{"name": "Sync", "type": "string", "jsonPath": ".status.x"}}),
+			crdObject("certificates", CertManagerGroup, "Certificate", []map[string]any{{"name": "Ready", "type": "string", "jsonPath": ".status.x"}}),
+		}
+		objs := make([]runtime.Object, len(crds))
+		for i, crd := range crds {
+			objs[i] = crd
+		}
+		dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+			map[schema.GroupVersionResource]string{crdGVR: "CustomResourceDefinitionList"}, objs...)
+		c := newDiscoveryTestCluster(
+			[]*metav1.APIResourceList{
+				{GroupVersion: FluxGroupKustomize + "/v1", APIResources: []metav1.APIResource{{Name: "kustomizations", Kind: "Kustomization", Namespaced: true}}},
+				{GroupVersion: FluxGroupHelm + "/v2", APIResources: []metav1.APIResource{{Name: "helmreleases", Kind: "HelmRelease", Namespaced: true}}},
+				{GroupVersion: ArgoGroup + "/v1alpha1", APIResources: []metav1.APIResource{{Name: "applications", Kind: "Application", Namespaced: true}}},
+				{GroupVersion: CertManagerGroup + "/v1", APIResources: []metav1.APIResource{{Name: "certificates", Kind: "Certificate", Namespaced: true}}},
+			},
+			crdMeta("kustomizations."+FluxGroupKustomize),
+			crdMeta("helmreleases."+FluxGroupHelm),
+			crdMeta("applications."+ArgoGroup),
+			crdMeta("certificates."+CertManagerGroup),
+		)
+		c.dynClient = dyn
+		c.refreshDiscovery(t.Context(), c.generation, c.clientset)
+		if got := len(c.DiscoveredKinds()); got != 4 {
+			t.Fatalf("precondition: discovered %d kinds, want 4", got)
+		}
+
+		for _, dk := range c.DiscoveredKinds() {
+			c.ensurePrinterColumns(dk.RegistryKind())
+		}
+		synctest.Wait()
+
+		for _, a := range dyn.Actions() {
+			if a.GetVerb() == "get" && a.GetResource() == crdGVR {
+				t.Fatalf("a curated kind fetched its CRD for printer columns it never reads: %v", a)
+			}
+		}
+	})
 }
