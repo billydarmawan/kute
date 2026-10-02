@@ -6,18 +6,21 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kute-dev/kute/internal/kube"
+	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 )
 
@@ -632,5 +635,125 @@ func TestReloadsWhenBackendCachesChange(t *testing.T) {
 	// Something unrelated must not.
 	if _, cmd := m.Update(kube.ResourceChangedMsg{Kind: kube.KindCronJob}); cmd != nil {
 		t.Error("a CronJob change has nothing to do with the routing table")
+	}
+}
+
+// nsLister is fakeLister honouring the namespace argument, so a lookup in
+// the wrong namespace misses the way a real scoped read would.
+type nsLister struct {
+	objs map[kube.ResourceKind][]runtime.Object
+}
+
+func (f nsLister) ListRaw(_ context.Context, kind kube.ResourceKind, ns string) ([]runtime.Object, error) {
+	var out []runtime.Object
+	for _, obj := range f.objs[kind] {
+		if m, err := meta.Accessor(obj); err == nil && (ns == "" || m.GetNamespace() == ns) {
+			out = append(out, obj)
+		}
+	}
+	return out, nil
+}
+
+// A backendRef naming another namespace resolves there (where a
+// ReferenceGrant permits it), and ↵ jumps to that namespace's Service.
+func TestLoadHTTPRouteCrossNamespaceBackend(t *testing.T) {
+	sel := map[string]string{"app": "api"}
+	route := testHTTPRoute("shared", "public", "True", "", []map[string]any{
+		{"name": "api", "namespace": "apps", "port": int64(8080)},
+	})
+	lister := nsLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindHTTPRoute: {route},
+		kube.KindService:   {serviceWithSelector("api", "apps", sel)},
+		kube.KindPod:       {readyPod("api-1", "apps", sel, true)},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindHTTPRoute, Namespace: "default", Name: "shared"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(m.rows))
+	}
+	r := m.rows[0]
+	if r.glyph != "●" || r.backendNS != "apps" || r.backendText != "apps/api:8080" || r.endpointsText != "1 ready" {
+		t.Fatalf("cross-namespace backend = %+v, want ● apps/api:8080 with 1 ready", r)
+	}
+}
+
+// ResolvedRefs=False/RefNotPermitted is the controller's verdict that a
+// cross-namespace ref has no ReferenceGrant: the row says so even when a
+// same-named Service exists in the route's own namespace.
+func TestLoadHTTPRouteRefNotPermitted(t *testing.T) {
+	sel := map[string]string{"app": "api"}
+	route := testHTTPRoute("shared", "public", "True", "", []map[string]any{
+		{"name": "api", "namespace": "apps", "port": int64(8080)},
+	})
+	parents, _, _ := unstructured.NestedSlice(route.Object, "status", "parents")
+	parent := parents[0].(map[string]any)
+	parent["conditions"] = append(parent["conditions"].([]any), map[string]any{
+		"type": "ResolvedRefs", "status": "False", "reason": "RefNotPermitted",
+	})
+	_ = unstructured.SetNestedSlice(route.Object, parents, "status", "parents")
+	lister := nsLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindHTTPRoute: {route},
+		kube.KindService:   {serviceWithSelector("api", "default", sel), serviceWithSelector("api", "apps", sel)},
+		kube.KindPod:       {readyPod("api-1", "default", sel, true), readyPod("api-1", "apps", sel, true)},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindHTTPRoute, Namespace: "default", Name: "shared"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.rows) != 1 || m.rows[0].glyph != "✕" || m.rows[0].endpointsText != "not permitted" {
+		t.Fatalf("rows = %+v, want one ✕ not-permitted row", m.rows)
+	}
+}
+
+// A non-Service backendRef is shown as-is, never looked up as a same-named
+// Service, and isn't a jump target.
+func TestLoadHTTPRouteNonServiceBackendIsNeutral(t *testing.T) {
+	route := testHTTPRoute("mc", "public", "True", "", []map[string]any{
+		{"name": "api", "kind": "ServiceImport", "group": "multicluster.x-k8s.io", "port": int64(8080)},
+	})
+	lister := nsLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindHTTPRoute: {route},
+		kube.KindService:   {serviceWithSelector("api", "default", map[string]string{"app": "api"})},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindHTTPRoute, Namespace: "default", Name: "mc"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(m.rows))
+	}
+	r := m.rows[0]
+	if r.glyph != "·" || r.class != resources.StatusNeutral || r.backendText != "serviceimport/api:8080" {
+		t.Fatalf("non-Service backend = %+v, want a neutral serviceimport/api:8080", r)
+	}
+	if _, ok := m.openSelectedEnter(); ok {
+		t.Fatal("a non-Service backend must not jump to a Service")
+	}
+}
+
+// A listener certificateRef naming another namespace reads its Secret there.
+func TestLoadGatewayCrossNamespaceCertificateRef(t *testing.T) {
+	gw := testGateway("public", 1)
+	listeners, _, _ := unstructured.NestedSlice(gw.Object, "spec", "listeners")
+	listeners[0].(map[string]any)["tls"] = map[string]any{
+		"certificateRefs": []any{map[string]any{"name": "wild-tls", "namespace": "certs"}},
+	}
+	_ = unstructured.SetNestedSlice(gw.Object, listeners, "spec", "listeners")
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "wild-tls", Namespace: "certs"},
+		Data:       map[string][]byte{"tls.crt": demoCertPEM(t, time.Now().Add(61*24*time.Hour+time.Hour))},
+	}
+	lister := nsLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindGateway: {gw},
+		kube.KindSecret:  {secret},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindGateway, Namespace: "default", Name: "public"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.listeners) == 0 || m.listeners[0].tlsText != "expires in 61d" {
+		t.Fatalf("listeners = %+v, want the https listener's cert read from certs/wild-tls", m.listeners)
 	}
 }

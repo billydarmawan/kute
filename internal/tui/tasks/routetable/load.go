@@ -302,10 +302,20 @@ func resolveParentListenerDetail(ctx context.Context, lister resources.RawLister
 			return detail
 		}
 		secretName, _, _ := unstructured.NestedString(cr, "name")
-		expiry, _ := resolveCertExpiry(ctx, lister, gatewayNS, secretName)
+		expiry, _ := resolveCertExpiry(ctx, lister, certRefNamespace(cr, gatewayNS), secretName)
 		return fmt.Sprintf("%s · secret/%s %s", detail, secretName, expiry)
 	}
 	return base
+}
+
+// certRefNamespace is a listener certificateRef's own namespace, defaulting
+// to the Gateway's — a cross-namespace certificateRef is legal wherever a
+// ReferenceGrant permits it.
+func certRefNamespace(certRef map[string]any, gatewayNS string) string {
+	if ns, _, _ := unstructured.NestedString(certRef, "namespace"); ns != "" {
+		return ns
+	}
+	return gatewayNS
 }
 
 func findUnstructured(ctx context.Context, lister resources.RawLister, kind kube.ResourceKind, ns, name string) (*unstructured.Unstructured, error) {
@@ -322,6 +332,7 @@ func findUnstructured(ctx context.Context, lister resources.RawLister, kind kube
 }
 
 func routeRowsFromRoute(ctx context.Context, lister resources.RawLister, ns string, u *unstructured.Unstructured) []routeRow {
+	refNotPermitted := routeRefsNotPermitted(u)
 	rulesRaw, _, _ := unstructured.NestedSlice(u.Object, "spec", "rules")
 	var rows []routeRow
 	for _, rr := range rulesRaw {
@@ -332,9 +343,11 @@ func routeRowsFromRoute(ctx context.Context, lister resources.RawLister, ns stri
 		matchText := routeMatchText(rule)
 
 		type backendRef struct {
-			name   string
-			port   int64
-			weight int64
+			namespace string
+			name      string
+			kind      string // "" for a core Service, else the ref's own kind
+			port      int64
+			weight    int64
 		}
 		var refs []backendRef
 		var totalWeight int64
@@ -350,13 +363,24 @@ func routeRowsFromRoute(ctx context.Context, lister resources.RawLister, ns stri
 			if !found {
 				weight = 1
 			}
-			refs = append(refs, backendRef{name: name, port: port, weight: weight})
+			// backendRefs[].namespace defaults to the route's own; a cross-
+			// namespace ref is legal wherever a ReferenceGrant permits it.
+			refNS, _, _ := unstructured.NestedString(bm, "namespace")
+			if refNS == "" {
+				refNS = ns
+			}
+			kind, _, _ := unstructured.NestedString(bm, "kind")
+			group, _, _ := unstructured.NestedString(bm, "group")
+			if (group == "" || group == "core") && (kind == "" || kind == "Service") {
+				kind = ""
+			} else if kind == "" {
+				kind = "Service"
+			}
+			refs = append(refs, backendRef{namespace: refNS, name: name, kind: kind, port: port, weight: weight})
 			totalWeight += weight
 		}
 
 		for i, ref := range refs {
-			state := resources.ResolveServiceBackend(ctx, lister, ns, ref.name)
-			glyph, class := state.Glyph()
 			match := ""
 			if i == 0 {
 				match = matchText
@@ -369,15 +393,66 @@ func routeRowsFromRoute(ctx context.Context, lister resources.RawLister, ns stri
 			if ref.port != 0 {
 				portText = strconv.FormatInt(ref.port, 10)
 			}
-			rows = append(rows, routeRow{
-				match: match, backendNS: ns, backendName: ref.name,
-				backendText: ref.name + ":" + portText,
-				glyph:       glyph, class: class, weightPct: weightPct,
-				endpointsText: formatEndpoints(state),
-			})
+			label := ref.name
+			if ref.namespace != ns {
+				label = ref.namespace + "/" + ref.name
+			}
+			row := routeRow{match: match, weightPct: weightPct}
+			switch {
+			case ref.kind != "":
+				// Not a core Service (a ServiceImport, an extension's own
+				// backend kind): kute has nothing to resolve it against, so
+				// it is shown as-is — never looked up as a same-named
+				// Service, never a jump target.
+				row.backendText = strings.ToLower(ref.kind) + "/" + label + ":" + portText
+				row.glyph, row.class, row.endpointsText = "·", resources.StatusNeutral, "—"
+			case ref.namespace != ns && refNotPermitted:
+				// The controller's own verdict (ResolvedRefs=False,
+				// RefNotPermitted only ever names a cross-namespace ref): no
+				// ReferenceGrant lets this route reach it, whatever exists
+				// there.
+				row.backendNS, row.backendName = ref.namespace, ref.name
+				row.backendText = label + ":" + portText
+				row.glyph, row.class, row.endpointsText = "✕", resources.StatusFail, "not permitted"
+			default:
+				state := resources.ResolveServiceBackend(ctx, lister, ref.namespace, ref.name)
+				row.backendNS, row.backendName = ref.namespace, ref.name
+				row.backendText = label + ":" + portText
+				row.glyph, row.class = state.Glyph()
+				row.endpointsText = formatEndpoints(state)
+			}
+			rows = append(rows, row)
 		}
 	}
 	return rows
+}
+
+// routeRefsNotPermitted reports whether any parent's ResolvedRefs condition
+// is False with reason RefNotPermitted — the controller's verdict that a
+// cross-namespace ref has no ReferenceGrant, which kute reports rather than
+// re-deriving by reading ReferenceGrants itself.
+func routeRefsNotPermitted(u *unstructured.Unstructured) bool {
+	parents, _, _ := unstructured.NestedSlice(u.Object, "status", "parents")
+	for _, p := range parents {
+		pm, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		conds, _, _ := unstructured.NestedSlice(pm, "conditions")
+		for _, c := range conds {
+			cm, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			typ, _, _ := unstructured.NestedString(cm, "type")
+			status, _, _ := unstructured.NestedString(cm, "status")
+			reason, _, _ := unstructured.NestedString(cm, "reason")
+			if typ == "ResolvedRefs" && status == "False" && reason == "RefNotPermitted" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // routeMatchText renders one rule's match summary: the path match plus its
@@ -542,7 +617,7 @@ func (m Model) loadGateway() tea.Cmd {
 			if certRefs, found, _ := unstructured.NestedSlice(lm, "tls", "certificateRefs"); found && len(certRefs) > 0 {
 				if cr, ok := certRefs[0].(map[string]any); ok {
 					secretName, _, _ := unstructured.NestedString(cr, "name")
-					tlsText, tlsClass = resolveCertExpiry(ctx, lister, ns, secretName)
+					tlsText, tlsClass = resolveCertExpiry(ctx, lister, certRefNamespace(cr, ns), secretName)
 				}
 			}
 

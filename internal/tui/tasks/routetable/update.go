@@ -2,6 +2,7 @@ package routetable
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -166,22 +167,40 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 		// found" instead of surfacing what's actually going on. Gateway
 		// rows never resolve a backend at all (loadGateway never reads
 		// Service/Pod), so this only applies to the other two flavors.
-		switch {
-		case !tui.KindsSynced(m.lister, m.namespace, kube.KindService, kube.KindPod):
-			m.backendDeniedNote = "backend status may be incomplete — still loading"
-			m.syncRetryGen++
-			retry = tui.ScheduleCacheSyncRetry(m.syncRetryGen)
-		default:
-			if err := tui.KindsError(m.lister, m.namespace, kube.KindService, kube.KindPod); err != nil {
+		//
+		// A Gateway API backendRef may name another namespace, so this asks
+		// about every namespace a backend was actually resolved in.
+		for _, ns := range m.backendNamespaces() {
+			if !tui.KindsSynced(m.lister, ns, kube.KindService, kube.KindPod) {
+				m.backendDeniedNote = "backend status may be incomplete — still loading"
+				m.syncRetryGen++
+				retry = tui.ScheduleCacheSyncRetry(m.syncRetryGen)
+				break
+			}
+			if err := tui.KindsError(m.lister, ns, kube.KindService, kube.KindPod); err != nil {
 				if kube.IsPermissionError(err) {
 					m.backendDeniedNote = "backend status may be incomplete — permission denied: " + err.Error()
 				} else {
 					m.backendDeniedNote = "backend status may be incomplete — " + err.Error()
 				}
+				break
 			}
 		}
 	}
 	return m, retry
+}
+
+// backendNamespaces lists, in first-seen order, every namespace a row's
+// Service backend was resolved in — m.namespace first, so a table with no
+// resolvable backend still gates on the namespace it's showing.
+func (m Model) backendNamespaces() []string {
+	out := []string{m.namespace}
+	for _, r := range m.rows {
+		if r.backendName != "" && !slices.Contains(out, r.backendNS) {
+			out = append(out, r.backendNS)
+		}
+	}
+	return out
 }
 
 func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
