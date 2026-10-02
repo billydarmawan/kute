@@ -14,6 +14,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
+	"github.com/kute-dev/kute/internal/tui"
 )
 
 // load reads the object, its chain and its inventory in one pass.
@@ -44,6 +45,18 @@ func (m Model) load() tea.Cmd {
 		}
 		obj, ok := findObject(objs, name)
 		if !ok {
+			// "No longer exists" is a claim about the cluster (CLAUDE.md's
+			// empty-state rule). This screen is often the first reader of
+			// its kind — the pod-detail reconciler link, a scoped session's
+			// fresh per-namespace cache — so a cold cache is the common
+			// reason the object isn't there yet, and a cache that can't fill
+			// says why rather than that the object is gone.
+			if !tui.KindsSynced(lister, namespace, kind) {
+				return loadedMsg{pending: true}
+			}
+			if err := tui.KindsError(lister, namespace, kind); err != nil {
+				return loadedMsg{err: err}
+			}
 			return loadedMsg{gone: true}
 		}
 
@@ -53,7 +66,7 @@ func (m Model) load() tea.Cmd {
 		}
 
 		chn := buildChain(ctx, lister, kind, obj, namespace)
-		inv := buildInventory(ctx, lister, reg, obj, &chn)
+		inv, invPending := buildInventory(ctx, lister, reg, obj, &chn)
 		fail := buildFailure(obj, inv, time.Now())
 
 		return loadedMsg{
@@ -62,6 +75,9 @@ func (m Model) load() tea.Cmd {
 			inventory:  inv,
 			suspended:  row.Suspended,
 			statusText: row.StatusText,
+			// The source's revision comes from a cache too; an unfilled one
+			// reads as "no revision", which the drift verdict would trust.
+			invPending: invPending || (chn.SourceKind != "" && !tui.KindsSynced(lister, chn.SourceNamespace, chn.SourceKind)),
 		}
 	}
 }
@@ -203,7 +219,10 @@ func appliedRevision(u *unstructured.Unstructured) string {
 // kind's informer for a "–" (and an inventory full of SOPS Secrets is the
 // norm) — and each such kind is read once per namespace its own entries
 // name, never cluster-wide.
-func buildInventory(ctx context.Context, lister resources.RawLister, reg resources.Registry, u *unstructured.Unstructured, c *chain) []inventoryItem {
+//
+// pending reports that one of those reads came from a cache still filling,
+// so an unresolved row is "not read yet" rather than "no reading".
+func buildInventory(ctx context.Context, lister resources.RawLister, reg resources.Registry, u *unstructured.Unstructured, c *chain) (_ []inventoryItem, pending bool) {
 	entries, _, _ := unstructured.NestedSlice(u.Object, "status", "inventory", "entries")
 	if len(entries) == 0 {
 		if strings.EqualFold(u.GetKind(), "HelmRelease") {
@@ -212,7 +231,7 @@ func buildInventory(ctx context.Context, lister resources.RawLister, reg resourc
 			// reads as "this manages nothing".
 			c.InventoryMissing = "inventory not published by this kind — Helm owns the release's object list"
 		}
-		return nil
+		return nil, false
 	}
 
 	// scope is one read: a kind in one namespace ("" for a cluster-scoped
@@ -251,6 +270,9 @@ func buildInventory(ctx context.Context, lister resources.RawLister, reg resourc
 	found := map[key]runtime.Object{}
 	for _, sc := range reads {
 		objs, err := lister.ListRaw(ctx, sc.kind, sc.namespace)
+		if !tui.KindsSynced(lister, sc.namespace, sc.kind) {
+			pending = true
+		}
 		if err != nil {
 			continue
 		}
@@ -268,7 +290,7 @@ func buildInventory(ctx context.Context, lister resources.RawLister, reg resourc
 		it.Glyph = inventoryGlyph(it.Status)
 	}
 	sortInventory(out)
-	return out
+	return out, pending
 }
 
 // readableTypedKinds are the built-in kinds objectReadiness has a reading

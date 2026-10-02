@@ -330,10 +330,33 @@ func (m Model) inventoryBlock(width, height int) string {
 		lines = append(lines, m.inventoryRow(items[i], i == m.selected))
 	}
 	if folded := m.foldedCount(); folded > 0 {
-		lines = append(lines, faint.Render(fmt.Sprintf("  + %d ready · %s expand", folded, tui.GlyphTab)))
+		lines = append(lines, faint.Render("  + "+m.foldedSummary()+" · "+tui.GlyphTab+" expand"))
 	}
 	lines = append(lines, faint.Render(fmt.Sprintf("%d–%d of %d", offset+1, end, len(m.inventory))))
 	return strings.Join(lines, "\n")
+}
+
+// foldedSummary says what the fold hides. Only a row with a reading is
+// "ready": a "·" row is one kute has no reading on (a kind with no readiness
+// signal, or a cache not yet read), and counting it as ready would claim
+// health the screen never observed.
+func (m Model) foldedSummary() string {
+	ready, unread := 0, 0
+	for _, it := range m.inventory[len(m.visibleInventory()):] {
+		if it.Status == resources.StatusOK {
+			ready++
+		} else {
+			unread++
+		}
+	}
+	var parts []string
+	if ready > 0 {
+		parts = append(parts, fmt.Sprintf("%d ready", ready))
+	}
+	if unread > 0 {
+		parts = append(parts, fmt.Sprintf("%d no reading", unread))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m Model) inventoryRow(it inventoryItem, selected bool) string {

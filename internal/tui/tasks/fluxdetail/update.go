@@ -47,6 +47,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case loadedMsg:
 		return m, m.applyLoaded(msg)
+	case tui.CacheSyncRetryMsg:
+		if msg.Gen == m.loadEpoch {
+			return m, m.load()
+		}
 	case actions.ResultMsg:
 		// The outcome is the controller's keybar result line
 		// (ActionResult); the will-run command it replaces is cleared.
@@ -80,6 +84,12 @@ func (m Model) reloadsOn(kind kube.ResourceKind) bool {
 }
 
 func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
+	m.loadEpoch++
+	if msg.pending {
+		// Not found in a cache still filling: keep whatever is on screen
+		// (the spinner on a first load) and look again once it has.
+		return tui.ScheduleCacheSyncRetry(m.loadEpoch)
+	}
 	if msg.err != nil {
 		m.state, m.feedback = tui.TaskStateError, msg.err.Error()
 		return nil
@@ -98,6 +108,13 @@ func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
 		m.feedback = ""
 	}
 	m.clampOffset(m.inventoryViewportRows())
+	if msg.invPending {
+		// The inventory's unresolved rows are unread, not unknowable: say
+		// so, and reload once their caches settle — a kind with nothing in
+		// it fills without a change event to trigger one.
+		m.feedback = "loading inventory…"
+		return tui.ScheduleCacheSyncRetry(m.loadEpoch)
+	}
 	return nil
 }
 

@@ -9,7 +9,7 @@
 [38;2;154;154;174mapplied revision  [m[38;2;86;86;104mmain@8f3c2a1[m[38;2;20;138;78m · in sync[m[38;2;86;86;104m — applied, failing health checks[m                                               
 [38;2;154;154;174mINVENTORY · 3 OBJECTS · 1 NOT READY[m                                                                                     
 [38;2;107;70;217m▎[m [38;2;204;58;58m✕[m [1;38;2;20;20;28mnebula-worker                   [m[38;2;138;138;158mDeployment        [m[38;2;204;58;58m3/4[m                                                               
-[38;2;154;154;174m  + 2 ready · ↹ expand[m                                                                                                  
+[38;2;154;154;174m  + 2 no reading · ↹ expand[m                                                                                             
 [38;2;154;154;174m1–1 of 3[m                                                                                                                
                                                                                                                         
                                                                                                                         

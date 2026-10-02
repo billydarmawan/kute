@@ -10,7 +10,7 @@ source revision   main@8f3c2a1
 applied revision  main@8f3c2a1 · in sync — applied, failing health checks       
 INVENTORY · 3 OBJECTS · 1 NOT READY                                             
 ▎ ✕ nebula-worker                   Deployment        3/4                       
-  + 2 ready · ↹ expand                                                          
+  + 2 no reading · ↹ expand                                                     
 1–1 of 3                                                                        
                                                                                 
                                                                                 

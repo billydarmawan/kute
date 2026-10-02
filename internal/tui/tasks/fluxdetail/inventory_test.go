@@ -2,6 +2,7 @@ package fluxdetail
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -267,5 +268,69 @@ func TestRetryCountdownProjectsPastTheFirstAttempt(t *testing.T) {
 	m.fail.RetryAt = m.fail.Since.Add(10 * time.Minute)
 	if got := m.retryIn(); got != "6m 00s" {
 		t.Errorf("retryIn = %q, want 6m 00s", got)
+	}
+}
+
+// syncingLister is recordingLister with per-kind cache state, the way
+// *kube.Cluster reports a lazily started informer.
+type syncingLister struct {
+	*recordingLister
+	unsynced map[kube.ResourceKind]bool
+	errs     map[kube.ResourceKind]error
+}
+
+func (l syncingLister) KindSynced(kind kube.ResourceKind, _ string) bool { return !l.unsynced[kind] }
+func (l syncingLister) KindError(kind kube.ResourceKind, _ string) error { return l.errs[kind] }
+
+// TestColdCacheIsNotAGoneObject is M7: a Kustomization whose informer this
+// screen starts read as "no longer exists" until its first event — and for
+// good when the kind is forbidden — and inventory rows its caches hadn't
+// filled yet were folded away as ready.
+func TestColdCacheIsNotAGoneObject(t *testing.T) {
+	kust := discovered("Kustomization", "kustomizations", kube.FluxGroupKustomize)
+	reg, groups := resources.BuildDiscoveredRegistry(kube.AssignRegistryKinds([]kube.DiscoveredKind{kust}), nil)
+	sess := &tui.Session{Theme: tui.Dark(), Registry: reg, Groups: groups,
+		Location: tui.Location{Context: "c", Namespace: "flux-system"}}
+	open := func(l resources.RawLister) (*Model, tea.Cmd) {
+		m := New(Config{Session: sess, Lister: l, Kind: "Kustomization", Namespace: "flux-system", Name: "apps"})
+		m.SetSize(120, 30)
+		upd, cmd := m.Update(m.load()())
+		return upd.(*Model), cmd
+	}
+
+	cold := syncingLister{recordingLister: &recordingLister{}, unsynced: map[kube.ResourceKind]bool{"Kustomization": true}}
+	got, cmd := open(cold)
+	if got.state != tui.TaskStateLoading || strings.Contains(plain(got.Render()), "no longer exists") {
+		t.Errorf("a cold cache must not report the object gone: state %s, %q", got.state, got.feedback)
+	}
+	if cmd == nil {
+		t.Fatal("expected a cache-sync retry while the cache fills")
+	}
+	if retry, ok := cmd().(tui.CacheSyncRetryMsg); !ok || retry.Gen != got.loadEpoch {
+		t.Errorf("retry = %#v, want this load's epoch %d", cmd(), got.loadEpoch)
+	}
+
+	denied := syncingLister{recordingLister: &recordingLister{},
+		errs: map[kube.ResourceKind]error{"Kustomization": errors.New("kustomizations is forbidden")}}
+	got, _ = open(denied)
+	if strings.Contains(got.feedback, "no longer exists") || !strings.Contains(got.feedback, "forbidden") {
+		t.Errorf("an unreadable kind must say why, not that the object is gone: %q", got.feedback)
+	}
+
+	// Found, but the inventory's Deployment cache is still filling.
+	ks := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": kube.FluxGroupKustomize + "/v1", "kind": "Kustomization",
+		"metadata": map[string]any{"name": "apps", "namespace": "flux-system"},
+		"status": map[string]any{"inventory": map[string]any{"entries": []any{
+			map[string]any{"id": "web_api_apps_Deployment", "v": "v1"},
+		}}},
+	}}
+	filling := syncingLister{
+		recordingLister: &recordingLister{objs: map[kube.ResourceKind][]runtime.Object{"Kustomization": {ks}}},
+		unsynced:        map[kube.ResourceKind]bool{kube.KindDeployment: true},
+	}
+	got, cmd = open(filling)
+	if got.state != tui.TaskStateReady || got.feedback != "loading inventory…" || cmd == nil {
+		t.Errorf("filling inventory: state %s, feedback %q, retry %v", got.state, got.feedback, cmd != nil)
 	}
 }

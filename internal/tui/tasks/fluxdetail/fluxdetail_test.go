@@ -121,8 +121,10 @@ func TestInventoryFoldsHealthyTailAndOpensTheCulprit(t *testing.T) {
 	if !strings.Contains(view, "1 NOT READY") {
 		t.Errorf("expected the not-ready count in the inventory header:\n%s", view)
 	}
-	if !strings.Contains(view, "+ 2 ready") {
-		t.Errorf("expected the healthy tail folded:\n%s", view)
+	// The folded rows are kinds with no readiness signal: folded, but
+	// never claimed ready.
+	if !strings.Contains(view, "+ 2 no reading") {
+		t.Errorf("expected the tail folded without claiming it ready:\n%s", view)
 	}
 
 	upd, cmd := m.Update(tea.KeyPressMsg{Text: "enter"})

@@ -136,6 +136,9 @@ type Model struct {
 	selected    int
 	offset      int
 
+	// loadEpoch guards a cache-sync retry against a newer load.
+	loadEpoch int
+
 	width, height int
 	// now is the clock read the retry countdown renders from, refreshed on
 	// a tick rather than read inside View — render functions are pure.
@@ -149,6 +152,12 @@ type loadedMsg struct {
 	suspended  bool
 	statusText string
 	gone       bool
+	// pending: the object wasn't found, but its kind's cache hasn't filled,
+	// so its absence proves nothing yet.
+	pending bool
+	// invPending: a cache behind the inventory or the source revision is
+	// still filling — the screen renders, and reloads once it settles.
+	invPending bool
 	err        error
 }
 
