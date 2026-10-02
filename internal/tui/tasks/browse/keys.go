@@ -122,7 +122,7 @@ func (m Model) Keybar() tui.Keybar {
 	}
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierInline {
-			note := m.actions.Prompt()
+			note, shortNote := m.actions.Prompt(), ""
 			hints := []tui.KeyHint{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}
 			if pending := m.actions.Pending(); pending != nil {
 				switch pending.Scope.Verb {
@@ -131,6 +131,7 @@ func (m Model) Keybar() tui.Keybar {
 					// command, not just the generic verb/target prompt every
 					// other TierInline confirm uses.
 					note = rollbackPrompt(m.session.CommandTarget(), pending.Scope)
+					shortNote = rollbackPromptShort(m.session.CommandTarget(), pending.Scope)
 				case "delete":
 					// 8b/20a: the same "will run: kubectl delete ..."
 					// documentation idiom every other mutating verb's inline
@@ -226,10 +227,11 @@ func (m Model) Keybar() tui.Keybar {
 				}
 			}
 			return tui.Keybar{
-				Pill:      tui.ModeConfirm,
-				PillText:  "CONFIRM",
-				Groups:    [][]tui.KeyHint{hints},
-				RightNote: note,
+				Pill:           tui.ModeConfirm,
+				PillText:       "CONFIRM",
+				Groups:         [][]tui.KeyHint{hints},
+				RightNote:      note,
+				RightNoteShort: shortNote,
 			}
 		}
 		return tui.Keybar{Pill: tui.ModeConfirm, PillText: "CONFIRM"}

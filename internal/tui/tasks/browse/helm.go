@@ -232,8 +232,16 @@ func rollbackPrompt(target kube.CommandTarget, scope tui.TaskScope) string {
 	// whole RightNote rather than truncating it when the keybar line
 	// overflows width, so this stays terser than Controller.Prompt()'s own
 	// default "Rollback HelmRelease ns/name? (y) confirm (n) cancel" despite
-	// carrying more information (the actual command).
+	// carrying more information (the actual command). The --kubeconfig path
+	// alone can still overflow it, which is what rollbackPromptShort is for.
 	return kube.HelmRollbackCommandString(target, scope.Namespace, scope.ResourceName, scope.Revision)
+}
+
+// rollbackPromptShort is the keybar's fallback when rollbackPrompt doesn't
+// fit (tui.Keybar.RightNoteShort): the same command with the --kubeconfig
+// path elided, so the confirm never loses its will-run line altogether.
+func rollbackPromptShort(target kube.CommandTarget, scope tui.TaskScope) string {
+	return kube.HelmRollbackCommandSummary(target, scope.Namespace, scope.ResourceName, scope.Revision)
 }
 
 // rollbackDetail renders the PROD modal's detail line (nodes.go's

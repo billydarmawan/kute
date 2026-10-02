@@ -277,6 +277,33 @@ func TestRollbackToSelectedRevisionConfirmsAndExecutes(t *testing.T) {
 	}
 }
 
+// TestRollbackConfirmKeepsWillRunLineWithLongKubeconfig is the regression
+// for the 18a will-run line vanishing from the inline confirm: once the
+// command carried --kubeconfig/--kube-context it overflowed the keybar,
+// which drops a right-side note that doesn't fit, so the confirm asked y/N
+// without saying what would run. The kubeconfig-elided form takes its place.
+func TestRollbackConfirmKeepsWillRunLineWithLongKubeconfig(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindSecret: {
+			revisionSecret("production", "postgresql", "superseded", 1),
+			revisionSecret("production", "postgresql", "deployed", 2),
+		},
+	}}
+	session := newSession()
+	session.Cluster = &kube.Cluster{}
+	session.Kubeconfig = "/tmp/TestHelmRollbackCreatesANewVisibleRevision1234567890/001/proxy.kubeconfig"
+	m := New(Config{Session: session, Lister: lister, Mutator: &fakeMutator{}, Namespace: "production", Name: "postgresql"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	m.moveSelection(1)
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+
+	frame := plain(m.Render())
+	if want := "helm rollback postgresql 1 -n production --kube-context test-cluster …"; !strings.Contains(frame, want) {
+		t.Fatalf("confirm frame lacks the will-run line %q:\n%s", want, frame)
+	}
+}
+
 // TestKeybarGoesOfflineAndHidesRollback pins the cross-cutting 4a fix
 // (docs/design README.md §52, §301): helmhistory must show the OFFLINE pill
 // and drop rollback from the keybar while disconnected, not just browse.

@@ -13,19 +13,23 @@ import (
 func (m Model) Keybar() tui.Keybar {
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierInline {
-			note := m.actions.Prompt()
+			note, shortNote := m.actions.Prompt(), ""
 			if pending := m.actions.Pending(); pending != nil && pending.Scope.Verb == "rollback" {
 				// 18a: "shell out to helm with a will run line" — kept short
 				// deliberately, same reasoning as browse's own rollbackPrompt
 				// (insetChromeLine drops the whole RightNote rather than
-				// truncating it on overflow).
-				note = kube.HelmRollbackCommandString(m.session.CommandTarget(), pending.Scope.Namespace, pending.Scope.ResourceName, pending.Scope.Revision)
+				// truncating it on overflow), with the --kubeconfig-elided
+				// summary as the fallback for when even that doesn't fit.
+				target := m.session.CommandTarget()
+				note = kube.HelmRollbackCommandString(target, pending.Scope.Namespace, pending.Scope.ResourceName, pending.Scope.Revision)
+				shortNote = kube.HelmRollbackCommandSummary(target, pending.Scope.Namespace, pending.Scope.ResourceName, pending.Scope.Revision)
 			}
 			return tui.Keybar{
-				Pill:      tui.ModeConfirm,
-				PillText:  "CONFIRM",
-				Groups:    [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}},
-				RightNote: note,
+				Pill:           tui.ModeConfirm,
+				PillText:       "CONFIRM",
+				Groups:         [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}},
+				RightNote:      note,
+				RightNoteShort: shortNote,
 			}
 		}
 		return tui.Keybar{Pill: tui.ModeConfirm, PillText: "CONFIRM"}

@@ -553,6 +553,19 @@ func HelmRollbackCommandString(target CommandTarget, namespace, name string, toR
 	return commandString(append([]string{"helm"}, helmRollbackArgs(target, namespace, name, toRevision)...))
 }
 
+// HelmRollbackCommandSummary is HelmRollbackCommandString for a line too
+// narrow to hold it: the --kubeconfig path — the one flag whose length the
+// user doesn't control and that can run to a hundred columns — is elided
+// behind a trailing "…", while the release, revision, namespace and the
+// --kube-context that pins which cluster it lands on all stay readable. With
+// no --kubeconfig there is nothing to elide and it is the full command.
+func HelmRollbackCommandSummary(target CommandTarget, namespace, name string, toRevision int) string {
+	if target.Kubeconfig == "" {
+		return HelmRollbackCommandString(target, namespace, name, toRevision)
+	}
+	return HelmRollbackCommandString(CommandTarget{Context: target.Context}, namespace, name, toRevision) + " …"
+}
+
 // HelmRollback shells out to the real `helm` binary — the one Helm verb
 // that isn't decoded from the watch cache (18a: "browsing needs no helm
 // binary" but rollback does). target pins helm to the cluster kute is

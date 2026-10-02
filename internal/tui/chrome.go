@@ -172,6 +172,12 @@ type Keybar struct {
 	PillText  string // e.g. "PODS", "GOTO", "OFFLINE"
 	Groups    [][]KeyHint
 	RightNote string // e.g. "mutating actions disabled", "type to narrow"
+	// RightNoteShort stands in for RightNote when the full keybar line would
+	// overflow — insetChromeLine drops the whole right side rather than
+	// truncating it, so a note that only sometimes fits (a will-run command
+	// whose length depends on the kubeconfig path and context name) needs a
+	// shorter form or it vanishes. Empty means no fallback.
+	RightNoteShort string
 	// RightWarnNote is a yellow-toned right-side note rendered after
 	// RightNote — 17b's "HPA-managed workloads show ... as a yellow note
 	// instead of blocking" (docs/design README.md §17b) is the one caller;
@@ -412,32 +418,46 @@ func renderKeybarV2(k Keybar, theme Theme, width int) string {
 	}
 	left.WriteString(strings.Join(groupStrs, sep.Render(" │ ")))
 
-	right := ""
-	if !k.Result.Empty() {
-		// A success answers on the right, ahead of a TierNone verb's
-		// will-run note, and keeps the hints: it's low-stakes, and a narrow
-		// keybar may drop it the way it drops any right-side note.
-		right = lipgloss.NewStyle().Foreground(theme.Good).Render(GlyphSucceeded + " " + singleLine(k.Result.Text))
-	}
-	if k.RightNote != "" {
-		if right != "" {
-			right += "   "
+	renderRight := func(note string) string {
+		right := ""
+		if !k.Result.Empty() {
+			// A success answers on the right, ahead of a TierNone verb's
+			// will-run note, and keeps the hints: it's low-stakes, and a
+			// narrow keybar may drop it the way it drops any right-side note.
+			right = lipgloss.NewStyle().Foreground(theme.Good).Render(GlyphSucceeded + " " + singleLine(k.Result.Text))
 		}
-		right += dim.Render(k.RightNote)
-	}
-	if k.RightWarnNote != "" {
-		if right != "" {
-			right += "   "
+		if note != "" {
+			if right != "" {
+				right += "   "
+			}
+			right += dim.Render(note)
 		}
-		right += warn.Render(k.RightWarnNote)
-	}
-	if len(k.RightHints) > 0 {
-		if right != "" {
-			right += "   "
+		if k.RightWarnNote != "" {
+			if right != "" {
+				right += "   "
+			}
+			right += warn.Render(k.RightWarnNote)
 		}
-		right += renderHints(k.RightHints)
+		if len(k.RightHints) > 0 {
+			if right != "" {
+				right += "   "
+			}
+			right += renderHints(k.RightHints)
+		}
+		return right
+	}
+	right := renderRight(k.RightNote)
+	if k.RightNoteShort != "" && !chromeLineFits(left.String(), right, width) {
+		right = renderRight(k.RightNoteShort)
 	}
 	return insetChromeLine(left.String(), right, width)
+}
+
+// chromeLineFits reports whether insetChromeLine would keep right rather
+// than dropping it for want of room.
+func chromeLineFits(left, right string, width int) bool {
+	inner := max(width-2*FrameInset, 0)
+	return inner-lipgloss.Width(left)-lipgloss.Width(right) >= 1
 }
 
 // renderFailedKeybar is the keybar while a failed ResultLine is showing:

@@ -477,6 +477,29 @@ func TestRollbackInlineConfirmNonProd(t *testing.T) {
 	}
 }
 
+// TestRollbackInlineConfirmKeepsWillRunLineWithLongKubeconfig: the
+// Releases list's own inline confirm falls back to the kubeconfig-elided
+// command rather than losing its will-run line when the full one overflows
+// the keybar (helmhistory has the same regression test).
+func TestRollbackInlineConfirmKeepsWillRunLineWithLongKubeconfig(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindHelmRelease: {helmRelease("default", "postgresql", "postgresql", "12.1.9", "15.4.0", "deployed", 3)},
+	}}
+	session := newSession()
+	session.Location.Kind = kube.KindHelmRelease
+	session.Cluster = &kube.Cluster{}
+	session.Kubeconfig = "/tmp/TestHelmRollbackCreatesANewVisibleRevision1234567890/001/proxy.kubeconfig"
+	m := New(Config{Session: session, Lister: lister, Mutator: &fakeHelmMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+
+	frame := plain(m.Render())
+	if want := "helm rollback postgresql 2 -n default --kube-context microk8s-cluster …"; !strings.Contains(frame, want) {
+		t.Fatalf("confirm frame lacks the will-run line %q:\n%s", want, frame)
+	}
+}
+
 // fakeHelmMutator is a minimal kube.Mutator stub recording HelmRollback
 // calls — every other method is a no-op success.
 type fakeHelmMutator struct {

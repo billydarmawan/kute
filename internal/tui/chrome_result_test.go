@@ -69,3 +69,29 @@ func TestKeybarSuccessResult(t *testing.T) {
 		})
 	}
 }
+
+// TestKeybarRightNoteShortFallback pins the will-run fallback: a RightNote
+// that overflows the line is swapped for RightNoteShort rather than dropped
+// outright (insetChromeLine's behaviour for any right side that won't fit),
+// while a RightNote that fits is always shown in full.
+func TestKeybarRightNoteShortFallback(t *testing.T) {
+	const full = "helm rollback shop 1 -n kute-e2e --kubeconfig /tmp/a/very/long/path/to/some/proxy.kubeconfig --kube-context kind-kute"
+	const short = "helm rollback shop 1 -n kute-e2e --kube-context kind-kute …"
+	kb := Keybar{
+		Pill: ModeConfirm, PillText: "CONFIRM",
+		Groups:         [][]KeyHint{{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}},
+		RightNote:      full,
+		RightNoteShort: short,
+	}
+	if text := ansi.Strip(renderKeybarV2(kb, Dark(), 200)); !strings.Contains(text, full) {
+		t.Fatalf("keybar at 200 cols = %q, want the full note", text)
+	}
+	text := ansi.Strip(renderKeybarV2(kb, Dark(), 120))
+	if !strings.Contains(text, short) || strings.Contains(text, "--kubeconfig") {
+		t.Fatalf("keybar at 120 cols = %q, want the short note in place of the full one", text)
+	}
+	kb.RightNoteShort = ""
+	if text := ansi.Strip(renderKeybarV2(kb, Dark(), 120)); strings.Contains(text, "helm rollback") {
+		t.Fatalf("keybar at 120 cols with no fallback = %q, want the overflowing note dropped", text)
+	}
+}

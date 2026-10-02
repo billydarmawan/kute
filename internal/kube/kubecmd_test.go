@@ -69,6 +69,22 @@ func TestHelmRollbackCommandStringPinsTarget(t *testing.T) {
 	}
 }
 
+// TestHelmRollbackCommandSummaryElidesOnlyKubeconfig pins the keybar's
+// narrow-width fallback: the --kubeconfig path is the one thing dropped (and
+// marked as dropped), the cluster-pinning --kube-context is kept, and with no
+// --kubeconfig to elide it is the full command.
+func TestHelmRollbackCommandSummaryElidesOnlyKubeconfig(t *testing.T) {
+	t.Parallel()
+	got := HelmRollbackCommandSummary(prodTarget, "production", "postgresql", 2)
+	if want := "helm rollback postgresql 2 -n production --kube-context prod-eu …"; got != want {
+		t.Fatalf("HelmRollbackCommandSummary = %q, want %q", got, want)
+	}
+	contextOnly := CommandTarget{Context: "prod-eu"}
+	if got, want := HelmRollbackCommandSummary(contextOnly, "production", "postgresql", 2), HelmRollbackCommandString(contextOnly, "production", "postgresql", 2); got != want {
+		t.Fatalf("HelmRollbackCommandSummary without --kubeconfig = %q, want the full %q", got, want)
+	}
+}
+
 // writeArgvRecorder installs a fake binary on PATH that writes its argv, one
 // per line, to a file — so the tests below observe the subprocess kute
 // actually spawns rather than a builder's return value.
