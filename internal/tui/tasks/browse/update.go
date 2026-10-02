@@ -402,6 +402,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil || strings.HasPrefix(msg.ActionID, "cronjob-") {
 			return m, m.load()
 		}
+	case argoDashboardURLMsg:
+		return m, m.handleArgoDashboardURL(msg)
 	case execResultMsg:
 		if msg.err != nil {
 			m.execFeedback = "exec exited: " + msg.err.Error()

@@ -1,6 +1,7 @@
 package browse
 
 import (
+	"context"
 	"image/color"
 	"strings"
 	"testing"
@@ -269,6 +270,84 @@ func TestArgoDashboardURLMissingConfigMapSetsFeedback(t *testing.T) {
 	m = step(t, m, tea.KeyPressMsg{Text: "u"})
 	if !strings.Contains(m.execFeedback, "not configured") {
 		t.Errorf("expected a not-configured feedback message, got %q", m.execFeedback)
+	}
+}
+
+// configMapCountingLister counts ConfigMap reads and can hold the
+// ConfigMap cache unsynced, for the u key's lookup.
+type configMapCountingLister struct {
+	fakeLister
+	reads    *int
+	unsynced *bool
+}
+
+func (l configMapCountingLister) ListRaw(ctx context.Context, kind kube.ResourceKind, namespace string) ([]runtime.Object, error) {
+	if kind == kube.KindConfigMap {
+		*l.reads++
+	}
+	return l.fakeLister.ListRaw(ctx, kind, namespace)
+}
+
+func (l configMapCountingLister) KindSynced(kind kube.ResourceKind, _ string) bool {
+	return kind != kube.KindConfigMap || l.unsynced == nil || !*l.unsynced
+}
+
+func argoDashboardModel(t *testing.T, appNamespace string, lister configMapCountingLister) Model {
+	t.Helper()
+	reg, groups := resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{applicationDK()}, nil)
+	session := newSession()
+	session.Registry, session.Groups = reg, groups
+	session.Location.Kind = kube.ResourceKind("Application")
+	session.Location.Namespace = appNamespace
+	m := New(Config{Session: session, Lister: lister, Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	return step(t, m, m.Init()())
+}
+
+// TestArgoDashboardURLReadsOffTheUpdateLoopFromTheControlPlane pins two
+// things about 'u': the argocd-cm read happens in the returned tea.Cmd, not
+// inside Update, and an Application outside Argo's own namespace (apps in
+// any namespace) still finds argocd-cm in the control-plane namespace.
+func TestArgoDashboardURLReadsOffTheUpdateLoopFromTheControlPlane(t *testing.T) {
+	app := application("worker", "main", "abc0000", "OutOfSync", "Healthy")
+	app.SetNamespace("team-a")
+	reads := 0
+	lister := configMapCountingLister{reads: &reads, fakeLister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.ResourceKind("Application"): {app},
+		kube.KindConfigMap: {&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "argocd-cm", Namespace: "argocd"},
+			Data:       map[string]string{"url": "https://argocd.demo.local"},
+		}},
+	}}}
+	m := argoDashboardModel(t, "team-a", lister)
+	reads = 0
+
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "u"})
+	if reads != 0 {
+		t.Fatalf("'u' read ConfigMaps %d time(s) inside Update", reads)
+	}
+	if cmd == nil {
+		t.Fatal("expected a lookup cmd from 'u'")
+	}
+	msg, ok := cmd().(argoDashboardURLMsg)
+	if !ok || msg.url != "https://argocd.demo.local/applications/team-a/worker" {
+		t.Fatalf("lookup = %+v, want the team-a/worker deep link built from argocd/argocd-cm", msg)
+	}
+}
+
+// TestArgoDashboardURLSaysLoadingOnAColdCache pins that the first 'u' —
+// which starts the ConfigMap informer — reports a still-filling cache as
+// loading, not as argocd-cm having no url.
+func TestArgoDashboardURLSaysLoadingOnAColdCache(t *testing.T) {
+	reads, unsynced := 0, false
+	lister := configMapCountingLister{reads: &reads, unsynced: &unsynced, fakeLister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.ResourceKind("Application"): {application("worker", "main", "abc0000", "OutOfSync", "Healthy")},
+	}}}
+	m := argoDashboardModel(t, "argocd", lister)
+	unsynced = true // only once the list itself has loaded
+	m = step(t, m, tea.KeyPressMsg{Text: "u"})
+	if !strings.Contains(m.execFeedback, "still loading") || strings.Contains(m.execFeedback, "not configured") {
+		t.Fatalf("feedback = %q, want a loading message", m.execFeedback)
 	}
 }
 

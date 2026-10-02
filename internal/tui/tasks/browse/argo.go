@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -86,47 +87,101 @@ func argoSyncWillRunLine(scope tui.TaskScope) string {
 		kube.ResourceKind(scope.ResourceKind), scope.Namespace, scope.ResourceName, scope.ArgoSyncRevision)
 }
 
+// argoDashboardTimeout bounds the u key's argocd-cm read, like every other
+// browse read.
+const argoDashboardTimeout = 5 * time.Second
+
+// argoControlPlaneNamespace is where a default Argo CD install keeps
+// argocd-cm. Under apps-in-any-namespace an Application lives elsewhere,
+// so 'u' looks there after the Application's own namespace.
+const argoControlPlaneNamespace = "argocd"
+
+// argoDashboardURLMsg carries the u key's lookup back to the update loop: the
+// deep link to copy, or the feedback line saying why there is none.
+type argoDashboardURLMsg struct {
+	url      string
+	feedback string
+}
+
 // copySelectedArgoDashboardURL builds §33a's 'u' deep link from argocd-cm's
 // own configured base URL (the same ConfigMap argocd-server itself reads
 // its "url" key from) plus the row's namespace/name, and copies it to the
 // clipboard — a local write, not a cluster call the mutator seam needs to
-// know about, same shape as copySelectedForwardURL. Sets execFeedback
-// instead of copying when argocd-cm or its url key isn't found, so the key
-// still answers rather than silently doing nothing.
+// know about, same shape as copySelectedForwardURL. The read runs as a
+// tea.Cmd under the cluster context with a timeout, never on the update
+// loop, and a miss says why — still loading, unreadable, or genuinely not
+// configured — so the key always answers rather than silently doing
+// nothing.
 func (m *Model) copySelectedArgoDashboardURL() tea.Cmd {
 	row, ok := m.selectedRow()
 	if !ok || m.lister == nil {
 		return nil
 	}
-	base, ok := argoDashboardBaseURL(m.session.ClusterContext(), m.lister, row.Namespace)
-	if !ok {
-		m.execFeedback = "dashboard url not configured — argocd-cm has no url key in " + row.Namespace
-		return nil
+	lister := m.lister
+	parent := m.session.ClusterContext()
+	namespace, name := row.Namespace, row.Name
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parent, argoDashboardTimeout)
+		defer cancel()
+		base, feedback := argoDashboardBaseURL(ctx, lister, namespace)
+		if base == "" {
+			return argoDashboardURLMsg{feedback: feedback}
+		}
+		return argoDashboardURLMsg{url: strings.TrimRight(base, "/") + "/applications/" + namespace + "/" + name}
 	}
-	url := strings.TrimRight(base, "/") + "/applications/" + row.Namespace + "/" + row.Name
-	return tea.SetClipboard(url)
 }
 
-// argoDashboardBaseURL reads argocd-cm's own "url" data key from namespace
-// — Argo CD's control-plane ConfigMaps conventionally live in the same
-// namespace as the Applications they manage, the same assumption the demo
-// fixtures and §33a's own mockup make.
-func argoDashboardBaseURL(ctx context.Context, lister resources.RawLister, namespace string) (string, bool) {
-	objs, err := lister.ListRaw(ctx, kube.KindConfigMap, namespace)
-	if err != nil {
-		return "", false
+// handleArgoDashboardURL copies a found link, or shows why there isn't one.
+func (m *Model) handleArgoDashboardURL(msg argoDashboardURLMsg) tea.Cmd {
+	if msg.url == "" {
+		m.execFeedback = msg.feedback
+		return nil
 	}
-	for _, obj := range objs {
-		cm, ok := obj.(*corev1.ConfigMap)
-		if !ok || cm.Name != "argocd-cm" {
+	return tea.SetClipboard(msg.url)
+}
+
+// argoDashboardBaseURL reads argocd-cm's own "url" data key, looking in the
+// Application's namespace and then Argo's default control-plane namespace.
+// It returns the URL, or "" plus the feedback line for the miss. A cache
+// that hasn't filled yet (the first 'u' starts the ConfigMap informer) or
+// can't be read is reported as such, never as "not configured".
+func argoDashboardBaseURL(ctx context.Context, lister resources.RawLister, namespace string) (string, string) {
+	namespaces := []string{namespace}
+	if namespace != argoControlPlaneNamespace {
+		namespaces = append(namespaces, argoControlPlaneNamespace)
+	}
+	var loading bool
+	var readErr error
+	for _, ns := range namespaces {
+		objs, err := lister.ListRaw(ctx, kube.KindConfigMap, ns)
+		if err == nil {
+			err = tui.KindsError(lister, ns, kube.KindConfigMap)
+		}
+		if err != nil {
+			readErr = err
 			continue
 		}
-		if url := cm.Data["url"]; url != "" {
-			return url, true
+		for _, obj := range objs {
+			cm, ok := obj.(*corev1.ConfigMap)
+			if !ok || cm.Name != "argocd-cm" {
+				continue
+			}
+			if url := cm.Data["url"]; url != "" {
+				return url, ""
+			}
+			return "", "dashboard url not configured — argocd-cm has no url key in " + ns
 		}
-		return "", false
+		if !tui.KindsSynced(lister, ns, kube.KindConfigMap) {
+			loading = true
+		}
 	}
-	return "", false
+	switch {
+	case loading:
+		return "", "argocd-cm still loading — press u again in a moment"
+	case readErr != nil:
+		return "", "couldn't read argocd-cm: " + readErr.Error()
+	}
+	return "", "dashboard url not configured — no argocd-cm in " + strings.Join(namespaces, " or ")
 }
 
 // argoKeybarGroup is §33a's keybar block.
