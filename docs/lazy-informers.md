@@ -289,7 +289,11 @@ deployments           33 objects  324.4 KB
   its handler, and `SetWatchErrorHandler` then fails outright on a running informer.
 - **The connect-grace window re-arms on every informer start**, not at connect. Lazy starts
   move LIST contention mid-session; anchoring at connect would leave "open Secrets on a
-  slow link" unforgiven and paint an offline banner over a healthy cluster.
+  slow link" unforgiven and paint an offline banner over a healthy cluster. It only ever
+  applies once this context's link is proven (`Cluster.linkProvenLocked`: `Reached`, or any
+  HTTP response below 500 through the transport) — a never-reached cluster's timeouts are an
+  outage, so a blackholed endpoint reaches 4c on its first failed probe, and a re-armed
+  window can't hold it on the spinner.
 - **`KindSynced` reports true for things that will never arrive** (stopped cluster,
   no informer, Forbidden). A spinner gated on it cannot hang.
 - **"Is anything still listing" is latched, not swept.** Every reflector's watch error

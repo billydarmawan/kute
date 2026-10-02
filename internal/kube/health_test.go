@@ -44,7 +44,7 @@ func TestBackoffDelaySchedule(t *testing.T) {
 func TestHealthOnWatchErrorFlipsToReconnecting(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("dial tcp: i/o timeout"), true, time.Now())
+	h.onWatchError(errors.New("dial tcp: i/o timeout"), true, true, time.Now())
 
 	got := h.get()
 	if got.Phase != ConnReconnecting {
@@ -64,10 +64,10 @@ func TestHealthOnWatchErrorFlipsToReconnecting(t *testing.T) {
 func TestHealthOnWatchErrorDoesNotResetAttemptWhileReconnecting(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("first error"), true, time.Now())
+	h.onWatchError(errors.New("first error"), true, true, time.Now())
 	first := h.get()
 
-	h.onWatchError(errors.New("second error, same outage"), true, time.Now())
+	h.onWatchError(errors.New("second error, same outage"), true, true, time.Now())
 	second := h.get()
 
 	if second.Attempt != first.Attempt {
@@ -169,7 +169,7 @@ func TestIsTimeout(t *testing.T) {
 func TestRecordPingForgivesTimeoutDuringInitialSync(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.recordPing(pingTimeout, timeoutErr(), false, h.startedAt.Add(30*time.Second))
+	h.recordPing(pingTimeout, timeoutErr(), false, true, h.startedAt.Add(30*time.Second))
 
 	if got := h.get(); got.Phase != ConnConnected {
 		t.Fatalf("Phase = %v, want Connected (timeout mid-sync is startup congestion)", got.Phase)
@@ -184,7 +184,7 @@ func TestRecordPingForgivesTimeoutDuringInitialSync(t *testing.T) {
 func TestRecordPingReportsTimeoutOnceCachesSynced(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.recordPing(pingTimeout, timeoutErr(), true, h.startedAt.Add(30*time.Second))
+	h.recordPing(pingTimeout, timeoutErr(), true, true, h.startedAt.Add(30*time.Second))
 
 	got := h.get()
 	if got.Phase != ConnReconnecting {
@@ -198,7 +198,7 @@ func TestRecordPingReportsTimeoutOnceCachesSynced(t *testing.T) {
 func TestRecordPingReportsTimeoutPastConnectGrace(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.recordPing(pingTimeout, timeoutErr(), false, h.startedAt.Add(connectGrace+time.Second))
+	h.recordPing(pingTimeout, timeoutErr(), false, true, h.startedAt.Add(connectGrace+time.Second))
 
 	if got := h.get(); got.Phase != ConnReconnecting {
 		t.Fatalf("Phase = %v, want Reconnecting — the grace window is bounded, not open-ended", got.Phase)
@@ -212,7 +212,7 @@ func TestRecordPingReportsNonTimeoutImmediately(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
 	refused := errors.New("dial tcp 127.0.0.1:10443: connect: connection refused")
-	h.recordPing(time.Millisecond, refused, false, h.startedAt.Add(2*time.Second))
+	h.recordPing(time.Millisecond, refused, false, true, h.startedAt.Add(2*time.Second))
 
 	got := h.get()
 	if got.Phase != ConnReconnecting {
@@ -228,8 +228,8 @@ func TestRecordPingReportsNonTimeoutImmediately(t *testing.T) {
 func TestRecordPingAdvancesAttemptMidOutage(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("watch dropped"), true, time.Now())
-	h.recordPing(pingTimeout, timeoutErr(), true, time.Now())
+	h.onWatchError(errors.New("watch dropped"), true, true, time.Now())
+	h.recordPing(pingTimeout, timeoutErr(), true, true, time.Now())
 
 	got := h.get()
 	if got.Phase != ConnReconnecting {
@@ -247,14 +247,14 @@ func TestConnectGraceIsPhaseBlind(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
 	// A reflector LIST times out mid-sync and flips us to Reconnecting...
-	h.onWatchError(timeoutErr(), true, time.Now())
+	h.onWatchError(timeoutErr(), true, true, time.Now())
 	if h.get().Phase != ConnReconnecting {
 		t.Fatalf("precondition: expected the watch error to flip to Reconnecting")
 	}
 	before := h.get()
 
 	// ...but the congested pings behind it are still forgiven while syncing.
-	h.recordPing(pingTimeout, timeoutErr(), false, h.startedAt.Add(5*time.Second))
+	h.recordPing(pingTimeout, timeoutErr(), false, true, h.startedAt.Add(5*time.Second))
 
 	if got := h.get(); got.Attempt != before.Attempt {
 		t.Fatalf("Attempt advanced %d→%d on a forgiven mid-sync ping", before.Attempt, got.Attempt)
@@ -267,7 +267,7 @@ func TestConnectGraceIsPhaseBlind(t *testing.T) {
 func TestOnWatchErrorForgivesTimeoutDuringInitialSync(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(timeoutErr(), false, h.startedAt.Add(10*time.Second))
+	h.onWatchError(timeoutErr(), false, true, h.startedAt.Add(10*time.Second))
 
 	if got := h.get(); got.Phase != ConnConnected {
 		t.Fatalf("Phase = %v, want Connected (LIST timeout mid-sync is congestion)", got.Phase)
@@ -279,7 +279,7 @@ func TestOnWatchErrorForgivesTimeoutDuringInitialSync(t *testing.T) {
 func TestOnWatchErrorReportsNonTimeoutDuringInitialSync(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("connect: connection refused"), false, h.startedAt.Add(time.Second))
+	h.onWatchError(errors.New("connect: connection refused"), false, true, h.startedAt.Add(time.Second))
 
 	if got := h.get(); got.Phase != ConnReconnecting {
 		t.Fatalf("Phase = %v, want Reconnecting on a refused connection", got.Phase)
@@ -289,8 +289,8 @@ func TestOnWatchErrorReportsNonTimeoutDuringInitialSync(t *testing.T) {
 func TestRecordPingSuccessClearsOutage(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("watch dropped"), true, time.Now())
-	h.recordPing(226*time.Millisecond, nil, true, time.Now())
+	h.onWatchError(errors.New("watch dropped"), true, true, time.Now())
+	h.recordPing(226*time.Millisecond, nil, true, true, time.Now())
 
 	got := h.get()
 	if got.Phase != ConnConnected {
@@ -307,10 +307,10 @@ func TestRecordPingSuccessClearsOutage(t *testing.T) {
 func TestRecordPingSuccessWaitsForWatchRecovery(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("watch dropped"), true, time.Now())
+	h.onWatchError(errors.New("watch dropped"), true, true, time.Now())
 	before := h.get()
 	now := time.Now()
-	h.recordPing(12*time.Millisecond, nil, false, now)
+	h.recordPing(12*time.Millisecond, nil, false, true, now)
 
 	got := h.get()
 	if got.Phase != ConnReconnecting {
@@ -354,7 +354,7 @@ func TestHealthResetRestampsConnectGrace(t *testing.T) {
 	h.startedAt = time.Now().Add(-time.Hour) // pretend the process is old
 
 	h.reset()
-	h.recordPing(pingTimeout, timeoutErr(), false, time.Now())
+	h.recordPing(pingTimeout, timeoutErr(), false, true, time.Now())
 
 	if got := h.get(); got.Phase != ConnConnected {
 		t.Fatalf("Phase = %v, want Connected — reset() must restamp the grace window", got.Phase)
@@ -371,7 +371,7 @@ func TestHealthResetRestampsConnectGrace(t *testing.T) {
 func TestHealthResetPreservesChannelIdentity(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("boom"), true, time.Now())
+	h.onWatchError(errors.New("boom"), true, true, time.Now())
 	origCh, origRetry, origWake := h.ch, h.retry, h.wake
 	// Drain the watch-error wake so reset has to publish its own signal.
 	select {
@@ -514,7 +514,7 @@ func credentialPluginFailure() error {
 func TestHealthPingClassifies401AsUnauthenticated(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.recordPing(12*time.Millisecond, unauthorized(), true, time.Now())
+	h.recordPing(12*time.Millisecond, unauthorized(), true, true, time.Now())
 
 	got := h.get()
 	if got.Phase != ConnUnauthenticated {
@@ -534,7 +534,7 @@ func TestHealthPingClassifies401AsUnauthenticated(t *testing.T) {
 func TestHealthPingClassifiesCredentialPluginFailureAsUnauthenticated(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.recordPing(0, credentialPluginFailure(), true, time.Now())
+	h.recordPing(0, credentialPluginFailure(), true, true, time.Now())
 
 	got := h.get()
 	if got.Phase != ConnUnauthenticated {
@@ -551,12 +551,12 @@ func TestHealthStopsPollingWhileUnauthenticated(t *testing.T) {
 	if h.pausesPolling() {
 		t.Fatal("pausesPolling() = true while connected")
 	}
-	h.recordPing(0, unauthorized(), true, time.Now())
+	h.recordPing(0, unauthorized(), true, true, time.Now())
 	if !h.pausesPolling() {
 		t.Error("pausesPolling() = false while unauthenticated, want the ping loop to stop re-running the plugin")
 	}
 	// …but an explicit retry that succeeds still gets us out.
-	h.recordPing(5*time.Millisecond, nil, true, time.Now())
+	h.recordPing(5*time.Millisecond, nil, true, true, time.Now())
 	if got := h.get(); got.Phase != ConnConnected {
 		t.Errorf("Phase = %v after a successful retry, want Connected", got.Phase)
 	}
@@ -565,15 +565,15 @@ func TestHealthStopsPollingWhileUnauthenticated(t *testing.T) {
 func TestHealthWatchErrorDoesNotChurnWhileUnauthenticated(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(unauthorized(), true, time.Now())
+	h.onWatchError(unauthorized(), true, true, time.Now())
 	if got := h.get(); got.Phase != ConnUnauthenticated {
 		t.Fatalf("Phase = %v, want Unauthenticated", got.Phase)
 	}
 	// Drain the initial transition, then prove the reflectors' own retries
 	// don't queue a message apiece.
 	<-h.ch
-	h.onWatchError(unauthorized(), true, time.Now())
-	h.onWatchError(errors.New("dial tcp: connection refused"), true, time.Now())
+	h.onWatchError(unauthorized(), true, true, time.Now())
+	h.onWatchError(errors.New("dial tcp: connection refused"), true, true, time.Now())
 	select {
 	case msg := <-h.ch:
 		t.Errorf("watch errors re-emitted %v while already unauthenticated", msg.Phase)
@@ -584,10 +584,10 @@ func TestHealthWatchErrorDoesNotChurnWhileUnauthenticated(t *testing.T) {
 func TestHealthRetryReemitsUnauthenticated(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.recordPing(0, unauthorized(), true, time.Now())
+	h.recordPing(0, unauthorized(), true, true, time.Now())
 	<-h.ch
 	// 4a/4c's 'r' pings again; a still-failing credential has to say so.
-	h.recordPing(0, unauthorized(), true, time.Now())
+	h.recordPing(0, unauthorized(), true, true, time.Now())
 	select {
 	case msg := <-h.ch:
 		if msg.Phase != ConnUnauthenticated {
@@ -656,7 +656,7 @@ func forbiddenWatchErr(resource string) error {
 func TestOnWatchErrorIgnoresADenial(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(forbiddenWatchErr("deployments"), true, time.Now())
+	h.onWatchError(forbiddenWatchErr("deployments"), true, true, time.Now())
 
 	if got := h.get(); got.Phase != ConnConnected {
 		t.Fatalf("Phase = %v, want Connected — a refused LIST says nothing about the connection", got.Phase)
@@ -674,13 +674,13 @@ func TestOnWatchErrorIgnoresADenial(t *testing.T) {
 func TestOnWatchErrorDenialLeavesAnOutageAlone(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("connect: connection refused"), true, time.Now())
+	h.onWatchError(errors.New("connect: connection refused"), true, true, time.Now())
 	before := h.get()
 	if before.Phase != ConnReconnecting {
 		t.Fatalf("precondition: Phase = %v, want Reconnecting", before.Phase)
 	}
 
-	h.onWatchError(forbiddenWatchErr("secrets"), true, time.Now())
+	h.onWatchError(forbiddenWatchErr("secrets"), true, true, time.Now())
 
 	if got := h.get(); got.Phase != ConnReconnecting || got.Err != before.Err {
 		t.Fatalf("ConnState = %+v after a denial mid-outage, want the outage untouched (%+v)", got, before)
@@ -693,7 +693,7 @@ func TestOnWatchErrorDenialLeavesAnOutageAlone(t *testing.T) {
 func TestOnWatchErrorStillReportsRealOutages(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("dial tcp 10.0.0.1:443: connect: connection refused"), true, time.Now())
+	h.onWatchError(errors.New("dial tcp 10.0.0.1:443: connect: connection refused"), true, true, time.Now())
 
 	if got := h.get(); got.Phase != ConnReconnecting {
 		t.Fatalf("Phase = %v, want Reconnecting — this one really is an outage", got.Phase)
@@ -707,7 +707,7 @@ func TestOnWatchErrorStillReportsRealOutages(t *testing.T) {
 func TestOnWatchErrorAuthenticationStillWins(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.onWatchError(errors.New("getting credentials: exec: token is forbidden"), true, time.Now())
+	h.onWatchError(errors.New("getting credentials: exec: token is forbidden"), true, true, time.Now())
 
 	if got := h.get(); got.Phase != ConnUnauthenticated {
 		t.Fatalf("Phase = %v, want Unauthenticated — no credential means no connection at all", got.Phase)
@@ -721,7 +721,7 @@ func TestHealthRetries401ForStaticCredentials(t *testing.T) {
 	h := newHealth()
 	h.setStaticCredentials(true)
 
-	h.onWatchError(unauthorized(), true, time.Now())
+	h.onWatchError(unauthorized(), true, true, time.Now())
 	got := h.get()
 	if got.Phase != ConnReconnecting {
 		t.Fatalf("watch 401: Phase = %v, want Reconnecting", got.Phase)
@@ -733,11 +733,11 @@ func TestHealthRetries401ForStaticCredentials(t *testing.T) {
 		t.Error("NextRetryAt is zero, want a scheduled backoff retry")
 	}
 
-	h.recordPing(12*time.Millisecond, unauthorized(), true, time.Now())
+	h.recordPing(12*time.Millisecond, unauthorized(), true, true, time.Now())
 	if got := h.get(); got.Phase != ConnReconnecting || got.Attempt != 2 {
 		t.Fatalf("ping 401: Phase/Attempt = %v/%d, want Reconnecting/2", got.Phase, got.Attempt)
 	}
-	h.recordPing(12*time.Millisecond, nil, true, time.Now())
+	h.recordPing(12*time.Millisecond, nil, true, true, time.Now())
 	if got := h.get(); got.Phase != ConnConnected {
 		t.Errorf("Phase = %v after a successful ping, want Connected", got.Phase)
 	}

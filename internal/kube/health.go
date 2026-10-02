@@ -88,6 +88,13 @@ const (
 	// listing: a refused connection, DNS failure, TLS error, or 401 still
 	// flips to Reconnecting on the first ping so the 4c unreachable-context
 	// screen appears as promptly as ever.
+	//
+	// And only once the link has been shown to work (see inConnectGrace's
+	// reached argument): the premise is "a link we know works is busy". A
+	// blackholed endpoint — a cluster that's down, a VPN that dropped —
+	// fails with exactly the same timeouts, and forgiving those held a
+	// launch on browse's spinner for the whole window (longer, since every
+	// lazy informer start re-arms it) instead of handing over to 4c.
 	connectGrace = 90 * time.Second
 )
 
@@ -229,10 +236,10 @@ func (h *health) set(s ConnState) {
 // connection flips to Reconnecting with the verbatim error and schedules a
 // backoff retry. Once Reconnecting, the ping loop owns further attempts/
 // backoff so repeated watch errors during the same outage don't reset it.
-// synced/now carry the same connectGrace gate recordPing uses — a reflector
-// whose LIST times out while it's competing with twenty of its siblings for a
-// constrained link is reporting congestion, not an outage.
-func (h *health) onWatchError(err error, synced bool, now time.Time) {
+// synced/reached/now carry the same connectGrace gate recordPing uses — a
+// reflector whose LIST times out while it's competing with twenty of its
+// siblings for a constrained link is reporting congestion, not an outage.
+func (h *health) onWatchError(err error, synced, reached bool, now time.Time) {
 	prev := h.get()
 	if prev.Phase == ConnReconnecting || prev.Phase == ConnUnauthenticated {
 		// Already unauthenticated: reflectors go on retrying their watches
@@ -265,7 +272,7 @@ func (h *health) onWatchError(err error, synced bool, now time.Time) {
 		// that kind shows 4b's card while the rest of the app carries on.
 		return
 	}
-	if h.inConnectGrace(synced, err, now) {
+	if h.inConnectGrace(synced, reached, err, now) {
 		return
 	}
 	attempt := prev.Attempt + 1
@@ -391,13 +398,14 @@ func (c *Cluster) ping(probe healthProbeSnapshot) {
 	// ConnState the 4c swap reads, so an outage reported here can never be
 	// mistaken for a cluster that was never reachable (see Reached).
 	c.noteReachedIfAnyCacheSyncedLocked()
-	c.health.recordPing(time.Since(start), err, c.allStartedKindsReadyLocked(), time.Now())
+	c.health.recordPing(time.Since(start), err, c.allStartedKindsReadyLocked(), c.linkProvenLocked(), time.Now())
 }
 
 // recordPing folds one /livez result into ConnState. synced is the informer
-// caches' sync state, which gates connectGrace (see its doc comment); now is
-// injected so the grace window is testable without sleeping.
-func (h *health) recordPing(latency time.Duration, err error, synced bool, now time.Time) {
+// caches' sync state and reached whether this generation has ever had an
+// answer from the apiserver; both gate connectGrace (see its doc comment).
+// now is injected so the grace window is testable without sleeping.
+func (h *health) recordPing(latency time.Duration, err error, synced, reached bool, now time.Time) {
 	prev := h.get()
 
 	if err == nil {
@@ -431,7 +439,7 @@ func (h *health) recordPing(latency time.Duration, err error, synced bool, now t
 		return
 	}
 
-	if h.inConnectGrace(synced, err, now) {
+	if h.inConnectGrace(synced, reached, err, now) {
 		return
 	}
 
@@ -475,8 +483,12 @@ func (h *health) pausesPolling() bool { return h.get().Phase == ConnUnauthentica
 // unlucky watch error early in the sync flipped us to Reconnecting and made
 // every subsequent congested ping reportable again, which is the exact
 // banner storm this exists to prevent.
-func (h *health) inConnectGrace(synced bool, err error, now time.Time) bool {
-	if synced || !isTimeout(err) {
+//
+// reached is the evidence the link works at all (Cluster.linkProvenLocked).
+// Without it a timeout is indistinguishable from a blackholed endpoint, and
+// is reported at once: congestion needs a connection to be congested.
+func (h *health) inConnectGrace(synced, reached bool, err error, now time.Time) bool {
+	if synced || !reached || !isTimeout(err) {
 		return false
 	}
 	h.mu.Lock()

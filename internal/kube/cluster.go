@@ -630,6 +630,18 @@ func (c *Cluster) Reached() bool {
 	return c.reached
 }
 
+// linkProvenLocked reports whether this generation has any evidence that its
+// apiserver is reachable — the connectGrace precondition. Reached counts (a
+// /livez success, a cache event, a filled cache), and so does the transport
+// having received any HTTP response at all: a slow initial LIST over a
+// saturated link has its response headers long before its body, which is
+// exactly the case grace exists for, and it can arrive before the first ping
+// or cache has had the chance to prove anything. Both are per-generation:
+// SwitchContext clears reached and installs a fresh gate. c.mu must be held.
+func (c *Cluster) linkProvenLocked() bool {
+	return c.reached || (c.authGate != nil && c.authGate.hasResponded())
+}
+
 // noteReached latches Reached. Called from the informer event callbacks, where
 // the generation check has already passed.
 func (c *Cluster) noteReached() {
@@ -892,7 +904,7 @@ func (c *Cluster) recordWatchError(gen int, kind ResourceKind, namespace string,
 		}
 		c.watchUnhealthy[key] = true
 	}
-	c.health.onWatchError(err, c.allStartedKindsReadyLocked(), time.Now())
+	c.health.onWatchError(err, c.allStartedKindsReadyLocked(), c.linkProvenLocked(), time.Now())
 }
 
 // recordWatchEstablished clears a post-sync watch failure when the matching

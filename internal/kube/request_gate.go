@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -30,7 +31,15 @@ type authenticationGate struct {
 	// flowing and health's ordinary backoff decides when to retry.
 	staticCredentials bool
 	onBlocked         func(error)
+	// responded latches the first HTTP response this client got back from
+	// the server (any status below 500 — a 5xx may be a proxy answering for
+	// an upstream it can't reach). It is proof the link works, which is the
+	// premise connectGrace forgives timeouts on; see Cluster.linkProvenLocked.
+	// The gate is per client, so a context switch starts without it.
+	responded atomic.Bool
 }
+
+func (g *authenticationGate) hasResponded() bool { return g.responded.Load() }
 
 func (g *authenticationGate) block(err error) {
 	if g.staticCredentials {
@@ -97,6 +106,9 @@ func (t *observingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 			t.gate.block(err)
 		}
 		return nil, err
+	}
+	if resp.StatusCode < http.StatusInternalServerError {
+		t.gate.responded.Store(true)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		t.gate.block(fmt.Errorf("kubernetes API returned %s", resp.Status))
