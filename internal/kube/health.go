@@ -132,6 +132,9 @@ type health struct {
 	// active context: a 401 is then reported as Reconnecting with backoff,
 	// not latched as Unauthenticated. See needsReauth.
 	staticCredentials bool
+	// stderr is the active context's credential-plugin capture (nil for a
+	// context without an exec plugin). Set alongside staticCredentials.
+	stderr *stderrCapture
 }
 
 func newHealth() *health {
@@ -172,6 +175,17 @@ func (h *health) reset() {
 func (h *health) setStaticCredentials(v bool) {
 	h.mu.Lock()
 	h.staticCredentials = v
+	h.mu.Unlock()
+}
+
+// setCredentialStderr points credential-failure messages at the active
+// context's own plugin capture, discarding anything it already holds — a
+// probe of this context, or its last session before a switch away, explains
+// nothing about a failure from here on.
+func (h *health) setCredentialStderr(s *stderrCapture) {
+	s.clear()
+	h.mu.Lock()
+	h.stderr = s
 	h.mu.Unlock()
 }
 
@@ -429,6 +443,13 @@ func (h *health) recordPing(latency time.Duration, err error, synced, reached bo
 			})
 			return
 		}
+		// Whatever the plugin printed on the way to this success (a
+		// deprecation warning on every mint) must not sit in the ring until
+		// the next real failure, hours later, and be reported as its cause.
+		h.mu.Lock()
+		stderr := h.stderr
+		h.mu.Unlock()
+		stderr.clear()
 		h.set(ConnState{Phase: ConnConnected, Latency: latency, FetchedAt: now})
 		return
 	}
@@ -473,7 +494,7 @@ func (h *health) recordPing(latency time.Duration, err error, synced, reached bo
 // that named it, rather than replacing "run aws sso login" with client-go's
 // "exec: executable aws failed with exit code 255".
 func (h *health) setUnauthenticated(err error, latency time.Duration, prev ConnState) {
-	msg, fromPlugin := credentialMessage(err)
+	msg, fromPlugin := h.credentialMessage(err)
 	if !fromPlugin && prev.Phase == ConnUnauthenticated && prev.Err != "" && restatesCredentialFailure(err) {
 		msg = prev.Err
 	}

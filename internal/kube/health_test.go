@@ -620,22 +620,58 @@ func TestIsAuthenticationError(t *testing.T) {
 }
 
 func TestCredentialErrorMessagePrefersPluginStderr(t *testing.T) {
-	pluginStderr.append([]byte("Error loading SSO Token:\n  Token has expired\n"))
-	got := credentialErrorMessage(unauthorized())
-	if got != "Error loading SSO Token: Token has expired" {
-		t.Errorf("credentialErrorMessage = %q, want the plugin's stderr flattened to one line", got)
+	h := newHealth()
+	stderr := newStderrCapture()
+	h.setCredentialStderr(stderr)
+	stderr.append([]byte("Error loading SSO Token:\n  Token has expired\n"))
+	got, fromPlugin := h.credentialMessage(unauthorized())
+	if got != "Error loading SSO Token: Token has expired" || !fromPlugin {
+		t.Errorf("credentialMessage = %q, %v, want the plugin's stderr flattened to one line", got, fromPlugin)
 	}
 	// Consumed, so the next failure can't inherit it.
-	if got := credentialErrorMessage(unauthorized()); got != "Unauthorized" {
-		t.Errorf("credentialErrorMessage = %q, want client-go's own message once stderr is spent", got)
+	if got, _ := h.credentialMessage(unauthorized()); got != "Unauthorized" {
+		t.Errorf("credentialMessage = %q, want client-go's own message once stderr is spent", got)
 	}
 }
 
 func TestCredentialErrorMessageCapsLength(t *testing.T) {
-	pluginStderr.append([]byte(strings.Repeat("x", maxCredentialErrorText+50)))
-	got := credentialErrorMessage(nil)
+	h := newHealth()
+	stderr := newStderrCapture()
+	h.setCredentialStderr(stderr)
+	stderr.append([]byte(strings.Repeat("x", maxCredentialErrorText+50)))
+	got, _ := h.credentialMessage(nil)
 	if len(got) > maxCredentialErrorText+len("…") {
-		t.Errorf("credentialErrorMessage length = %d, want capped at %d", len(got), maxCredentialErrorText)
+		t.Errorf("credentialMessage length = %d, want capped at %d", len(got), maxCredentialErrorText)
+	}
+}
+
+// Another context's plugin output — a probe from the context palette, or the
+// context a switch just left — must never become the active cluster's
+// explanation for its own credential failure.
+func TestCredentialMessageIgnoresOtherContextsPluginOutput(t *testing.T) {
+	other := newStderrCapture()
+	other.append([]byte("OTHER CONTEXT: run gcloud auth login\n"))
+	h := newHealth()
+	h.setCredentialStderr(newStderrCapture())
+	if got, _ := h.credentialMessage(credentialPluginFailure()); strings.Contains(got, "OTHER CONTEXT") {
+		t.Errorf("credentialMessage = %q, want nothing from another context's plugin", got)
+	}
+}
+
+// Output left in the active context's own ring before it was adopted, or by
+// a mint that succeeded, explains no later failure.
+func TestCredentialMessageDropsOutputFromBeforeAdoptionAndSuccess(t *testing.T) {
+	stderr := newStderrCapture()
+	stderr.append([]byte("probe: run gcloud auth login\n"))
+	h := newHealth()
+	h.setCredentialStderr(stderr)
+	if got, _ := h.credentialMessage(credentialPluginFailure()); strings.Contains(got, "probe:") {
+		t.Errorf("credentialMessage = %q, want output from before adoption dropped", got)
+	}
+	stderr.append([]byte("WARNING: aws-cli v1 is deprecated\n"))
+	h.recordPing(0, nil, true, true, time.Now())
+	if got, _ := h.credentialMessage(credentialPluginFailure()); strings.Contains(got, "deprecated") {
+		t.Errorf("credentialMessage = %q, want a successful mint's warning dropped", got)
 	}
 }
 
@@ -750,6 +786,7 @@ func TestHealthRetries401ForStaticCredentials(t *testing.T) {
 func TestRecordAuthenticationFailureDoesNotHoldClusterLockWhileReadingStderr(t *testing.T) {
 	gate := &authenticationGate{}
 	c := &Cluster{authGate: gate, health: newHealth()}
+	c.health.setCredentialStderr(newStderrCapture())
 
 	done := make(chan struct{})
 	go func() {
@@ -777,7 +814,9 @@ func TestRecordAuthenticationFailureDoesNotHoldClusterLockWhileReadingStderr(t *
 func TestRepeatedCredentialFailureKeepsPluginMessage(t *testing.T) {
 	for _, second := range []error{credentialPluginFailure(), errAuthenticationGated} {
 		h := newHealth()
-		pluginStderr.append([]byte("Error loading SSO Token: Token has expired\n"))
+		stderr := newStderrCapture()
+		h.setCredentialStderr(stderr)
+		stderr.append([]byte("Error loading SSO Token: Token has expired\n"))
 		h.setUnauthenticated(credentialPluginFailure(), 0, h.get())
 		h.recordPing(0, second, true, true, time.Now())
 		if got := h.get(); got.Phase != ConnUnauthenticated || got.Err != "Error loading SSO Token: Token has expired" {

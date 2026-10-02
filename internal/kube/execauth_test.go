@@ -241,14 +241,58 @@ exit 255
 		t.Errorf("IsAuthenticationError(%v) = false, want true", err)
 	}
 
-	out := CredentialPluginOutput()
+	out := client.pluginStderr.take()
 	if !strings.Contains(out, "Token has expired") {
-		t.Errorf("CredentialPluginOutput() = %q, want the plugin's own stderr", out)
+		t.Errorf("plugin stderr = %q, want the plugin's own stderr", out)
 	}
-	if second := CredentialPluginOutput(); second != "" {
-		t.Errorf("CredentialPluginOutput() = %q on the second read, want it cleared", second)
+	if second := client.pluginStderr.take(); second != "" {
+		t.Errorf("plugin stderr = %q on the second read, want it cleared", second)
 	}
 	if got := rec.seen(); len(got) != 0 {
 		t.Errorf("apiserver saw %v, want no request at all", got)
+	}
+}
+
+// Each exec Authenticator gets its own capture: a probe of another context
+// whose plugin failed loudly must leave nothing in the active context's ring,
+// while two clients for the same plugin — which share client-go's cached
+// Authenticator, and so its stderr — must share one.
+func TestCredentialPluginStderrIsPerAuthenticator(t *testing.T) {
+	rec := &authRecorder{}
+	server := rec.server(t)
+
+	execKubeconfig(t, server, execPlugin(t, `
+echo "OTHER CONTEXT: run gcloud auth login" >&2
+exit 1
+`))
+	other, err := NewClient()
+	if err != nil {
+		t.Fatalf("NewClient(other): %v", err)
+	}
+	if err := livez(t, other); err == nil {
+		t.Fatal("livez succeeded with the other context's failing plugin")
+	}
+
+	execKubeconfig(t, server, execPlugin(t, "exit 255\n"))
+	active, err := NewClient()
+	if err != nil {
+		t.Fatalf("NewClient(active): %v", err)
+	}
+	if err := livez(t, active); err == nil {
+		t.Fatal("livez succeeded with the active context's failing plugin")
+	}
+	if got := active.pluginStderr.take(); strings.Contains(got, "OTHER CONTEXT") {
+		t.Errorf("active context's plugin stderr = %q, want nothing from another context", got)
+	}
+	if got := other.pluginStderr.take(); !strings.Contains(got, "OTHER CONTEXT") {
+		t.Errorf("other context's plugin stderr = %q, want its own failure", got)
+	}
+
+	again, err := NewClient()
+	if err != nil {
+		t.Fatalf("NewClient(active again): %v", err)
+	}
+	if again.pluginStderr != active.pluginStderr {
+		t.Error("two clients for one exec config got different captures; the second's would never see the shared Authenticator's output")
 	}
 }

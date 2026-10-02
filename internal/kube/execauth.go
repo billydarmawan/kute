@@ -8,7 +8,10 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/pkg/apis/clientauthentication"
 	"k8s.io/client-go/rest"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/utils/dump"
 )
 
 // Exec credential plugins (gke-gcloud-auth-plugin, `aws eks get-token`,
@@ -99,7 +102,45 @@ type stderrCapture struct {
 	grew chan struct{}
 }
 
-var pluginStderr = newStderrCapture()
+// pluginStderrs holds one capture per client-go exec Authenticator, keyed the
+// way client-go's own Authenticator cache is (exec.cacheKey: the exec config
+// plus, when it asks for it, the cluster). One process-global ring let every
+// plugin's output — a probe of another context, the context left behind by a
+// switch, a deprecation warning printed on a successful mint — become the
+// active cluster's banner at its next credential failure. Keying by the
+// Authenticator rather than by client matters: the first client built for an
+// exec config fixes that Authenticator's stderr for the process's life, so a
+// probe of a context and a later switch to it must share one ring.
+var pluginStderrs = struct {
+	sync.Mutex
+	m map[string]*stderrCapture
+}{m: map[string]*stderrCapture{}}
+
+// stderrCaptureFor returns the capture for cfg's exec Authenticator, or nil
+// when cfg mints no credential through an exec plugin.
+func stderrCaptureFor(cfg *rest.Config) *stderrCapture {
+	if cfg == nil || cfg.ExecProvider == nil {
+		return nil
+	}
+	var cluster *clientauthentication.Cluster
+	if cfg.ExecProvider.ProvideClusterInfo {
+		// An error here fails rest.TransportFor too, so the key it would
+		// have produced never names a live Authenticator.
+		cluster, _ = rest.ConfigToExecCluster(cfg)
+	}
+	key := dump.Pretty(struct {
+		conf    *clientcmdapi.ExecConfig
+		cluster *clientauthentication.Cluster
+	}{cfg.ExecProvider, cluster})
+	pluginStderrs.Lock()
+	defer pluginStderrs.Unlock()
+	s, ok := pluginStderrs.m[key]
+	if !ok {
+		s = newStderrCapture()
+		pluginStderrs.m[key] = s
+	}
+	return s
+}
 
 func newStderrCapture() *stderrCapture {
 	s := &stderrCapture{grew: make(chan struct{}, 1)}
@@ -164,6 +205,10 @@ func (s *stderrCapture) append(p []byte) {
 var captureMu sync.Mutex
 
 func (s *stderrCapture) capture(fn func()) {
+	if s == nil {
+		fn()
+		return
+	}
 	w := s.writer()
 	if w == nil {
 		fn()
@@ -199,6 +244,9 @@ func (s *stderrCapture) capture(fn func()) {
 // the first write and strand the second to surface stale on the *next*
 // take(), the exact bug this function's clearing exists to prevent.
 func (s *stderrCapture) take() string {
+	if s == nil {
+		return ""
+	}
 	const (
 		quiet   = 20 * time.Millisecond
 		initial = 100 * time.Millisecond
@@ -209,7 +257,7 @@ func (s *stderrCapture) take() string {
 	// arrive, then `quiet` restarted by each write — but the wait ends the
 	// moment the window actually elapses instead of up to a poll late, and
 	// the loop no longer takes the mutex on every tick. That matters because
-	// CredentialPluginOutput is exported: nothing structural stops a future
+	// take is reachable from any health caller: nothing structural stops a future
 	// caller reaching this from the render goroutine.
 	timer := time.NewTimer(initial)
 	defer timer.Stop()
@@ -243,12 +291,21 @@ func (s *stderrCapture) take() string {
 	}
 }
 
-// CredentialPluginOutput returns and clears whatever the exec credential
-// plugin last wrote to stderr — the plugin's own account of why it couldn't
-// mint a token ("Error loading SSO Token: Token has expired"), which
-// client-go itself discards. Empty when there is no exec plugin, or when it
-// said nothing.
-func CredentialPluginOutput() string { return pluginStderr.take() }
+// clear discards whatever the plugin has written so far without waiting:
+// output from before the cluster adopted this Authenticator, or from a mint
+// that went on to succeed, explains no later failure.
+func (s *stderrCapture) clear() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.buf = nil
+	s.mu.Unlock()
+	select {
+	case <-s.grew:
+	default:
+	}
+}
 
 // credentialFailurePrefix is what client-go's exec round tripper prefixes
 // every failure to obtain a credential with (exec.go's roundTripper.RoundTrip:
@@ -281,7 +338,7 @@ func IsAuthenticationError(err error) bool {
 	return strings.Contains(err.Error(), credentialFailurePrefix)
 }
 
-// credentialErrorMessage renders err for ConnState.Err. The credential
+// credentialMessage renders err for ConnState.Err. The credential
 // plugin's own stderr wins when there is any: it is the only text that names
 // what the user has to run (`aws sso login`, `gcloud auth login`), and
 // guessing that from the provider is exactly the guess kute shouldn't make.
@@ -290,19 +347,19 @@ func IsAuthenticationError(err error) bool {
 //
 // The result is always one line: ConnState.Err renders into 4a's
 // single-line banner, where an embedded newline would break the strip.
-func credentialErrorMessage(err error) string {
-	msg, _ := credentialMessage(err)
-	return msg
-}
-
-// credentialMessage is credentialErrorMessage plus whether the text is the
-// plugin's own stderr rather than the fallback.
-func credentialMessage(err error) (msg string, fromPlugin bool) {
+//
+// fromPlugin reports whether the text is the plugin's own stderr rather than
+// the fallback. The stderr read is the active context's own capture, never
+// another context's.
+func (h *health) credentialMessage(err error) (msg string, fromPlugin bool) {
 	var resolved *resolvedCredentialError
 	if errors.As(err, &resolved) {
 		return resolved.msg, resolved.fromPlugin
 	}
-	text := strings.TrimSpace(CredentialPluginOutput())
+	h.mu.Lock()
+	stderr := h.stderr
+	h.mu.Unlock()
+	text := strings.TrimSpace(stderr.take())
 	fromPlugin = text != ""
 	if !fromPlugin {
 		if err == nil {
@@ -326,7 +383,7 @@ func restatesCredentialFailure(err error) bool {
 		(err != nil && strings.Contains(err.Error(), credentialFailurePrefix))
 }
 
-// resolvedCredentialError carries credentialErrorMessage's text, computed
+// resolvedCredentialError carries credentialMessage's text, computed
 // before Cluster.mu is taken. The message drains the plugin's stderr through
 // take(), which waits at least 100 ms for the plugin's write to land; doing
 // that under c.mu stalled ListRaw and KindSynced on the Update loop for every
@@ -351,7 +408,7 @@ func (h *health) resolveCredentialError(err error) error {
 	if errors.As(err, &resolved) {
 		return err
 	}
-	msg, fromPlugin := credentialMessage(err)
+	msg, fromPlugin := h.credentialMessage(err)
 	return &resolvedCredentialError{error: err, msg: msg, fromPlugin: fromPlugin}
 }
 

@@ -166,6 +166,9 @@ type Client struct {
 	credentialConfig *rest.Config
 	authGate         *authenticationGate
 	watcher          *watchObserver
+	// pluginStderr is this context's exec-plugin stderr capture, nil when it
+	// has no exec plugin (see stderrCaptureFor).
+	pluginStderr *stderrCapture
 }
 
 func NewClient() (Client, error) {
@@ -216,6 +219,7 @@ func newClientForContext(contextName string) (Client, error) {
 	watcher := newWatchObserver()
 
 	var clientset *kubernetes.Clientset
+	pluginStderr := stderrCaptureFor(restConfig)
 	pluginStderr.capture(func() {
 		var authenticatedTransport http.RoundTripper
 		authenticatedTransport, err = rest.TransportFor(restConfig)
@@ -274,7 +278,7 @@ func newClientForContext(contextName string) (Client, error) {
 		}
 	}
 
-	return Client{Interface: clientset, RESTConfig: restConfig, Context: ctx, credentialConfig: credentialConfig, authGate: authGate, watcher: watcher}, nil
+	return Client{Interface: clientset, RESTConfig: restConfig, Context: ctx, credentialConfig: credentialConfig, authGate: authGate, watcher: watcher, pluginStderr: pluginStderr}, nil
 }
 
 // clientCertIdentity extracts the real identity a client-certificate
