@@ -291,6 +291,10 @@ func IsAuthenticationError(err error) bool {
 // The result is always one line: ConnState.Err renders into 4a's
 // single-line banner, where an embedded newline would break the strip.
 func credentialErrorMessage(err error) string {
+	var resolved *resolvedCredentialError
+	if errors.As(err, &resolved) {
+		return resolved.msg
+	}
 	text := strings.TrimSpace(CredentialPluginOutput())
 	if text == "" {
 		if err == nil {
@@ -303,6 +307,33 @@ func credentialErrorMessage(err error) string {
 		text = text[:maxCredentialErrorText] + "…"
 	}
 	return text
+}
+
+// resolvedCredentialError carries credentialErrorMessage's text, computed
+// before Cluster.mu is taken. The message drains the plugin's stderr through
+// take(), which waits at least 100 ms for the plugin's write to land; doing
+// that under c.mu stalled ListRaw and KindSynced on the Update loop for every
+// credential failure. Error and Unwrap pass through, so IsAuthenticationError
+// and needsReauth classify it exactly as they would the original.
+type resolvedCredentialError struct {
+	error
+	msg string
+}
+
+func (e *resolvedCredentialError) Unwrap() error { return e.error }
+
+// resolveCredentialError renders err's ConnState.Err text now, outside any
+// lock, when err is a credential failure health will report; any other error
+// is returned unchanged and costs nothing.
+func (h *health) resolveCredentialError(err error) error {
+	if !h.needsReauth(err) {
+		return err
+	}
+	var resolved *resolvedCredentialError
+	if errors.As(err, &resolved) {
+		return err
+	}
+	return &resolvedCredentialError{error: err, msg: credentialErrorMessage(err)}
 }
 
 // maxCredentialErrorText caps the banner text. A plugin that dumps a stack

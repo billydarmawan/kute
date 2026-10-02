@@ -742,3 +742,31 @@ func TestHealthRetries401ForStaticCredentials(t *testing.T) {
 		t.Errorf("Phase = %v after a successful ping, want Connected", got.Phase)
 	}
 }
+
+// Rendering a credential failure waits on the plugin's stderr (take's 100 ms
+// initial window). That wait must happen before c.mu is taken: ListRaw and
+// KindSynced take the same lock from the Update loop, so every credential
+// failure held under it was a visible hitch.
+func TestRecordAuthenticationFailureDoesNotHoldClusterLockWhileReadingStderr(t *testing.T) {
+	gate := &authenticationGate{}
+	c := &Cluster{authGate: gate, health: newHealth()}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.recordAuthenticationFailure(gate, credentialPluginFailure())
+	}()
+	time.Sleep(20 * time.Millisecond) // well inside take's 100 ms window
+
+	c.mu.Lock()
+	phase := c.health.get().Phase
+	c.mu.Unlock()
+	<-done
+
+	if phase == ConnUnauthenticated {
+		t.Fatal("c.mu was only free once the failure was recorded: the stderr wait ran under the cluster lock")
+	}
+	if got := c.health.get(); got.Phase != ConnUnauthenticated {
+		t.Fatalf("ConnState = %+v, want unauthenticated", got)
+	}
+}

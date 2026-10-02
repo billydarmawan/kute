@@ -901,6 +901,7 @@ func (c *Cluster) noteWatchErrorLocked(kind ResourceKind, namespace string, err 
 // the health call, flipping a freshly-reset context's health back to
 // Reconnecting/Unauthenticated using the old context's error.
 func (c *Cluster) recordWatchError(gen int, kind ResourceKind, namespace string, err error) {
+	err = c.health.resolveCredentialError(err)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.generation != gen {
@@ -972,6 +973,7 @@ func (c *Cluster) recordWatchEstablished(gen int, kind ResourceKind, namespace s
 }
 
 func (c *Cluster) recordAuthenticationFailure(gate *authenticationGate, err error) {
+	err = c.health.resolveCredentialError(err)
 	c.mu.Lock()
 	if c.authGate != gate {
 		c.mu.Unlock()

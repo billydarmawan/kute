@@ -373,6 +373,9 @@ func (c *Cluster) ping(probe healthProbeSnapshot) {
 	ctx, cancel := context.WithTimeout(probe.ctx, pingTimeout)
 	defer cancel()
 	err := probe.clientset.Discovery().RESTClient().Get().AbsPath("/livez").Do(ctx).Error()
+	// Resolved before the lock: rendering a credential failure waits on the
+	// plugin's stderr, which must not hold c.mu (see resolvedCredentialError).
+	err = c.health.resolveCredentialError(err)
 
 	// Keep the generation check and every result-side effect in the same
 	// critical section as SwitchContext's generation bump, field replacement,
