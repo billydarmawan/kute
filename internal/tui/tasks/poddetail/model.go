@@ -226,6 +226,14 @@ type Model struct {
 	// "events unavailable" instead of a misleading "no events" (a throttled
 	// or timed-out call is not an empty result).
 	eventsErr error
+	// eventsPending is set while the Event cache this pod's EVENTS read
+	// hasn't filled yet (lazy first read): an empty grid then is not a claim
+	// that the pod has no events, so it says so, and syncRetryGen's retry
+	// reloads until the cache settles.
+	eventsPending bool
+	// syncRetryGen is the epoch of the pending tui.CacheSyncRetryMsg, so a
+	// retry scheduled before a newer one can't fire a duplicate reload.
+	syncRetryGen int
 
 	// conn is the last kube.ConnStateMsg forwarded by the root shell — the
 	// header badge's real connection state (mock 5a: "● connected · 12ms",

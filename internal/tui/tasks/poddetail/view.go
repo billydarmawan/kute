@@ -580,9 +580,14 @@ func (m Model) eventsBlock(theme tui.Theme, width int) string {
 	if len(m.eventRows) == 0 {
 		// a failed fetch is not an empty result — never render a throttled
 		// or timed-out events call as a reassuring "no events".
+		// An unfilled cache isn't an empty one either, and a cache that
+		// stopped filling (Forbidden) says why.
 		note := "no events"
-		if m.eventsErr != nil {
-			note = "events unavailable"
+		switch {
+		case m.eventsErr != nil:
+			note = components.Truncate("events unavailable · "+m.eventsErr.Error(), width)
+		case m.eventsPending:
+			note = "loading events…"
 		}
 		return title + "\n" + lipgloss.NewStyle().Foreground(theme.TextDim).Render(note)
 	}

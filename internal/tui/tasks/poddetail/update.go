@@ -73,6 +73,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case loadedMsg:
 		return m.applyLoaded(msg)
+	case tui.CacheSyncRetryMsg:
+		if msg.Gen == m.syncRetryGen && m.lister != nil {
+			return m, m.load()
+		}
 	case metricsTickMsg:
 		if msg.epoch == m.metricsEpoch && m.pollsMetrics() {
 			return m, m.loadMetrics()
@@ -171,6 +175,21 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	m.found = true
 	m.eventRows = msg.events
 	m.eventsErr = msg.eventsErr
+	// "no events" is a claim about the cluster: a cache that stopped filling
+	// (Forbidden, a failing LIST) says why instead, and one still on its
+	// first LIST says it's loading and retries — a pod with genuinely no
+	// events syncs without ever emitting a change event.
+	var retry tea.Cmd
+	m.eventsPending = false
+	if len(msg.events) == 0 && msg.eventsErr == nil && m.events != nil {
+		if err := tui.KindsError(m.lister, m.namespace, kube.KindEvent); err != nil {
+			m.eventsErr = err
+		} else if !tui.KindsSynced(m.lister, m.namespace, kube.KindEvent) {
+			m.eventsPending = true
+			m.syncRetryGen++
+			retry = tui.ScheduleCacheSyncRetry(m.syncRetryGen)
+		}
+	}
 	m.controller = msg.controller
 	m.related = msg.related
 	m.sources = msg.sources
@@ -180,7 +199,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.state = tui.TaskStateReady
 	m.feedback = ""
-	return m, nil
+	return m, retry
 }
 
 func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -402,6 +421,7 @@ func (m *Model) moveSibling(delta int) tea.Cmd {
 	m.usage, m.usageOK = kube.PodMetrics{}, false
 	m.eventRows = nil
 	m.eventsErr = nil
+	m.eventsPending = false
 	m.related = nil
 	m.sources = nil
 	m.configErrors = nil
