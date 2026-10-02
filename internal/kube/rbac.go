@@ -23,6 +23,10 @@ type WhoCanQuery struct {
 type WhoCanSubject struct {
 	Name string // subject name
 	Kind string // "User", "Group", or "ServiceAccount"
+	// Namespace is a ServiceAccount subject's namespace ("" for User and
+	// Group, which are cluster-wide identities) — team-a/default and
+	// team-b/default are different service accounts.
+	Namespace string
 	// Via names the effective rule's role and binding, e.g.
 	// "clusterrole/admin ← rb/admins" — aggregated ClusterRoles need no
 	// special handling here since kube-controller-manager already flattens
@@ -133,13 +137,17 @@ func ResolveWhoCan(
 	var subjects []WhoCanSubject
 	seen := make(map[string]bool)
 	addRow := func(subj rbacv1.Subject, via string, clusterScope bool, bindingKind ResourceKind, bindingNS, bindingName string) {
-		key := subj.Kind + "/" + subj.Name
+		var ns string
+		if subj.Kind == rbacv1.ServiceAccountKind {
+			ns = subj.Namespace
+		}
+		key := subj.Kind + "/" + ns + "/" + subj.Name
 		if seen[key] {
 			return
 		}
 		seen[key] = true
 		subjects = append(subjects, WhoCanSubject{
-			Name: subj.Name, Kind: subj.Kind, Via: via, ClusterScope: clusterScope,
+			Name: subj.Name, Kind: subj.Kind, Namespace: ns, Via: via, ClusterScope: clusterScope,
 			BindingKind: bindingKind, BindingNamespace: bindingNS, BindingName: bindingName,
 		})
 	}
@@ -195,6 +203,7 @@ func ResolveWhoCan(
 		return cmp.Or(
 			cmp.Compare(a.Kind, b.Kind),
 			cmp.Compare(a.Name, b.Name),
+			cmp.Compare(a.Namespace, b.Namespace),
 		)
 	})
 

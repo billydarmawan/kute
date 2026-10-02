@@ -192,3 +192,25 @@ func TestResolveWhoCan_CurrentUserWithNoBindingsAtAll(t *testing.T) {
 		t.Fatalf("CurrentUserVia = %q, want %q", result.CurrentUserVia, want)
 	}
 }
+
+func TestResolveWhoCan_SameNamedServiceAccountsInDifferentNamespacesStayDistinct(t *testing.T) {
+	crs := []*rbacv1.ClusterRole{
+		clusterRole("reader", rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get"}}),
+	}
+	crbs := []*rbacv1.ClusterRoleBinding{
+		clusterRoleBinding("a", "reader", rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: "default", Namespace: "team-a"}),
+		clusterRoleBinding("b", "reader", rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: "default", Namespace: "team-b"}),
+	}
+
+	result := ResolveWhoCan(WhoCanQuery{Verb: "get", Resource: "secrets"}, "", nil, crs, nil, crbs, nil)
+
+	if len(result.Subjects) != 2 {
+		t.Fatalf("subjects = %+v, want both team-a/default and team-b/default", result.Subjects)
+	}
+	if result.Subjects[0].Namespace != "team-a" || result.Subjects[1].Namespace != "team-b" {
+		t.Fatalf("subjects = %+v, want team-a then team-b", result.Subjects)
+	}
+	if result.Subjects[1].BindingName != "b" {
+		t.Fatalf("team-b/default's binding = %q, want b", result.Subjects[1].BindingName)
+	}
+}

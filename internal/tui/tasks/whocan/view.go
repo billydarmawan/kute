@@ -183,6 +183,9 @@ func (m Model) renderRow(theme tui.Theme, r whoCanRow) components.Row {
 
 	glyph, glyphStyle := tui.GlyphRunning, good
 	subjectText := r.subject.Name
+	if r.subject.Namespace != "" {
+		subjectText = r.subject.Namespace + "/" + r.subject.Name
+	}
 	subjectStyle := name
 	if r.pinned {
 		if r.granted {

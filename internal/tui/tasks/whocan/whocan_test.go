@@ -142,6 +142,25 @@ func TestDeniedCurrentUserGetsRedPinnedRowWithClosestMiss(t *testing.T) {
 	}
 }
 
+func TestServiceAccountSubjectRendersItsNamespace(t *testing.T) {
+	rbac := &fakeRBAC{result: kube.WhoCanResult{
+		Subjects: []kube.WhoCanSubject{
+			{Name: "default", Kind: "ServiceAccount", Namespace: "team-a", Via: "clusterrole/reader ← clusterrolebinding/a", ClusterScope: true},
+			{Name: "default", Kind: "ServiceAccount", Namespace: "team-b", Via: "clusterrole/reader ← clusterrolebinding/b", ClusterScope: true},
+		},
+	}}
+	m := New(Config{Session: newSession(), RBAC: rbac, Verb: "get", Resource: "secrets", Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	view := plain(m.Render())
+	for _, want := range []string{"team-a/default", "team-b/default"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected %q in view:\n%s", want, view)
+		}
+	}
+}
+
 func TestEmptyResultEntersEmptyState(t *testing.T) {
 	rbac := &fakeRBAC{result: kube.WhoCanResult{}}
 	m := New(Config{Session: newSession(), RBAC: rbac, Verb: "delete", Resource: "namespaces", Namespace: "default"})
