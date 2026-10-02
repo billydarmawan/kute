@@ -289,6 +289,30 @@ func TestForwardManagerPodChangeClosesDeletedServiceTarget(t *testing.T) {
 	mgr.Stop(session.ID)
 }
 
+// An SPDY session can outlive its Pod, so a forward straight to a deleted
+// Pod must be closed on the Pod event too, not left reading as active.
+func TestForwardManagerPodChangeClosesDeletedPodTarget(t *testing.T) {
+	t.Parallel()
+	mgr := NewForwardManager()
+	tunnel := newStubTunnel(nil)
+	dialer := &stubDialer{tunnel: tunnel, dialErr: errors.New("pod not found")}
+	resolver := checkingResolver{pod: "web", available: false}
+	target := ForwardTarget{Kind: KindPod, Namespace: "default", Name: "web"}
+
+	session := mgr.Start(dialer, resolver, target, "web", 8080, 80, "")
+	awaitState(t, mgr, session.ID, ForwardActive)
+	deadline := time.Now().Add(2 * time.Second)
+	for mgr.tunnelFor(session.ID) == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if mgr.tunnelFor(session.ID) == nil {
+		t.Fatal("initial tunnel was never published")
+	}
+	mgr.ReconcilePodTargets()
+	awaitState(t, mgr, session.ID, ForwardReconnecting)
+	mgr.Stop(session.ID)
+}
+
 func TestForwardManagerStopAll(t *testing.T) {
 	t.Parallel()
 	mgr := NewForwardManager()

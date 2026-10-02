@@ -663,9 +663,11 @@ func (m *ForwardManager) touchActivity(id string) {
 }
 
 // ReconcilePodTargets reacts to a Pod informer event without polling. Real
-// Service/Deployment forwards validate their currently resolved Pod in the
-// background; a missing/terminating Pod closes the active tunnel, which feeds
-// the existing reconnect/backoff/re-resolution loop. API errors are ignored:
+// forwards validate their currently resolved Pod in the background; a
+// missing/terminating Pod closes the active tunnel, which feeds the existing
+// reconnect/backoff/re-resolution loop — for a Pod target that loop has no
+// replacement to find, so it honestly shows Reconnecting instead of a
+// healthy forward to a pod that is gone. API errors are ignored:
 // an outage is not evidence that the Pod disappeared, and closing a working
 // tunnel would only make the outage worse.
 func (m *ForwardManager) ReconcilePodTargets() {
@@ -681,7 +683,7 @@ func (m *ForwardManager) ReconcilePodTargets() {
 	m.mu.Lock()
 	checks := make([]check, 0, len(m.sessions))
 	for id, entry := range m.sessions {
-		if entry.checking || entry.session.Target.Kind == KindPod || entry.session.ResolvedPod == "" {
+		if entry.checking || entry.session.ResolvedPod == "" {
 			continue
 		}
 		checker, ok := entry.resolver.(ForwardPodChecker)
