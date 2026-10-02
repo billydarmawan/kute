@@ -201,6 +201,11 @@ func (m Model) renderRow(theme tui.Theme, r whoCanRow) components.Row {
 	if r.subject.ClusterScope {
 		scopeText, scopeStyle = "cluster", scopeCluster
 	}
+	if len(r.subject.OnlyNames) > 0 {
+		// A resourceNames grant covers only the named objects (VIA's
+		// "· only:" suffix), so its scope reads dim either way.
+		scopeStyle = nameDim
+	}
 	if r.pinned && !r.granted {
 		scopeText, scopeStyle = "–", nameDim
 	}

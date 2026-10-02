@@ -84,6 +84,11 @@ type WhoCanSubject struct {
 	BindingKind      ResourceKind
 	BindingNamespace string
 	BindingName      string
+	// OnlyNames is non-empty when the grant is limited to these objects by
+	// the rule's resourceNames — Via then ends "· only: <names>" and the
+	// SCOPE cell dims, since the subject can't touch any other object of
+	// the resource asked about.
+	OnlyNames []string
 }
 
 // WhoCanResult is one WhoCan resolution — every subject currently granted
@@ -113,6 +118,8 @@ type WhoCanResult struct {
 	// whichever grant backs CurrentUserVia — meaningful only when
 	// CurrentUserGranted.
 	CurrentUserClusterScope bool
+	// CurrentUserOnlyNames mirrors WhoCanSubject.OnlyNames for that grant.
+	CurrentUserOnlyNames []string
 }
 
 // matchesVerb reports whether rule grants verb ("*" matches anything).
@@ -121,9 +128,7 @@ func matchesVerb(rule rbacv1.PolicyRule, verb string) bool {
 }
 
 // matchesResource reports whether rule grants resource ("*" matches
-// anything). ResourceNames is deliberately ignored — 22a's query has no
-// resource-name slot, so a rule scoped to specific names still counts as a
-// match on the resource type.
+// anything). ResourceNames is handled by matchRules, not here.
 func matchesResource(rule rbacv1.PolicyRule, resource string) bool {
 	return slices.ContainsFunc(rule.Resources, func(r string) bool { return r == "*" || r == resource })
 }
@@ -138,10 +143,34 @@ func ruleMatches(rule rbacv1.PolicyRule, query WhoCanQuery) bool {
 	return matchesVerb(rule, query.Verb) && matchesAPIGroup(rule, query.Group) && matchesResource(rule, query.Resource)
 }
 
-func anyRuleMatches(rules []rbacv1.PolicyRule, query WhoCanQuery) bool {
-	return slices.ContainsFunc(rules, func(rule rbacv1.PolicyRule) bool {
-		return ruleMatches(rule, query)
-	})
+// namelessVerbs are the verbs RBAC never authorizes through resourceNames:
+// a list, watch, create or deletecollection request carries no object name
+// for a resourceNames rule to match against.
+var namelessVerbs = []string{"list", "watch", "create", "deletecollection"}
+
+// matchRules reports whether rules grant query. A rule without
+// resourceNames is a blanket grant and wins outright (onlyNames nil);
+// otherwise every matching resourceNames rule's names are collected, so
+// the row can say which objects the grant actually covers. A
+// resourceNames rule never counts for a namelessVerbs query.
+func matchRules(rules []rbacv1.PolicyRule, query WhoCanQuery) (matched bool, onlyNames []string) {
+	for _, rule := range rules {
+		if !ruleMatches(rule, query) {
+			continue
+		}
+		if len(rule.ResourceNames) == 0 {
+			return true, nil
+		}
+		if slices.Contains(namelessVerbs, query.Verb) {
+			continue
+		}
+		for _, n := range rule.ResourceNames {
+			if !slices.Contains(onlyNames, n) {
+				onlyNames = append(onlyNames, n)
+			}
+		}
+	}
+	return len(onlyNames) > 0, onlyNames
 }
 
 // matchesIdentity reports whether subjects covers user (an exact "User"
@@ -183,21 +212,31 @@ func ResolveWhoCan(
 	}
 
 	var subjects []WhoCanSubject
-	seen := make(map[string]bool)
-	addRow := func(subj rbacv1.Subject, via string, clusterScope bool, bindingKind ResourceKind, bindingNS, bindingName string) {
+	seen := make(map[string]int)
+	addRow := func(subj rbacv1.Subject, via string, onlyNames []string, clusterScope bool, bindingKind ResourceKind, bindingNS, bindingName string) {
 		var ns string
 		if subj.Kind == rbacv1.ServiceAccountKind {
 			ns = subj.Namespace
 		}
-		key := subj.Kind + "/" + ns + "/" + subj.Name
-		if seen[key] {
-			return
+		if len(onlyNames) > 0 {
+			via += " · only: " + strings.Join(onlyNames, ", ")
 		}
-		seen[key] = true
-		subjects = append(subjects, WhoCanSubject{
+		row := WhoCanSubject{
 			Name: subj.Name, Kind: subj.Kind, Namespace: ns, Via: via, ClusterScope: clusterScope,
 			BindingKind: bindingKind, BindingNamespace: bindingNS, BindingName: bindingName,
-		})
+			OnlyNames: onlyNames,
+		}
+		key := subj.Kind + "/" + ns + "/" + subj.Name
+		if i, ok := seen[key]; ok {
+			// A blanket grant from a later binding supersedes a
+			// name-limited one found first.
+			if len(subjects[i].OnlyNames) > 0 && len(onlyNames) == 0 {
+				subjects[i] = row
+			}
+			return
+		}
+		seen[key] = len(subjects)
+		subjects = append(subjects, row)
 	}
 
 	for _, crb := range clusterRoleBindings {
@@ -205,12 +244,16 @@ func ResolveWhoCan(
 			continue
 		}
 		cr, ok := crByName[crb.RoleRef.Name]
-		if !ok || !anyRuleMatches(cr.Rules, query) {
+		if !ok {
+			continue
+		}
+		matched, onlyNames := matchRules(cr.Rules, query)
+		if !matched {
 			continue
 		}
 		via := "clusterrole/" + cr.Name + " ← clusterrolebinding/" + crb.Name
 		for _, s := range crb.Subjects {
-			addRow(s, via, true, KindClusterRoleBinding, "", crb.Name)
+			addRow(s, via, onlyNames, true, KindClusterRoleBinding, "", crb.Name)
 		}
 	}
 
@@ -237,12 +280,13 @@ func ResolveWhoCan(
 			default:
 				continue
 			}
-			if !anyRuleMatches(rules, query) {
+			matched, onlyNames := matchRules(rules, query)
+			if !matched {
 				continue
 			}
 			via := roleLabel + " ← rolebinding/" + rb.Name
 			for _, s := range rb.Subjects {
-				addRow(s, via, false, KindRoleBinding, rb.Namespace, rb.Name)
+				addRow(s, via, onlyNames, false, KindRoleBinding, rb.Namespace, rb.Name)
 			}
 		}
 	}
@@ -261,22 +305,31 @@ func ResolveWhoCan(
 	}
 	// Exact User match first; a Group match (the common shape for
 	// cluster-admin/system:masters-style grants) only if no more specific
-	// User row exists.
-	for _, s := range subjects {
-		if s.Kind == rbacv1.UserKind && s.Name == currentUser {
-			result.CurrentUserGranted = true
-			result.CurrentUserVia = s.Via
-			result.CurrentUserClusterScope = s.ClusterScope
-			return result
+	// User row exists — but a blanket grant beats a name-limited one either
+	// way, since it is the user's actual reach.
+	var best *WhoCanSubject
+	var bestVia string
+	consider := func(s *WhoCanSubject, via string) {
+		if best == nil || (len(best.OnlyNames) > 0 && len(s.OnlyNames) == 0) {
+			best, bestVia = s, via
 		}
 	}
-	for _, s := range subjects {
-		if s.Kind == rbacv1.GroupKind && slices.Contains(currentUserGroups, s.Name) {
-			result.CurrentUserGranted = true
-			result.CurrentUserVia = s.Via + " · via group " + s.Name
-			result.CurrentUserClusterScope = s.ClusterScope
-			return result
+	for i := range subjects {
+		if s := &subjects[i]; s.Kind == rbacv1.UserKind && s.Name == currentUser {
+			consider(s, s.Via)
 		}
+	}
+	for i := range subjects {
+		if s := &subjects[i]; s.Kind == rbacv1.GroupKind && slices.Contains(currentUserGroups, s.Name) {
+			consider(s, s.Via+" · via group "+s.Name)
+		}
+	}
+	if best != nil {
+		result.CurrentUserGranted = true
+		result.CurrentUserVia = bestVia
+		result.CurrentUserClusterScope = best.ClusterScope
+		result.CurrentUserOnlyNames = best.OnlyNames
+		return result
 	}
 	result.CurrentUserVia = closestMiss(currentUser, currentUserGroups, query, crByName, rByName, clusterRoleBindings, roleBindings)
 	return result

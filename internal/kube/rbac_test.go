@@ -256,3 +256,42 @@ func TestSplitAndJoinRBACResource(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveWhoCan_ResourceNamesRuleIsMarkedAndNeverGrantsList(t *testing.T) {
+	crs := []*rbacv1.ClusterRole{
+		clusterRole("one-secret", rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"only-this"}, Verbs: []string{"get", "list"}}),
+		clusterRole("reader", rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get"}}),
+	}
+	crbs := []*rbacv1.ClusterRoleBinding{
+		clusterRoleBinding("narrow", "one-secret",
+			rbacv1.Subject{Kind: rbacv1.UserKind, Name: "narrow-user"},
+			rbacv1.Subject{Kind: rbacv1.UserKind, Name: "both"}),
+		clusterRoleBinding("wide", "reader", rbacv1.Subject{Kind: rbacv1.UserKind, Name: "both"}),
+	}
+
+	list := ResolveWhoCan(WhoCanQuery{Verb: "list", Resource: "secrets"}, "narrow-user", nil, crs, nil, crbs, nil)
+	if len(list.Subjects) != 0 {
+		t.Fatalf("a resourceNames rule must never grant list, got %+v", list.Subjects)
+	}
+	if list.CurrentUserGranted {
+		t.Fatal("narrow-user must not be granted list secrets")
+	}
+
+	get := ResolveWhoCan(WhoCanQuery{Verb: "get", Resource: "secrets"}, "narrow-user", nil, crs, nil, crbs, nil)
+	if len(get.Subjects) != 2 {
+		t.Fatalf("subjects = %+v, want both and narrow-user", get.Subjects)
+	}
+	both, narrow := get.Subjects[0], get.Subjects[1]
+	if both.Name != "both" || len(both.OnlyNames) != 0 || both.BindingName != "wide" {
+		t.Fatalf("both = %+v, want the blanket grant from wide to supersede the named one", both)
+	}
+	if narrow.Name != "narrow-user" || len(narrow.OnlyNames) != 1 || narrow.OnlyNames[0] != "only-this" {
+		t.Fatalf("narrow-user = %+v, want OnlyNames [only-this]", narrow)
+	}
+	if narrow.Via != "clusterrole/one-secret ← clusterrolebinding/narrow · only: only-this" {
+		t.Fatalf("narrow-user via = %q", narrow.Via)
+	}
+	if !get.CurrentUserGranted || len(get.CurrentUserOnlyNames) != 1 {
+		t.Fatalf("current user = granted %v only %v, want a name-limited grant", get.CurrentUserGranted, get.CurrentUserOnlyNames)
+	}
+}

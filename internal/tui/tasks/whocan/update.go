@@ -213,6 +213,7 @@ func buildRows(result kube.WhoCanResult) []whoCanRow {
 				Kind:         "User",
 				Via:          result.CurrentUserVia,
 				ClusterScope: result.CurrentUserClusterScope,
+				OnlyNames:    result.CurrentUserOnlyNames,
 			},
 		})
 	}
