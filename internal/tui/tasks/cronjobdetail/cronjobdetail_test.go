@@ -684,3 +684,37 @@ func TestClockTickNeverCallsLister(t *testing.T) {
 		t.Fatalf("expected the tick to reschedule itself")
 	}
 }
+
+// TestKeysWhileLoadingNeverPopTheScreen pins review 06 M7: found is false
+// until the first load lands, so the deleted banner's "any key goes back"
+// used to fire on a key pressed during the initial load or while a ']'
+// sibling move was loading — holding ']' walked straight out of the screen.
+func TestKeysWhileLoadingNeverPopTheScreen(t *testing.T) {
+	t.Parallel()
+	c, _ := newFakeCronJob("default", "alpha")
+	m := New(Config{
+		Session: newSession("default"), Lister: c, Mutator: c,
+		Namespace: "default", Name: "alpha",
+		Siblings: []SiblingRef{
+			{Namespace: "default", Name: "alpha"}, {Namespace: "default", Name: "beta"}, {Namespace: "default", Name: "gamma"},
+		},
+	})
+	m.SetSize(120, 40)
+	if m.state != tui.TaskStateLoading {
+		t.Fatalf("state = %v, want Loading before the first load lands", m.state)
+	}
+	for _, key := range []string{"j", "]", "]"} {
+		updated, cmd := m.Update(tea.KeyPressMsg{Text: key})
+		m = *updated.(*Model)
+		if cmd != nil {
+			if msg := cmd(); msg != nil {
+				if _, back := msg.(tui.BackMsg); back {
+					t.Fatalf("%q while loading sent BackMsg, want the screen to stay", key)
+				}
+			}
+		}
+	}
+	if m.name != "gamma" {
+		t.Fatalf("name = %q, want gamma — ']' while a sibling loads still moves", m.name)
+	}
+}

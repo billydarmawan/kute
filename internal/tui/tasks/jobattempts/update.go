@@ -242,6 +242,24 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.pendingRerun != nil {
 		return m.updateRerunKey(msg)
 	}
+	if m.state == tui.TaskStateLoading {
+		// found is false until the first load (and every sibling move's
+		// load) lands, so the "deleted · press any key to go back" branch
+		// below must not see these keys: a key pressed on open, or a held
+		// ']' walking siblings, would leave the screen. Only leaving and
+		// sibling movement mean anything before there's an object.
+		switch msg.String() {
+		case "ctrl+q", "ctrl+c":
+			return m, tea.Quit
+		case "esc", "backspace":
+			return m, func() tea.Msg { return tui.BackMsg{} }
+		case "]":
+			return m, m.moveSibling(1)
+		case "[":
+			return m, m.moveSibling(-1)
+		}
+		return m, nil
+	}
 	if !m.found {
 		switch msg.String() {
 		case "ctrl+q", "ctrl+c":

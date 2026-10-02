@@ -279,3 +279,34 @@ func TestBeginRerunSkipsExistingRerunNames(t *testing.T) {
 		t.Errorf("newName = %q, want %q — batch-1-rerun-1 already exists", m.pendingRerun.newName, "batch-1-rerun-2")
 	}
 }
+
+// TestKeysWhileLoadingNeverPopTheScreen pins review 06 M7 — see
+// cronjobdetail's own copy: a key during the initial load, or a second ']'
+// while a sibling loads, must not hit the deleted banner's "any key goes
+// back".
+func TestKeysWhileLoadingNeverPopTheScreen(t *testing.T) {
+	c, _ := newFakeJob("default", "batch-1")
+	m := New(Config{Session: newSession("default"), Lister: c, Mutator: c, Namespace: "default", Name: "batch-1",
+		Siblings: []SiblingRef{
+			{Namespace: "default", Name: "batch-1"}, {Namespace: "default", Name: "batch-2"}, {Namespace: "default", Name: "batch-3"},
+		},
+	})
+	m.SetSize(120, 40)
+	if m.state != tui.TaskStateLoading {
+		t.Fatalf("state = %v, want Loading before the first load lands", m.state)
+	}
+	for _, key := range []string{"j", "]", "]"} {
+		updated, cmd := m.Update(tea.KeyPressMsg{Text: key})
+		m = *updated.(*Model)
+		if cmd != nil {
+			if msg := cmd(); msg != nil {
+				if _, back := msg.(tui.BackMsg); back {
+					t.Fatalf("%q while loading sent BackMsg, want the screen to stay", key)
+				}
+			}
+		}
+	}
+	if m.name != "batch-3" {
+		t.Fatalf("name = %q, want batch-3 — ']' while a sibling loads still moves", m.name)
+	}
+}
