@@ -34,6 +34,15 @@ func nodeDebugPodPrefix(node string) string { return "node-debugger-" + node + "
 // rare case it hasn't.
 const nodeDebugLookupMaxAttempts = 6
 
+// nodeDebugCreationSkew widens findNodeDebugPodCmd's "created no earlier
+// than launch" cut-off. The API server stores CreationTimestamp at second
+// precision, and kubectl usually creates the pod within the same second as
+// launchedAt (a local time.Now() with nanoseconds), so comparing the two
+// directly missed the pod most of the time; the allowance also absorbs clock
+// skew between this machine and the API server. The node-debugger-<node>-
+// prefix plus "newest wins" still keep an older orphan out.
+const nodeDebugCreationSkew = 5 * time.Second
+
 // nodeDebugPodLookupMsg carries one findNodeDebugPodCmd attempt's result.
 type nodeDebugPodLookupMsg struct {
 	after     time.Time
@@ -55,9 +64,10 @@ type nodeDebugRetryDueMsg struct {
 
 // findNodeDebugPodCmd searches the already-warm cluster-wide Pod cache
 // (spec.nodeName == m.nodeName, name prefixed node-debugger-<node>-,
-// created no earlier than after) for the pod kubectl just created — the
-// only way the panel can learn the name, since kubectl prints it to the
-// terminal the user just saw but never reports it back to the caller.
+// created no earlier than after, less nodeDebugCreationSkew) for the pod
+// kubectl just created — the only way the panel can learn the name, since
+// kubectl prints it to the terminal the user just saw but never reports it
+// back to the caller.
 // after excludes an older orphaned node-debugger pod already sitting on
 // the same node from an earlier session (kube/debug.go's NodeDebugSpec doc
 // comment: kubectl leaves these behind — the exact bug report §41d's
@@ -72,6 +82,7 @@ func (m Model) findNodeDebugPodCmd(after time.Time, attempt int) tea.Cmd {
 		return func() tea.Msg { return nodeDebugPodLookupMsg{after: after, attempt: attempt} }
 	}
 	parent := m.session.ClusterContext()
+	cutoff := after.Truncate(time.Second).Add(-nodeDebugCreationSkew)
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 		defer cancel()
@@ -86,7 +97,7 @@ func (m Model) findNodeDebugPodCmd(after time.Time, attempt int) tea.Cmd {
 			if !ok || p.Spec.NodeName != node || !strings.HasPrefix(p.Name, prefix) {
 				continue
 			}
-			if p.CreationTimestamp.Time.Before(after) {
+			if p.CreationTimestamp.Time.Before(cutoff) {
 				continue
 			}
 			if best == nil || p.CreationTimestamp.After(best.CreationTimestamp.Time) {

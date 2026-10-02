@@ -654,6 +654,24 @@ func TestHandleLaunchResultNodeCleanExitLooksUpPod(t *testing.T) {
 	}
 }
 
+// TestFindNodeDebugPodCmdMatchesSecondPrecisionTimestamp: the API server
+// stores CreationTimestamp truncated to the second, so a pod kubectl created
+// 250ms after launch reads as earlier than launchedAt's own sub-second time
+// — the lookup must still find it rather than orphan it.
+func TestFindNodeDebugPodCmdMatchesSecondPrecisionTimestamp(t *testing.T) {
+	t.Parallel()
+	launchedAt := time.Date(2026, 1, 1, 12, 0, 0, 600*int(time.Millisecond), time.UTC)
+	created := launchedAt.Add(250 * time.Millisecond).Truncate(time.Second)
+	lister := fakePodLister{pods: []runtime.Object{
+		nodeDebuggerPod("default", "node-debugger-node-a-x7k2p", "node-a", created),
+	}}
+	m := New(Config{Session: nonProdSession(), IsNode: true, Name: "node-a", Lister: lister})
+	msg, ok := m.findNodeDebugPodCmd(launchedAt, 0)().(nodeDebugPodLookupMsg)
+	if !ok || !msg.found || msg.name != "node-debugger-node-a-x7k2p" {
+		t.Fatalf("expected the second-truncated pod found, got %#v", msg)
+	}
+}
+
 // TestFindNodeDebugPodCmdFindsNewestMatch confirms the lookup picks the
 // newest node-debugger-<node>-* pod scheduled on the right node, created no
 // earlier than after — and skips an older orphaned one left on the same
