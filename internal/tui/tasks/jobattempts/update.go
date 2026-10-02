@@ -135,6 +135,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	m.found = true
 	m.summary = msg.summary
 	m.pods = msg.pods
+	m.jobNames = msg.jobNames
 	m.restoreAttemptSelection()
 
 	m.state = tui.TaskStateReady

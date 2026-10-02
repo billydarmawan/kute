@@ -112,6 +112,10 @@ type Model struct {
 	// pods is a best-effort namespace-scoped Pod lookup (by name) for the
 	// attempt table's own 'l' logs target — mirrors cronjobdetail's own pods.
 	pods map[string]kube.Pod
+	// jobNames is every Job name in the namespace from load()'s own Job
+	// read — the taken set §37c's rerun name is chosen against, so a second
+	// rerun proposes -rerun-2 instead of colliding with -rerun-1.
+	jobNames map[string]bool
 
 	// selectedAttempt indexes m.summary.Attempts (§37b flat mode) or the
 	// index-grid cell list (§37d, when m.summary.Indexed) — one selection
@@ -149,11 +153,12 @@ type Model struct {
 // loadedMsg carries one load()'s result — epoch guards a stale reply the
 // same way cronjobdetail's own loadedMsg does.
 type loadedMsg struct {
-	epoch   int
-	found   bool
-	summary resources.JobAttemptsSummary
-	pods    map[string]kube.Pod
-	err     error
+	epoch    int
+	found    bool
+	summary  resources.JobAttemptsSummary
+	pods     map[string]kube.Pod
+	jobNames map[string]bool
+	err      error
 }
 
 func New(cfg Config) Model {

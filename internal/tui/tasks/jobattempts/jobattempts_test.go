@@ -262,3 +262,20 @@ func TestMoveSiblingLoadsNextJob(t *testing.T) {
 		t.Fatalf("expected the sibling load to settle Ready/found, got state=%v found=%v", m.state, m.found)
 	}
 }
+
+// TestBeginRerunSkipsExistingRerunNames pins review 06 M6: once
+// batch-1-rerun-1 exists, the ledger's next rerun must propose
+// batch-1-rerun-2, as browse's copy does, rather than a name whose create
+// fails AlreadyExists after the user commits.
+func TestBeginRerunSkipsExistingRerunNames(t *testing.T) {
+	c, _ := newFakeJob("default", "batch-1")
+	c.Seed(kube.KindJob, &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "batch-1-rerun-1", Namespace: "default", UID: "job-uid-2"}})
+	m := newModel(t, c, "default", "batch-1")
+	m.beginRerun()
+	if m.pendingRerun == nil {
+		t.Fatalf("expected beginRerun to stage a pendingRerun target")
+	}
+	if m.pendingRerun.newName != "batch-1-rerun-2" {
+		t.Errorf("newName = %q, want %q — batch-1-rerun-1 already exists", m.pendingRerun.newName, "batch-1-rerun-2")
+	}
+}

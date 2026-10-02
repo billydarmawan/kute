@@ -62,9 +62,20 @@ func (m Model) load() tea.Cmd {
 		}
 		return loadedMsg{
 			epoch: epoch, found: true, summary: summary,
-			pods: podsByName(podObjs),
+			pods: podsByName(podObjs), jobNames: jobNamesOf(jobObjs),
 		}
 	}
+}
+
+// jobNamesOf is the set of Job names in jobObjs — beginRerun's taken set.
+func jobNamesOf(jobObjs []runtime.Object) map[string]bool {
+	out := make(map[string]bool, len(jobObjs))
+	for _, obj := range jobObjs {
+		if j, ok := obj.(*batchv1.Job); ok {
+			out[j.Name] = true
+		}
+	}
+	return out
 }
 
 // findJob resolves name against jobObjs (a ListRaw reply already scoped to

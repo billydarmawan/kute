@@ -29,9 +29,12 @@ func (m *Model) beginRerun() {
 	if m.mutator == nil || m.state != tui.TaskStateReady || !m.found {
 		return
 	}
-	taken := map[string]bool{m.name: true}
+	// Every Job in the namespace, as browse's copy checks every listed Job —
+	// not just this one, or every rerun after the first proposes the
+	// -rerun-1 that already exists and the create fails AlreadyExists.
+	taken := func(n string) bool { return n == m.name || m.jobNames[n] }
 	m.pendingRerun = &jobRerunTarget{
-		newName:    kube.NextRerunName(m.name, func(n string) bool { return taken[n] }),
+		newName:    kube.NextRerunName(m.name, taken),
 		choice:     resources.JobRerunCreate,
 		diagnostic: resources.ClassifyJobFailure(m.summary),
 	}
