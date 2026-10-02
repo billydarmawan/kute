@@ -181,6 +181,9 @@ type Model struct {
 	name         string
 	siblings     []SiblingRef
 	siblingIndex int
+	// loadEpoch is bumped by every sibling move; loadedMsg carries the value
+	// its load() saw, so a reply for the pod just left is dropped.
+	loadEpoch int
 
 	pod   kube.Pod
 	found bool
@@ -233,11 +236,12 @@ type Model struct {
 }
 
 // loadedMsg carries one load()'s result for m.name/m.namespace as of when it
-// was issued — applyLoaded doesn't need a name guard the way browse's
-// rowsLoadedMsg does, since a sibling move (moveSibling) updates m.name and
-// m.namespace before re-issuing load(), and no other path changes them
-// mid-flight.
+// was issued. epoch is m.loadEpoch at that moment: a load issued before a
+// sibling move (a watch reload, an earlier ]) can land after it, and
+// applyLoaded drops it rather than painting the previous pod under the new
+// pod's name — browse's reloadEpoch pattern.
 type loadedMsg struct {
+	epoch  int
 	pod    kube.Pod
 	found  bool
 	events []kube.Event

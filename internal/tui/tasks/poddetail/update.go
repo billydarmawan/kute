@@ -132,6 +132,9 @@ type execResultMsg struct{ err error }
 type editResultMsg struct{ err error }
 
 func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
+	if msg.epoch != m.loadEpoch {
+		return m, nil
+	}
 	if msg.err != nil {
 		m.state = tui.TaskStateError
 		if kube.IsPermissionError(msg.err) {
@@ -372,6 +375,7 @@ func (m *Model) moveSibling(delta int) tea.Cmd {
 		return nil
 	}
 	m.siblingIndex = next
+	m.loadEpoch++
 	m.namespace = m.siblings[next].Namespace
 	m.name = m.siblings[next].Name
 	m.gone = false

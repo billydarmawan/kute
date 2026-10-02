@@ -805,6 +805,35 @@ func TestSiblingNavigationCrossesNamespaces(t *testing.T) {
 	}
 }
 
+// TestSiblingMoveDropsStaleLoad covers a load issued before ] (a watch
+// reload, an earlier move) landing after it: it must not paint the previous
+// pod under the new pod's name, where l would stream one pod while x/D/y
+// target the other.
+func TestSiblingMoveDropsStaleLoad(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {
+			runningPod("alpha", "default", "node-a"),
+			runningPod("bravo", "default", "node-b"),
+		},
+	}}
+	m := New(Config{
+		Session: newSession(), Lister: lister, Namespace: "default", Name: "alpha",
+		Siblings: []SiblingRef{{Namespace: "default", Name: "alpha"}, {Namespace: "default", Name: "bravo"}}, SiblingIndex: 0,
+	})
+	m.SetSize(120, 40)
+	m = step(t, m, m.Init()())
+
+	stale := m.load()
+	m = step(t, m, tea.KeyPressMsg{Text: "]"})
+	if m.pod.Name != "bravo" {
+		t.Fatalf("expected ] to load bravo, got %q", m.pod.Name)
+	}
+	m = step(t, m, stale())
+	if m.name != "bravo" || m.pod.Name != "bravo" || m.pod.Node != "node-b" {
+		t.Fatalf("stale alpha load applied over bravo: name=%q pod=%q node=%q", m.name, m.pod.Name, m.pod.Node)
+	}
+}
+
 func TestOpenLogsHandoff(t *testing.T) {
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindPod: {runningPod("api-0", "default", "node-a")},

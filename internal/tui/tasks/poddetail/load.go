@@ -31,6 +31,7 @@ func (m Model) load() tea.Cmd {
 	namespace := m.namespace
 	name := m.name
 	timeout := m.timeout
+	epoch := m.loadEpoch
 	registry := m.registry()
 	parent := m.session.ClusterContext()
 	return func() tea.Msg {
@@ -39,11 +40,11 @@ func (m Model) load() tea.Cmd {
 
 		objs, err := lister.ListRaw(ctx, kube.KindPod, namespace)
 		if err != nil {
-			return loadedMsg{err: err}
+			return loadedMsg{epoch: epoch, err: err}
 		}
 		obj := findPod(objs, namespace, name)
 		if obj == nil {
-			return loadedMsg{found: false}
+			return loadedMsg{epoch: epoch, found: false}
 		}
 		pod := kube.PodFromObject(obj)
 
@@ -78,7 +79,8 @@ func (m Model) load() tea.Cmd {
 		}
 
 		return loadedMsg{
-			pod: pod, found: true, events: eventRows, eventsErr: eventsErr, controller: controller, related: related,
+			epoch: epoch,
+			pod:   pod, found: true, events: eventRows, eventsErr: eventsErr, controller: controller, related: related,
 			sources: podContainerSources(obj.Spec), configErrors: podConfigErrors(obj.Status),
 		}
 	}
