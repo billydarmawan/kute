@@ -121,6 +121,9 @@ type refInfo struct {
 	HasReady   bool // false for a Secret — existence is the whole story
 	Ready      bool
 	StatusText string
+	// External marks an issuerRef into a non-cert-manager group: no Kind,
+	// never read, never a jump target, rendered neutral.
+	External bool
 }
 
 // Model is §35a's screen.
@@ -252,7 +255,7 @@ func (m Model) selectedTarget() (kube.ResourceKind, string, bool) {
 		}
 		i--
 	}
-	if m.haveIssuer && i == 0 {
+	if m.haveIssuer && i == 0 && !m.issuerRef.External {
 		return m.issuerRef.Kind, m.issuerRef.Name, true
 	}
 	return "", "", false

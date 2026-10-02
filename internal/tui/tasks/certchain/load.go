@@ -358,18 +358,32 @@ func resolveSecretRef(ctx context.Context, lister resources.RawLister, namespace
 }
 
 // resolveIssuerRef reports the Certificate's issuerRef existence and, when
-// found, its own Ready state.
+// found, its own Ready state. cert-manager defaults an omitted kind to an
+// Issuer in the Certificate's own namespace; a ref into any group other than
+// cert-manager.io names an external issuer (AWS PCA, Google CAS, …) kute has
+// no kind for, so it is shown as-is, neutral, with no read and no jump.
 func resolveIssuerRef(ctx context.Context, lister resources.RawLister, namespace string, cert *unstructured.Unstructured) (refInfo, bool) {
 	issuerName, _, _ := unstructured.NestedString(cert.Object, "spec", "issuerRef", "name")
 	issuerKindStr, _, _ := unstructured.NestedString(cert.Object, "spec", "issuerRef", "kind")
+	issuerGroup, _, _ := unstructured.NestedString(cert.Object, "spec", "issuerRef", "group")
 	if issuerName == "" {
 		return refInfo{}, false
 	}
-	kind := kube.KindClusterIssuer
-	issuerNamespace := ""
-	if issuerKindStr == string(kube.KindIssuer) {
-		kind = kube.KindIssuer
-		issuerNamespace = namespace
+	if issuerGroup != "" && issuerGroup != "cert-manager.io" {
+		label := issuerKindStr
+		if label == "" {
+			label = string(kube.KindIssuer)
+		}
+		return refInfo{
+			Label: strings.ToLower(label) + "/" + issuerName, Name: issuerName,
+			External: true, StatusText: issuerGroup,
+		}, true
+	}
+	kind := kube.KindIssuer
+	issuerNamespace := namespace
+	if issuerKindStr == string(kube.KindClusterIssuer) {
+		kind = kube.KindClusterIssuer
+		issuerNamespace = ""
 	}
 	ref := refInfo{
 		Label: strings.ToLower(string(kind)) + "/" + issuerName,

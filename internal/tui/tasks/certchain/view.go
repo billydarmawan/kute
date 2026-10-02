@@ -287,7 +287,9 @@ func (m Model) refText(ref refInfo, selected bool) string {
 		nameStyle = nameStyle.Bold(true).Foreground(theme.Accent)
 	}
 	statusStyle := lipgloss.NewStyle().Foreground(theme.Good)
-	if !ref.Exists || (ref.HasReady && !ref.Ready) {
+	if ref.External {
+		statusStyle = lipgloss.NewStyle().Foreground(theme.TextDim)
+	} else if !ref.Exists || (ref.HasReady && !ref.Ready) {
 		statusStyle = lipgloss.NewStyle().Foreground(theme.Bad)
 	}
 	return nameStyle.Render(ref.Label) + " · " + statusStyle.Render(ref.StatusText)

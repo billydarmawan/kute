@@ -1,10 +1,13 @@
 package certchain
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/kube/fake"
@@ -159,5 +162,62 @@ func TestReloadsOnIsNarrow(t *testing.T) {
 		if m.reloadsOn(kind) {
 			t.Errorf("expected reloadsOn(%s) = false — not part of this chain", kind)
 		}
+	}
+}
+
+// recordingLister answers ListRaw from objs and records which kind/namespace
+// pairs were read.
+type recordingLister struct {
+	objs  map[kube.ResourceKind][]runtime.Object
+	reads []string
+}
+
+func (l *recordingLister) ListRaw(_ context.Context, kind kube.ResourceKind, ns string) ([]runtime.Object, error) {
+	l.reads = append(l.reads, string(kind)+"/"+ns)
+	return l.objs[kind], nil
+}
+
+func certWithIssuerRef(ref map[string]any) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "web-tls", "namespace": "shop"},
+		"spec":     map[string]any{"issuerRef": ref},
+	}}
+}
+
+// cert-manager defaults an omitted issuerRef.kind to Issuer in the
+// Certificate's own namespace, not a ClusterIssuer.
+func TestIssuerRefKindDefaultsToNamespacedIssuer(t *testing.T) {
+	issuer := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "local-ca", "namespace": "shop"},
+		"status": map[string]any{"conditions": []any{
+			map[string]any{"type": "Ready", "status": "True"},
+		}},
+	}}
+	lister := &recordingLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindIssuer: {issuer}}}
+	ref, ok := resolveIssuerRef(t.Context(), lister, "shop", certWithIssuerRef(map[string]any{"name": "local-ca"}))
+	if !ok || ref.Kind != kube.KindIssuer || !ref.Exists || !ref.Ready || ref.Label != "issuer/local-ca" {
+		t.Fatalf("resolveIssuerRef = %+v, want a Ready issuer/local-ca", ref)
+	}
+	if len(lister.reads) != 1 || lister.reads[0] != "Issuer/shop" {
+		t.Fatalf("reads = %v, want only Issuer/shop", lister.reads)
+	}
+}
+
+// An issuerRef into an external issuer's group is shown as-is and never
+// read as a ClusterIssuer, which it isn't.
+func TestIssuerRefExternalGroupIsNeutralAndUnread(t *testing.T) {
+	lister := &recordingLister{}
+	ref, ok := resolveIssuerRef(t.Context(), lister, "shop", certWithIssuerRef(map[string]any{
+		"name": "pca", "kind": "AWSPCAClusterIssuer", "group": "awspca.cert-manager.io",
+	}))
+	if !ok || !ref.External || ref.Kind != "" || ref.Label != "awspcaclusterissuer/pca" {
+		t.Fatalf("resolveIssuerRef = %+v, want an external awspcaclusterissuer/pca", ref)
+	}
+	if len(lister.reads) != 0 {
+		t.Fatalf("reads = %v, want none for an external issuer", lister.reads)
+	}
+	m := Model{issuerRef: ref, haveIssuer: true}
+	if _, _, ok := m.selectedTarget(); ok {
+		t.Fatal("an external issuer ref must not be a jump target")
 	}
 }
