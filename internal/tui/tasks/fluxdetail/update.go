@@ -33,8 +33,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.reloadsOn(msg.Kind) {
 			return m, m.load()
 		}
-	case kube.ConnState:
-		m.conn = msg
+	case kube.ConnStateMsg:
+		m.conn = kube.ConnState(msg)
+		m.actions.SetOffline(m.conn.Offline())
 	case tickMsg:
 		// The retry countdown's clock lives here, not in View — render
 		// functions stay pure.

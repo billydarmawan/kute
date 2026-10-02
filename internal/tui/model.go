@@ -541,6 +541,45 @@ func (m Model) setAllSizes(width, height int) {
 	}
 }
 
+// activate makes t the active task: it resizes it to the last known
+// terminal size and replays the root's connection state into it. Every
+// place the root swaps m.task (push, pop, goto routing, 28b, 4c's swaps,
+// ReplaceRootMsg, the context-switch rebuild) goes through here, because the
+// root only forwards a kube.ConnStateMsg to whichever task is active when it
+// arrives: a freshly built task starts with a zero ConnState, which reads as
+// online, and a parked task misses every transition that happened while
+// something else was on top. Without the replay, a screen opened or
+// returned to during an outage claims "connected", keeps its metrics poll
+// running and leaves its mutating verbs enabled — and during
+// ConnUnauthenticated nothing ever corrects it, since the health loop
+// deliberately stops pinging.
+//
+// The replay is a synchronous Update call, not a tea.Cmd, so the very first
+// frame (and the very next key press) already sees the right state. It is
+// skipped until the root has seen a state at all (Phase ""), leaving the
+// task's own default. Every ConnStateMsg handler only acts on an edge, so
+// replaying a state the task already has is a no-op. Callers that also
+// Init the task do so after activate, so a fresh screen opened offline
+// never arms a poll in the first place.
+func (m *Model) activate(t Task) tea.Cmd {
+	m.task = t
+	m.resizeTask()
+	return m.replayConn()
+}
+
+// replayConn delivers the root's current connection state to the active
+// task (see activate).
+func (m *Model) replayConn() tea.Cmd {
+	if m.conn.Phase == "" || m.task == nil {
+		return nil
+	}
+	updated, cmd := m.task.Update(kube.ConnStateMsg(m.conn))
+	if t, ok := updated.(Task); ok {
+		m.task = t
+	}
+	return cmd
+}
+
 // routeGoto is what makes a jump "fire the same goto machinery as g": when
 // the active task is already the resting browse view (empty stack), it
 // reports ok=false and the caller falls through to the existing
@@ -568,9 +607,7 @@ func (m *Model) routeGoto(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, false
 	}
 	m.stack = append(m.stack, m.task)
-	m.task = task
-	m.resizeTask()
-	return cmd, true
+	return tea.Batch(cmd, m.activate(task)), true
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -591,8 +628,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case ReplaceRootMsg:
-		m.task = msg.Task
-		m.resizeTask()
+		// A different cluster from here on: the last state belonged to the
+		// one just replaced, and the new one reports its own over msg.Conn.
+		// Replaying the old outage would mark the reconnected browse
+		// offline.
+		m.conn = kube.ConnState{}
+		m.activate(msg.Task)
 		m.stack = nil
 		m.showingSetup = false
 		m.buildSetup = msg.BuildSetup
@@ -640,10 +681,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.neverConnected = false
 			if m.showingSetup && m.buildBrowse != nil {
 				m.showingSetup = false
-				m.task = m.buildBrowse()
-				m.resizeTask()
+				replay := m.activate(m.buildBrowse())
 				m.stack = nil
-				next := tea.Cmd(m.task.Init())
+				next := tea.Batch(replay, m.task.Init())
 				if rewatch != nil {
 					next = tea.Batch(next, rewatch)
 				}
@@ -651,10 +691,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case m.neverConnected && !m.showingSetup && m.buildSetup != nil && m.conn.Offline():
 			m.showingSetup = true
-			m.task = m.buildSetup(m.conn)
-			m.resizeTask()
+			replay := m.activate(m.buildSetup(m.conn))
 			m.stack = nil
-			next := tea.Cmd(m.task.Init())
+			next := tea.Batch(replay, m.task.Init())
 			if rewatch != nil {
 				next = tea.Batch(next, rewatch)
 			}
@@ -725,6 +764,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// cluster.SwitchContext (which folds discovery in) has already
 		// completed synchronously by the time this message arrives.
 		if m.session != nil && msg.Err == nil {
+			// The rebuilt cluster starts from a fresh health state and
+			// reports its own transitions; the old context's outage must not
+			// be replayed into the destination's screens.
+			m.conn = kube.ConnState{}
 			m.session.Location = Location{Context: msg.Context, Namespace: msg.Namespace, Kind: msg.Kind, Filter: msg.Filter}
 			// Every memoized count belongs to the cluster just left.
 			m.session.InvalidateCounts()
@@ -737,8 +780,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// equivalent detail/log/editor would risk carrying old object
 			// identity or an old stream into the new frame.
 			if len(m.stack) > 0 && m.buildBrowse != nil {
-				m.task = m.buildBrowse()
-				m.resizeTask()
+				m.activate(m.buildBrowse())
 				m.stack = nil
 				return m, m.task.Init()
 			}
@@ -870,10 +912,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	updated, cmd := m.task.Update(msg)
 	if task, ok := updated.(Task); ok {
-		if !sameTask(task, m.task) && !transient(m.task) {
-			m.stack = append(m.stack, m.task)
+		if sameTask(task, m.task) {
+			m.task = task
+		} else {
+			if !transient(m.task) {
+				m.stack = append(m.stack, m.task)
+			}
+			// A push (or a transient task replacing itself): the child was
+			// built by its parent, which already batched the child's Init
+			// into cmd; it still needs the connection state.
+			m.task = task
+			cmd = tea.Batch(cmd, m.replayConn())
 		}
-		m.task = task
 	}
 	if rewatch != nil {
 		cmd = tea.Batch(cmd, rewatch)
@@ -889,12 +939,12 @@ func (m *Model) popTask() tea.Cmd {
 	if len(m.stack) == 0 {
 		return nil
 	}
-	m.task = m.stack[len(m.stack)-1]
+	replay := m.activate(m.stack[len(m.stack)-1])
 	m.stack = m.stack[:len(m.stack)-1]
 	if r, ok := m.task.(Reloader); ok {
-		return r.Reload()
+		return tea.Batch(replay, r.Reload())
 	}
-	return nil
+	return replay
 }
 
 // handleShellKey routes keys the root shell owns: overlay navigation while
@@ -1265,9 +1315,8 @@ func (m *Model) openUpdatePanel() tea.Cmd {
 		}
 	}
 	m.stack = append(m.stack, m.task)
-	m.task = m.buildUpdate()
-	m.resizeTask()
-	return m.task.Init()
+	replay := m.activate(m.buildUpdate())
+	return tea.Batch(replay, m.task.Init())
 }
 
 // movePalette routes an up/down press to the palette's linear list.
