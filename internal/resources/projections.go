@@ -580,21 +580,29 @@ func projectIngress(lister RawLister) func(obj runtime.Object) Row {
 func ingressBackendsCell(lister RawLister, namespace string, ing *networkingv1.Ingress) (text string, status StatusClass, glyph string) {
 	ctx := context.Background()
 	var ok, broken int
+	tally := func(b networkingv1.IngressBackend) {
+		if b.Service == nil {
+			return
+		}
+		state := ResolveServiceBackend(ctx, lister, namespace, b.Service.Name)
+		if g, _ := state.Glyph(); g == "●" {
+			ok++
+		} else {
+			broken++
+		}
+	}
 	for _, r := range ing.Spec.Rules {
 		if r.HTTP == nil {
 			continue
 		}
 		for _, p := range r.HTTP.Paths {
-			if p.Backend.Service == nil {
-				continue
-			}
-			state := ResolveServiceBackend(ctx, lister, namespace, p.Backend.Service.Name)
-			if g, _ := state.Glyph(); g == "●" {
-				ok++
-			} else {
-				broken++
-			}
+			tally(p.Backend)
 		}
+	}
+	// spec.defaultBackend serves every unmatched request — the whole of a
+	// catch-all Ingress's routing.
+	if ing.Spec.DefaultBackend != nil {
+		tally(*ing.Spec.DefaultBackend)
 	}
 	switch {
 	case ok+broken == 0:

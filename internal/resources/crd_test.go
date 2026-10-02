@@ -284,6 +284,25 @@ func TestBuildDiscoveredRegistryIngressGetsLiveBackendResolution(t *testing.T) {
 	}
 }
 
+// A defaultBackend-only Ingress is a catch-all whose one backend still
+// counts, not "–" as if it routed nowhere.
+func TestIngressBackendsCountsDefaultBackend(t *testing.T) {
+	sel := map[string]string{"app": "web"}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindService: {serviceWithSelector("web", "default", sel)},
+		kube.KindPod:     {readyPod("web-1", "default", sel, true)},
+	}}
+	ing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "catch-all", Namespace: "default"},
+		Spec: networkingv1.IngressSpec{DefaultBackend: &networkingv1.IngressBackend{
+			Service: &networkingv1.IngressServiceBackend{Name: "web", Port: networkingv1.ServiceBackendPort{Number: 80}},
+		}},
+	}
+	if text, status, _ := ingressBackendsCell(lister, "default", ing); text != "1 ok" || status != StatusOK {
+		t.Fatalf("BACKENDS = %q/%s, want 1 ok", text, status)
+	}
+}
+
 // fakeClusterReader satisfies ClusterReader for
 // TestBuildDiscoveredRegistryIngressGetsLiveBackendResolution — CountInstances
 // is unused by that test, so it's a stub.

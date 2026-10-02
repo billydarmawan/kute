@@ -114,25 +114,23 @@ func (m Model) loadIngress() tea.Cmd {
 				tlsText, tlsClass = compactExpiry(facts[wildcardFactIdx].expiry), facts[wildcardFactIdx].class
 			}
 			for _, p := range r.HTTP.Paths {
-				if p.Backend.Service == nil {
+				row, ok := ingressBackendRow(ctx, lister, ns, p.Backend)
+				if !ok {
 					continue
 				}
-				svcName := p.Backend.Service.Name
-				state := resources.ResolveServiceBackend(ctx, lister, ns, svcName)
-				glyph, class := state.Glyph()
-				port := backendPortText(ctx, lister, ns, svcName, p.Backend.Service.Port)
-				rows = append(rows, routeRow{
-					match:         hostText + " " + p.Path,
-					backendNS:     ns,
-					backendName:   svcName,
-					backendText:   svcName + ":" + port,
-					glyph:         glyph,
-					class:         class,
-					endpointsText: formatEndpoints(state),
-					tlsText:       tlsText,
-					tlsClass:      tlsClass,
-					url:           scheme + "://" + host + p.Path,
-				})
+				row.match = hostText + " " + p.Path
+				row.tlsText, row.tlsClass = tlsText, tlsClass
+				row.url = scheme + "://" + host + p.Path
+				rows = append(rows, row)
+			}
+		}
+		// spec.defaultBackend catches every request no rule matches — a
+		// defaultBackend-only Ingress is a common catch-all, not one with
+		// no routes.
+		if ing.Spec.DefaultBackend != nil {
+			if row, ok := ingressBackendRow(ctx, lister, ns, *ing.Spec.DefaultBackend); ok {
+				row.match = "* (default)"
+				rows = append(rows, row)
 			}
 		}
 
@@ -141,6 +139,32 @@ func (m Model) loadIngress() tea.Cmd {
 			rows: rows, tlsFacts: facts, certsPending: certsPending,
 		}
 	}
+}
+
+// ingressBackendRow resolves one Ingress backend into a row's backend
+// fields: a Service through the shared ●/✕/▲ resolution, a resource backend
+// (spec.rules[].http.paths[].backend.resource) as a neutral "<kind>/<name>"
+// kute has nothing to resolve against and never jumps to.
+func ingressBackendRow(ctx context.Context, lister resources.RawLister, ns string, b networkingv1.IngressBackend) (routeRow, bool) {
+	switch {
+	case b.Service != nil:
+		svcName := b.Service.Name
+		state := resources.ResolveServiceBackend(ctx, lister, ns, svcName)
+		glyph, class := state.Glyph()
+		return routeRow{
+			backendNS: ns, backendName: svcName,
+			backendText:   svcName + ":" + backendPortText(ctx, lister, ns, svcName, b.Service.Port),
+			glyph:         glyph,
+			class:         class,
+			endpointsText: formatEndpoints(state),
+		}, true
+	case b.Resource != nil:
+		return routeRow{
+			backendText: strings.ToLower(b.Resource.Kind) + "/" + b.Resource.Name,
+			glyph:       "·", class: resources.StatusNeutral, endpointsText: "—",
+		}, true
+	}
+	return routeRow{}, false
 }
 
 // formatEndpoints renders a resolved backend's ready-pod count for the

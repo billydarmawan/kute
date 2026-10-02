@@ -827,3 +827,59 @@ func TestIngressTLSFactWhileSecretsFillAsksForRetry(t *testing.T) {
 		t.Fatal("expected a cache-sync retry while the Secret cache fills")
 	}
 }
+
+// A defaultBackend-only Ingress routes everything to one backend: a
+// "* (default)" row, never the "no routes" empty state.
+func TestLoadIngressDefaultBackendOnly(t *testing.T) {
+	sel := map[string]string{"app": "web"}
+	ing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "catch-all", Namespace: "default"},
+		Spec: networkingv1.IngressSpec{DefaultBackend: &networkingv1.IngressBackend{
+			Service: &networkingv1.IngressServiceBackend{Name: "web", Port: networkingv1.ServiceBackendPort{Number: 80}},
+		}},
+	}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindIngress: {ing},
+		kube.KindService: {serviceWithSelector("web", "default", sel)},
+		kube.KindPod:     {readyPod("web-1", "default", sel, true)},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "catch-all"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if m.state != tui.TaskStateReady || len(m.rows) != 1 {
+		t.Fatalf("state = %s, rows = %+v, want one ready row", m.state, m.rows)
+	}
+	if r := m.rows[0]; r.match != "* (default)" || r.glyph != "●" || r.backendText != "web:80" {
+		t.Fatalf("default backend row = %+v", r)
+	}
+}
+
+// A resource backend is shown as-is, neutral, and never looked up as a
+// Service.
+func TestLoadIngressResourceBackendIsNeutral(t *testing.T) {
+	apiGroup := "k8s.example.com"
+	pathType := networkingv1.PathTypePrefix
+	ing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "static", Namespace: "default"},
+		Spec: networkingv1.IngressSpec{Rules: []networkingv1.IngressRule{{
+			Host: "static.local",
+			IngressRuleValue: networkingv1.IngressRuleValue{HTTP: &networkingv1.HTTPIngressRuleValue{
+				Paths: []networkingv1.HTTPIngressPath{{Path: "/", PathType: &pathType, Backend: networkingv1.IngressBackend{
+					Resource: &corev1.TypedLocalObjectReference{APIGroup: &apiGroup, Kind: "StorageBucket", Name: "assets"},
+				}}},
+			}},
+		}}},
+	}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindIngress: {ing}}}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "static"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.rows) != 1 {
+		t.Fatalf("rows = %+v, want one", m.rows)
+	}
+	if r := m.rows[0]; r.glyph != "·" || r.backendText != "storagebucket/assets" || r.backendName != "" {
+		t.Fatalf("resource backend row = %+v", r)
+	}
+}
