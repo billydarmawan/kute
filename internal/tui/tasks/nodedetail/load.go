@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -43,21 +44,17 @@ func (m Model) scheduleReload(epoch int) tea.Cmd {
 }
 
 // load fetches the node itself and its non-terminal pods (spec.nodeName
-// match) and builds both halves of the facts panel:
+// match) and builds the facts panel's REQUESTED / ALLOCATABLE half: the
+// pods' effective requests against what the scheduler may hand out.
+// Requests, not usage, so this half still renders on a cluster with no
+// metrics-server.
 //
-//   - REQUESTED / ALLOCATABLE — the pods' effective requests against what
-//     the scheduler may hand out. Requests, not usage, so this half still
-//     renders on a cluster with no metrics-server.
-//   - USED / CAPACITY — this node's live metrics-server usage against the
-//     whole machine. Best-effort: a failed read leaves usedOK false and the
-//     block says so.
-//
-// It also best-effort enriches the pod rows with live usage for their own
-// MEM/CPU columns.
+// USED / CAPACITY and the pod rows' own CPU/MEM cells are deliberately not
+// read here: load runs on every Pod or Node watch event anywhere in the
+// cluster, and metrics-server is polled on the sync interval only
+// (loadMetrics). applyLoaded overlays the last poll's reading instead.
 func (m Model) load() tea.Cmd {
 	lister := m.lister
-	metrics := m.metrics
-	nodeMetrics := m.nodeMetrics
 	nodeName := m.nodeName
 	timeout := m.timeout
 	parent := m.session.ClusterContext()
@@ -74,12 +71,6 @@ func (m Model) load() tea.Cmd {
 		if err != nil {
 			return loadedMsg{err: err}
 		}
-
-		var podMetrics map[string]kube.PodMetrics
-		if metrics != nil {
-			podMetrics, _ = metrics.PodMetricsByNamespace(ctx, "")
-		}
-		used, usedOK := readNodeUsage(ctx, nodeMetrics, nodeName)
 
 		podDesc, _ := resources.DefaultRegistry().Descriptor(kube.KindPod)
 
@@ -98,11 +89,6 @@ func (m Model) load() tea.Cmd {
 			cpuReq, memReq := kube.PodEffectiveRequests(p)
 			allocated.cpuMilli += cpuReq
 			allocated.memBytes += memReq
-
-			if pm, found := podMetrics[kube.PodKey(pod.Namespace, pod.Name)]; found {
-				pod.CPU, pod.MEM = pm.CPU, pm.MEM
-				pod.CPUMilli, pod.MEMBytes = pm.CPUMilli, pm.MemBytes
-			}
 			rows = append(rows, nodePodRow{pod: pod, row: podDesc.Project(p)})
 		}
 		slices.SortStableFunc(rows, func(a, b nodePodRow) int {
@@ -116,9 +102,7 @@ func (m Model) load() tea.Cmd {
 			node:        node,
 			allocated:   allocated,
 			allocatable: nodeAllocatable(node),
-			used:        used,
 			capacity:    nodeCapacity(node),
-			usedOK:      usedOK,
 			pods:        rows,
 		}
 	}
@@ -228,17 +212,27 @@ func (m Model) pollsMetrics() bool {
 	return !m.conn.Offline()
 }
 
+// maxNamespaceReads caps the per-namespace pod-metrics reads one poll
+// makes. A node's pods usually span a handful of namespaces, where one List
+// each costs a fraction of the cluster-wide one; past this many round trips
+// a single cluster-wide List is the cheaper of the two.
+const maxNamespaceReads = 8
+
 // loadMetrics is the poll itself: usage only, deliberately not a full
 // load(). A node's pod set changes on a watch event, which already
 // triggers a reload — re-listing every pod in the cluster every two
 // seconds to refresh a number would make this screen more expensive than
-// the list it was opened from.
+// the list it was opened from. For the same reason pod usage is read only
+// for the namespaces this node's pods live in, not cluster-wide: the table
+// holds at most a node's worth of pods, and metrics-server serializes every
+// pod in whatever it's asked for.
 func (m Model) loadMetrics() tea.Cmd {
 	metrics := m.metrics
 	nodeMetrics := m.nodeMetrics
 	nodeName := m.nodeName
 	timeout := m.timeout
 	epoch := m.metricsEpoch
+	namespaces := podNamespaces(m.allPods)
 	parent := m.session.ClusterContext()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, timeout)
@@ -247,10 +241,46 @@ func (m Model) loadMetrics() tea.Cmd {
 		msg := metricsLoadedMsg{epoch: epoch}
 		msg.used, msg.usedOK = readNodeUsage(ctx, nodeMetrics, nodeName)
 		if metrics != nil {
-			msg.podMetrics, _ = metrics.PodMetricsByNamespace(ctx, "")
+			msg.podMetrics = readPodUsage(ctx, metrics, namespaces)
 		}
 		return msg
 	}
+}
+
+// podNamespaces is the sorted set of namespaces rows' pods live in.
+func podNamespaces(rows []nodePodRow) []string {
+	var namespaces []string
+	for _, r := range rows {
+		namespaces = append(namespaces, r.pod.Namespace)
+	}
+	slices.Sort(namespaces)
+	return slices.Compact(namespaces)
+}
+
+// readPodUsage reads pod usage for namespaces — one List each, or one
+// cluster-wide List past maxNamespaceReads. nil means nothing was read (no
+// pods yet, or every read failed), which applyMetrics treats as "keep the
+// last reading" rather than blanking the column.
+func readPodUsage(ctx context.Context, src MetricsReader, namespaces []string) map[string]kube.PodMetrics {
+	if len(namespaces) == 0 {
+		return nil
+	}
+	if len(namespaces) > maxNamespaceReads {
+		usage, _ := src.PodMetricsByNamespace(ctx, "")
+		return usage
+	}
+	var merged map[string]kube.PodMetrics
+	for _, ns := range namespaces {
+		usage, err := src.PodMetricsByNamespace(ctx, ns)
+		if err != nil {
+			continue
+		}
+		if merged == nil {
+			merged = make(map[string]kube.PodMetrics, len(usage))
+		}
+		maps.Copy(merged, usage)
+	}
+	return merged
 }
 
 // diskPollEvery is how many usage-poll ticks pass between disk reads — 30s

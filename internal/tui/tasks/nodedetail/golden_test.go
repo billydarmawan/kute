@@ -151,15 +151,23 @@ func goldenNodeDetailModel(t *testing.T, width, height int) Model {
 	// — because the whole point of the second block is that the two are not
 	// the same number, and a fixture where they agreed would let them
 	// silently collapse back together.
-	m = step(t, m, loadedMsg{
+	//
+	// Update by hand rather than step: step follows every Cmd, and the
+	// usage poll's next tick would keep it polling forever.
+	updated, _ := m.Update(loadedMsg{
 		node:        node,
 		allocated:   allocation{cpuMilli: 2200, memBytes: memAllocated},
 		allocatable: allocation{cpuMilli: 4000, memBytes: memAllocatable, pods: 110},
-		used:        allocation{cpuMilli: 940, memBytes: 5*giByte + giByte*2/5},
 		capacity:    allocation{cpuMilli: 4000, memBytes: int64(10 * giByte)},
-		usedOK:      true,
 		pods:        goldenNodePods(),
 	})
+	m = *updated.(*Model)
+	updated, _ = m.Update(metricsLoadedMsg{
+		epoch:  m.metricsEpoch,
+		used:   allocation{cpuMilli: 940, memBytes: 5*giByte + giByte*2/5},
+		usedOK: true,
+	})
+	m = *updated.(*Model)
 	// disk ~81% of a 100Gi root fs — hot, so the row's yellow treatment is
 	// pinned alongside mem's. The runtime sits on a separate, cool 200Gi
 	// disk, pinning the img row.

@@ -216,6 +216,12 @@ type Model struct {
 	// running when the previous chain's tick is still pending in the
 	// runtime.
 	metricsEpoch int
+	// podMetrics is the last poll's pod usage, overlaid on the rows every
+	// reload rebuilds — load() itself never reads metrics-server.
+	podMetrics map[string]kube.PodMetrics
+	// usagePolled is set once any usage poll has answered, so USED doesn't
+	// claim "no metrics-server" while the first one is still in flight.
+	usagePolled bool
 
 	// conn is the last kube.ConnStateMsg forwarded by the root shell — the
 	// header badge's real connection state (never a hardcoded "connected").
@@ -256,9 +262,7 @@ type loadedMsg struct {
 	node        *corev1.Node
 	allocated   allocation
 	allocatable allocation
-	used        allocation
 	capacity    allocation
-	usedOK      bool
 	pods        []nodePodRow
 	err         error
 }
@@ -333,9 +337,10 @@ func (m Model) Init() tea.Cmd {
 	if m.lister == nil {
 		return nil
 	}
-	// Init runs on a value copy, so arm the first chain at epoch 1 directly
-	// rather than through armMetricsTick's pointer receiver.
-	return tea.Batch(m.load(), m.spinner.Tick, m.scheduleMetricsTick(1), m.loadDisk())
+	// The usage poll starts once the first load lands (applyLoaded): it
+	// reads pod usage only for the namespaces this node's pods live in,
+	// which aren't known until then.
+	return tea.Batch(m.load(), m.spinner.Tick, m.loadDisk())
 }
 
 func (m *Model) SetSize(width, height int) {

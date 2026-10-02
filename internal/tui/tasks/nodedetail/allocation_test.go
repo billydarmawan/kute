@@ -13,14 +13,17 @@ func allocationModel(t *testing.T, usedOK bool) Model {
 	t.Helper()
 	m := New(Config{Session: newSession(), Lister: fakeLister{}, NodeName: "worker-01"})
 	m.SetSize(120, 36)
-	return step(t, m, loadedMsg{
+	m = step(t, m, loadedMsg{
 		node:        goldenNode(),
 		allocated:   allocation{cpuMilli: 2200, memBytes: 5 * giByte},
 		allocatable: allocation{cpuMilli: 3800, memBytes: 13 * giByte, pods: 110},
-		used:        allocation{cpuMilli: 940, memBytes: 8 * giByte},
 		capacity:    allocation{cpuMilli: 4000, memBytes: 16 * giByte},
-		usedOK:      usedOK,
 		pods:        goldenNodePods(),
+	})
+	return step(t, m, metricsLoadedMsg{
+		epoch:  m.metricsEpoch,
+		used:   allocation{cpuMilli: 940, memBytes: 8 * giByte},
+		usedOK: usedOK,
 	})
 }
 

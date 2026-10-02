@@ -368,6 +368,9 @@ func (m Model) allocationBlock(theme tui.Theme, compact bool) []string {
 			allocationBarLine("cpu", m.used.cpuMilli, m.capacity.cpuMilli, theme, formatMilli),
 			allocationBarLine("mem", m.used.memBytes, m.capacity.memBytes, theme, formatBytes),
 		)
+	} else if m.nodeMetrics != nil && !m.usagePolled {
+		// The first poll is still in flight — not yet a claim either way.
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — reading metrics-server…"))
 	} else {
 		// A zeroed bar would claim the node is idle. Say why there's no
 		// reading instead — the same degradation overview's capacityLines

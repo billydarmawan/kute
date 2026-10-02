@@ -215,15 +215,36 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	m.node = msg.node
 	m.allocated = msg.allocated
 	m.allocatable = msg.allocatable
-	m.used = msg.used
 	m.capacity = msg.capacity
-	m.usedOK = msg.usedOK
 	m.allPods = msg.pods
+	m.applyPodUsage()
 	m.recomputeFiltered()
 
+	firstReady := m.state != tui.TaskStateReady
 	m.state = tui.TaskStateReady
 	m.feedback = ""
+	if firstReady {
+		// The first landed load is what tells the poll which namespaces to
+		// read, so the chain starts here — reading now, not a tick from now,
+		// so USED and the pods' CPU/MEM fill in with the rest of the screen.
+		m.metricsEpoch++
+		if m.pollsMetrics() {
+			return m, m.loadMetrics()
+		}
+	}
 	return m, nil
+}
+
+// applyPodUsage overlays the last usage poll on allPods' rows. A pod the
+// poll didn't cover (it landed on the node since) keeps whatever it had.
+func (m *Model) applyPodUsage() {
+	for i := range m.allPods {
+		pod := &m.allPods[i].pod
+		if pm, found := m.podMetrics[kube.PodKey(pod.Namespace, pod.Name)]; found {
+			pod.CPU, pod.MEM = pm.CPU, pm.MEM
+			pod.CPUMilli, pod.MEMBytes = pm.CPUMilli, pm.MemBytes
+		}
+	}
 }
 
 // applyMetrics folds one usage poll into the model and arms the next tick.
@@ -235,14 +256,10 @@ func (m *Model) applyMetrics(msg metricsLoadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.used, m.usedOK = msg.used, msg.usedOK
+	m.usagePolled = true
 	if msg.podMetrics != nil {
-		for i := range m.allPods {
-			pod := &m.allPods[i].pod
-			if pm, found := msg.podMetrics[kube.PodKey(pod.Namespace, pod.Name)]; found {
-				pod.CPU, pod.MEM = pm.CPU, pm.MEM
-				pod.CPUMilli, pod.MEMBytes = pm.CPUMilli, pm.MemBytes
-			}
-		}
+		m.podMetrics = msg.podMetrics
+		m.applyPodUsage()
 		// pods holds copies of allPods' rows, so the filtered view has to
 		// be rebuilt for the refreshed numbers to reach the table.
 		m.recomputeFiltered()
