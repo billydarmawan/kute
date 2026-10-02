@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
+	kubefake "github.com/kute-dev/kute/internal/kube/fake"
 )
 
 // resourcesDeployment is "nva-worker": a single "worker" container with
@@ -381,5 +382,100 @@ func TestSetResourcesFailedApplyPreservesPanelAndAttempt(t *testing.T) {
 	}
 	if view := plain(m.Render()); !strings.Contains(view, "resource quota changed after dry-run") {
 		t.Fatalf("server error is absent from the still-open panel:\n%s", view)
+	}
+}
+
+// TestContainerUsageJoinsOnNamespacedPodKey pins 25a's USAGE join to the key
+// shape both metrics providers actually return — kube.PodKey(namespace,
+// name) — and proves a same-named pod in another namespace (a DaemonSet, one
+// chart installed twice) never lends its usage to the row being edited.
+func TestContainerUsageJoinsOnNamespacedPodKey(t *testing.T) {
+	podIn := func(ns string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: ns}}
+	}
+	metrics := map[string]map[string]kube.PodMetrics{
+		kube.PodKey("shop", "web-0"):    {"worker": {CPUMilli: 120, MemBytes: 64}},
+		kube.PodKey("billing", "web-0"): {"worker": {CPUMilli: 900, MemBytes: 4096}},
+	}
+
+	cpu, mem, ok := containerUsage(metrics, []*corev1.Pod{podIn("shop")}, "worker")
+	if !ok || cpu != 120 || mem != 64 {
+		t.Fatalf("shop/web-0 usage = (%d, %d, %v), want (120, 64, true)", cpu, mem, ok)
+	}
+	cpu, mem, ok = containerUsage(metrics, []*corev1.Pod{podIn("billing")}, "worker")
+	if !ok || cpu != 900 || mem != 4096 {
+		t.Fatalf("billing/web-0 usage = (%d, %d, %v), want (900, 4096, true)", cpu, mem, ok)
+	}
+	if _, _, ok := containerUsage(metrics, []*corev1.Pod{podIn("other")}, "worker"); ok {
+		t.Fatal("other/web-0 has no sample but containerUsage reported one")
+	}
+}
+
+// TestContainerUsageReadsFakeProviderOutput feeds fake.Cluster's own
+// ContainerMetricsByNamespace output straight into containerUsage, cluster
+// wide, so the join is checked against a real provider's key shape rather
+// than a hand-built map that could drift from it.
+func TestContainerUsageReadsFakeProviderOutput(t *testing.T) {
+	cluster := kubefake.New("default", "test")
+	mkPod := func(ns, cpuLimit string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: ns},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{
+				Name: "worker",
+				Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse(cpuLimit),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+				}},
+			}}},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		}
+	}
+	shop, billing := mkPod("shop", "1"), mkPod("billing", "8")
+	cluster.Seed(kube.KindPod, shop, billing)
+
+	metrics, err := cluster.ContainerMetricsByNamespace(t.Context(), "")
+	if err != nil {
+		t.Fatalf("ContainerMetricsByNamespace: %v", err)
+	}
+	for _, pod := range []*corev1.Pod{shop, billing} {
+		want := metrics[kube.PodKey(pod.Namespace, pod.Name)]["worker"]
+		cpu, mem, ok := containerUsage(metrics, []*corev1.Pod{pod}, "worker")
+		if !ok {
+			t.Fatalf("%s/%s: containerUsage found no sample in the fake provider's output", pod.Namespace, pod.Name)
+		}
+		if cpu != want.CPUMilli || mem != want.MemBytes {
+			t.Fatalf("%s/%s usage = (%d, %d), want (%d, %d)", pod.Namespace, pod.Name, cpu, mem, want.CPUMilli, want.MemBytes)
+		}
+	}
+}
+
+// TestBeginSetResourcesShowsLiveUsageFromProviderKeyedMetrics opens the
+// panel against a metrics reader returning the providers' real
+// kube.PodKey-keyed shape, with a same-named pod in another namespace
+// carrying different usage: the panel must find its own pod's sample, not
+// read "metrics unavailable" and not borrow the other namespace's.
+func TestBeginSetResourcesShowsLiveUsageFromProviderKeyedMetrics(t *testing.T) {
+	dep := resourcesDeployment("default", "nva-worker")
+	rs, pod := resourcesOwnerChain("default", "nva-worker")
+	lister := resourcesLister(dep, rs, pod)
+	metrics := fakeMetrics{containerMetrics: map[string]map[string]kube.PodMetrics{
+		kube.PodKey("default", pod.Name): {"worker": {CPUMilli: 182, MemBytes: 300 << 20}},
+		kube.PodKey("staging", pod.Name): {"worker": {CPUMilli: 950, MemBytes: 900 << 20}},
+	}}
+	session := newSession()
+	session.Location.Kind = kube.KindDeployment
+	m := New(Config{Session: session, Lister: lister, Metrics: metrics, Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if !m.beginSetResources() {
+		t.Fatal("beginSetResources returned false")
+	}
+	tgt := m.pendingSetResources
+	if !tgt.usageOK {
+		t.Fatal("usageOK = false: the panel never joined the pod's metrics sample")
+	}
+	if tgt.cpuMilli != 182 || tgt.memBytes != 300<<20 {
+		t.Errorf("usage = (%dm, %d bytes), want (182m, %d bytes) from default/%s", tgt.cpuMilli, tgt.memBytes, 300<<20, pod.Name)
 	}
 }

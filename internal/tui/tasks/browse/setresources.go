@@ -408,14 +408,16 @@ func containerOOMFact(pods []*corev1.Pod, container string) (age time.Duration, 
 }
 
 // containerUsage sums container's live usage across every one of pods, from
-// browse's own ContainerMetricsByNamespace poll (metrics, keyed by pod then
-// container name) — the one real measurement both the request and limit
+// browse's own ContainerMetricsByNamespace poll (metrics, keyed by
+// kube.PodKey(namespace, name) then container name — never bare pod name,
+// which both providers' keys never match and which, cluster-wide, would
+// collide same-named pods in different namespaces) — the one real measurement both the request and limit
 // USAGE cell of that resource type compare against. ok is false when no pod
 // reported a sample yet (metrics not configured, or the informer hasn't
 // caught up).
 func containerUsage(metrics map[string]map[string]kube.PodMetrics, pods []*corev1.Pod, container string) (cpuMilli, memBytes int64, ok bool) {
 	for _, pod := range pods {
-		byContainer, exists := metrics[pod.Name]
+		byContainer, exists := metrics[kube.PodKey(pod.Namespace, pod.Name)]
 		if !exists {
 			continue
 		}

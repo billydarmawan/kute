@@ -44,7 +44,8 @@ const reloadDebounce = 250 * time.Millisecond
 type MetricsReader interface {
 	PodMetricsByNamespace(ctx context.Context, namespace string) (map[string]kube.PodMetrics, error)
 	// ContainerMetricsByNamespace is 25a's per-container usage seam — like
-	// PodMetricsByNamespace but keyed by pod name then container name,
+	// PodMetricsByNamespace but keyed by kube.PodKey(namespace, name) then
+	// container name,
 	// since 25a's per-field USAGE bar needs the active container's own
 	// usage, not the whole pod's summed usage a container tab switch would
 	// otherwise show unchanged.

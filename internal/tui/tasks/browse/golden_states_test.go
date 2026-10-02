@@ -735,7 +735,7 @@ func goldenSetResourcesModel(t *testing.T, width, height int) Model {
 		kube.KindPod:        {pod},
 	}}
 	metrics := fakeMetrics{containerMetrics: map[string]map[string]kube.PodMetrics{
-		pod.Name: {"worker": {CPU: "182m", MEM: "512Mi", CPUMilli: 182, MemBytes: 512 * 1024 * 1024}},
+		kube.PodKey(pod.Namespace, pod.Name): {"worker": {CPU: "182m", MEM: "512Mi", CPUMilli: 182, MemBytes: 512 * 1024 * 1024}},
 	}}
 	sess := newSession()
 	sess.Location.Kind = kube.KindDeployment
