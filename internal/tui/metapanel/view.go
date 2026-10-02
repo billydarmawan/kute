@@ -269,6 +269,8 @@ func metaNoteText(r metaRow, editing, pendingConfirm bool, theme tui.Theme, with
 		return withBg(lipgloss.NewStyle().Foreground(theme.Warn)).Render("confirm to apply · y/N")
 	case r.joinService != "":
 		return withBg(lipgloss.NewStyle().Foreground(theme.Warn)).Render(fmt.Sprintf("%s selector · svc/%s", tui.GlyphSelectorJoin, r.joinService))
+	case r.joinUnknown != "":
+		return withBg(lipgloss.NewStyle().Foreground(theme.Warn)).Render("service joins unknown · " + r.joinUnknown)
 	case r.helmOwnedNote:
 		return withBg(lipgloss.NewStyle().Foreground(theme.TextFaint)).Render("helm-owned · edits survive until next upgrade")
 	default:
@@ -331,6 +333,9 @@ func (p *Model) WillRunStrip(width int, ctrl *actions.Controller) string {
 	// form alone since the combined line regularly overruns keybar width.
 	joinPrefix := func(r *metaRow) string {
 		if r.joinService == "" {
+			if r.joinUnknown != "" {
+				return warnLabel.Render("service joins unknown (" + r.joinUnknown + ") · ")
+			}
 			return ""
 		}
 		return warnLabel.Render(fmt.Sprintf("detaches %d pods from svc/%s · ", r.joinPodCount, r.joinService))

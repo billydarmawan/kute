@@ -13,7 +13,8 @@
 // ↵/delete commits, execution does go through actions.Controller/
 // kube.Mutator — TierNone for an ordinary edit (metadata changes are
 // reversible), escalated to TierInline only for a Service-selector-joined
-// label edit or any key removal. Unlike 24a/25a this escalation is never
+// label edit (or one whose Service joins aren't known yet) or any key
+// removal. Unlike 24a/25a this escalation is never
 // PROD-driven and never escalates further to the type-the-name modal
 // (docs/design README.md §26a: "reversible, no type-the-name modal — per
 // 8b's tiering").
@@ -120,6 +121,12 @@ type metaRow struct {
 	// recomputed against the in-progress (unapplied) buffer.
 	joinService  string
 	joinPodCount int
+	// joinUnknown is set (labels only) when the Service cache those joins
+	// were read from hadn't filled yet, or can't be read at all — no join
+	// found is then not evidence of no join, so the edit is treated as if
+	// it were joined (TierInline) rather than applied blind. Its value is
+	// the reason, rendered in the row note and will-run strip.
+	joinUnknown string
 	// secretMasked marks a row whose current is a mask placeholder, not the
 	// real value (maskSecretManifestRow) — 'y' copies nothing from it.
 	secretMasked bool
@@ -313,12 +320,23 @@ func (p *Model) buildTarget(kind kube.ResourceKind, namespace, name string) (*me
 	t.annotations = buildMetaRows(acc.GetAnnotations(), true, theme)
 
 	joins := serviceLabelJoins(p.cfg.Session.ClusterContext(), p.cfg.Lister, namespace, objLabels)
+	// Service is lazy: the read above may well have just started its
+	// informer and come back empty. Asked after the read, about the same
+	// namespace it used (CLAUDE.md, "never gate on Synced()").
+	joinUnknown := ""
+	if !tui.KindsSynced(p.cfg.Lister, namespace, kube.KindService) {
+		joinUnknown = "services still loading"
+	} else if tui.KindsError(p.cfg.Lister, namespace, kube.KindService) != nil {
+		joinUnknown = "services unreadable"
+	}
 	immutable := immutableSelectorKeys(obj)
 	helmOwned := objLabels["app.kubernetes.io/managed-by"] == "Helm"
 	for i := range t.labels {
 		l := &t.labels[i]
 		if j, ok := joins[l.key]; ok {
 			l.joinService, l.joinPodCount = j.service, j.podCount
+		} else {
+			l.joinUnknown = joinUnknown
 		}
 		if immutable[l.key] {
 			l.readOnly, l.readOnlyNote = true, "immutable selector · server rejects this edit"
@@ -691,7 +709,8 @@ func (p *Model) updateAddKey(msg tea.KeyPressMsg, ctrl *actions.Controller) tea.
 
 // commitMeta executes a label/annotation set through actions.Controller —
 // TierNone (applies immediately, mirroring browse commitSetImage's non-PROD
-// path) unless row is a Service-selector-joined label, which escalates to
+// path) unless row is a Service-selector-joined label — or one whose join
+// can't be known yet (joinUnknown) — which escalates to
 // TierInline regardless of PROD (docs/design README.md §26a: "requires the
 // inline y/N even though metadata edits are otherwise reversible" — no PROD
 // dependency, unlike 24a/25a's own tiering, and no further escalation to a
@@ -709,6 +728,8 @@ func (p *Model) commitMeta(t metaTarget, row metaRow, overwrite, isAdd bool, ctr
 	if row.joinService != "" {
 		tier = actions.TierInline
 		scope.MetaJoinService, scope.MetaJoinPodCount = row.joinService, row.joinPodCount
+	} else if row.joinUnknown != "" {
+		tier = actions.TierInline
 	}
 	kind := "label"
 	if row.isAnnotation {

@@ -402,6 +402,42 @@ func TestEditNonJoinedLabelAppliesImmediately(t *testing.T) {
 	}
 }
 
+// unsyncedServiceLister is a fakeLister whose Service cache hasn't filled —
+// the first read of a lazy kind, which returns an empty list.
+type unsyncedServiceLister struct{ fakeLister }
+
+func (unsyncedServiceLister) KindSynced(kind kube.ResourceKind, _ string) bool {
+	return kind != kube.KindService
+}
+
+// An empty Service list from a cache that hasn't filled is not evidence of
+// no join: the label edit must still ask before it can detach pods.
+func TestEditLabelWithUnsyncedServicesRequiresConfirm(t *testing.T) {
+	dep := metaDeployment("default", "nva-worker", map[string]string{"app": "nva-worker"}, nil, nil)
+	mut := &fakeMutator{}
+	objs := map[kube.ResourceKind][]runtime.Object{kube.KindDeployment: {dep}}
+	h := newHost(t, mut, objs)
+	panel, ok := Open(Config{Session: h.panel.cfg.Session, Lister: unsyncedServiceLister{fakeLister{objs: objs}}}, kube.KindDeployment, "default", "nva-worker")
+	if !ok {
+		t.Fatal("Open returned false")
+	}
+	h.panel = panel
+
+	h.step(tea.KeyPressMsg{Code: tea.KeyEnter})
+	h.step(tea.KeyPressMsg{Text: "2"})
+	h.step(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if len(mut.metaPatches) != 0 {
+		t.Fatalf("label edit applied without confirm while Services were unsynced: %v", mut.metaPatches)
+	}
+	if !h.ctrl.Active() {
+		t.Fatal("a label edit whose Service joins can't be known yet should require confirmation")
+	}
+	if strip := ansi.Strip(h.panel.WillRunStrip(160, &h.ctrl)); !strings.Contains(strip, "service joins unknown") {
+		t.Errorf("will-run strip = %q, want it to say service joins are unknown", strip)
+	}
+}
+
 func TestEditJoinedLabelRequiresConfirmThenApplies(t *testing.T) {
 	dep := metaDeployment("default", "nva-worker", map[string]string{"app": "nva-worker"}, nil, nil)
 	svc := &corev1.Service{
