@@ -1561,6 +1561,15 @@ func loadCronJobRows(ctx context.Context, lister resources.RawLister, namespace 
 		return rowsLoadedMsg{kind: kube.KindCronJob, columns: columns, err: err}
 	}
 	jobObjs, jobsErr := lister.ListRaw(ctx, kube.KindJob, namespace)
+	if jobsErr == nil {
+		// ListRaw returns an errorless empty cache for a Forbidden or stalled
+		// Job informer, so ask the cache's own health too — the same fallback
+		// cronjobdetail's load() uses — or ACT/LAST RUN and run-now's overlap
+		// check would read a denial as "no retained runs". A cache that's
+		// merely still filling reports nil here; the KindsSynced gate in
+		// applyRowsLoaded resolves that case before these rows are shown.
+		jobsErr = tui.KindsError(lister, namespace, kube.KindJob)
+	}
 	// Pods are best-effort (§4.4: "may be read best-effort for exit/log
 	// targeting") — a failed Pod read must never erase a valid Job-level
 	// failure (buildJobSummary already tolerates a nil/partial pods slice),

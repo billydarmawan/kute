@@ -490,3 +490,31 @@ func podWithOwner(ns, name string, owner metav1.OwnerReference) *corev1.Pod {
 	p.OwnerReferences = []metav1.OwnerReference{owner}
 	return p
 }
+
+// TestCronJobForbiddenJobCacheMarksHistoryUnavailable pins review 06 M1: a
+// Forbidden Job informer makes ListRaw return an errorless empty cache, so
+// the list must ask the cache's own health (tui.KindsError) rather than
+// rendering ACT 0 / "no retained runs" and letting run-now skip its
+// unknown-overlap path.
+func TestCronJobForbiddenJobCacheMarksHistoryUnavailable(t *testing.T) {
+	lister := &forbiddenAuxKindLister{
+		fakeLister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+			kube.KindCronJob: {cronJobObj("default", "nightly")},
+		}},
+		kind: kube.KindJob,
+		err:  apierrors.NewForbidden(schema.GroupResource{Group: "batch", Resource: "jobs"}, "", errors.New("nope")),
+	}
+	m := New(Config{Session: cronJobBrowseSession(), Lister: lister})
+	m.SetSize(120, 36)
+	m = step(t, m, m.load()())
+
+	if m.state != tui.TaskStateReady {
+		t.Fatalf("state = %s, want ready — the CronJob cache itself is fine", m.state)
+	}
+	if m.cronJobJobsErr == nil {
+		t.Fatal("expected cronJobJobsErr set from the Job cache's Forbidden reason")
+	}
+	if got := m.rows[0].Cells[4]; got != "unavailable" {
+		t.Fatalf("LAST RUN cell = %q, want %q — a denied Job cache is not an empty history", got, "unavailable")
+	}
+}
