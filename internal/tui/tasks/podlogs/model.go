@@ -140,10 +140,15 @@ type Model struct {
 	lastError     string
 	permDenied    bool
 	waitingReason string // set only while stream == StreamWaitingForContainer
-	feedback      string
-	streamer      kube.PodLogStreamer
-	tailLines     int64
-	conn          kube.ConnState
+	// crashLoopReason is the active container's Waiting reason when the
+	// stream was opened on its previous run (CrashLoopBackOff): the logs
+	// shown are the last crash, and the status line says so. Cleared by
+	// beginStream.
+	crashLoopReason string
+	feedback        string
+	streamer        kube.PodLogStreamer
+	tailLines       int64
+	conn            kube.ConnState
 
 	streamCancel context.CancelFunc
 	streamCh     chan tea.Msg

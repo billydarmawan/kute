@@ -33,6 +33,10 @@ type fakeRestartLister struct {
 	reason    string
 	listErr   error
 	deleted   bool
+	// lastTerminated gives the container a previous run (a terminated
+	// LastTerminationState with a container ID), the shape a
+	// CrashLoopBackOff container has between restarts.
+	lastTerminated bool
 }
 
 func (f *fakeRestartLister) ListRaw(_ context.Context, kind kube.ResourceKind, _ string) ([]runtime.Object, error) {
@@ -53,6 +57,11 @@ func (f *fakeRestartLister) ListRaw(_ context.Context, kind kube.ResourceKind, _
 		status.State = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: f.reason}}
 	default: // "" and "Running" both mean running — the common case for existing restart-count tests
 		status.State = corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}
+	}
+	if f.lastTerminated {
+		status.LastTerminationState = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+			ExitCode: 1, Reason: "Error", ContainerID: "containerd://previous",
+		}}
 	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: f.podName},
@@ -428,6 +437,40 @@ func TestCheckContainerCmdWaitingWhenContainerCreating(t *testing.T) {
 	waiting, ok := msg.(containerWaitingMsg)
 	if !ok || waiting.streamID != 1 || waiting.reason != "ContainerCreating" {
 		t.Fatalf("msg = %#v, want containerWaitingMsg{streamID: 1, reason: \"ContainerCreating\"}", msg)
+	}
+}
+
+// TestCheckContainerCmdStreamsCrashLoopingContainer is review 04 H2: a
+// CrashLoopBackOff container is Waiting, but it has a terminated previous
+// run the kubelet serves logs for. Parking it hid the crash output — the
+// one thing the user opened logs to read — behind "waiting for container to
+// start" until a Pod event happened to land while it was briefly Running.
+func TestCheckContainerCmdStreamsCrashLoopingContainer(t *testing.T) {
+	t.Parallel()
+
+	model := testModel()
+	model.lister = &fakeRestartLister{podName: "api", container: "app", state: "Waiting", reason: "CrashLoopBackOff", restarts: 6, lastTerminated: true}
+
+	msg := model.checkContainerCmd(1)()
+	ready, ok := msg.(containerReadyMsg)
+	if !ok || ready.streamID != 1 || ready.crashLoop != "CrashLoopBackOff" {
+		t.Fatalf("msg = %#v, want containerReadyMsg{streamID: 1, crashLoop: \"CrashLoopBackOff\"}", msg)
+	}
+}
+
+// TestCheckContainerCmdParksNeverStartedImagePull is the other half of H2's
+// line: a Waiting container with no previous run has nothing to read, so it
+// still parks — ImagePullBackOff on a first pull, not just ContainerCreating.
+func TestCheckContainerCmdParksNeverStartedImagePull(t *testing.T) {
+	t.Parallel()
+
+	model := testModel()
+	model.lister = &fakeRestartLister{podName: "api", container: "app", state: "Waiting", reason: "ImagePullBackOff"}
+
+	msg := model.checkContainerCmd(1)()
+	waiting, ok := msg.(containerWaitingMsg)
+	if !ok || waiting.reason != "ImagePullBackOff" {
+		t.Fatalf("msg = %#v, want containerWaitingMsg{reason: \"ImagePullBackOff\"}", msg)
 	}
 }
 

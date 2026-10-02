@@ -436,6 +436,14 @@ func (m Model) statusLine(theme tui.Theme, width int) string {
 	default:
 		line = good.Render(fmt.Sprintf("%s live · %d new lines/s", tui.GlyphFollowing, m.lastRate))
 	}
+	if m.crashLoopReason != "" {
+		// First, so it survives truncation at narrow widths: the lines above
+		// are the container's last run, not a live process.
+		container, _ := m.activeContainer()
+		warn := lipgloss.NewStyle().Foreground(theme.Warn)
+		line = warn.Render(tui.GlyphPending+" "+container+" is crash-looping ("+m.crashLoopReason+") · showing its last run") +
+			dim.Render("  ·  ") + line
+	}
 	return components.Pad(line, width)
 }
 

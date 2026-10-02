@@ -95,6 +95,17 @@ type ContainerInfo struct {
 	Reason   string // e.g. "CrashLoopBackOff", "Completed"
 	Restarts int32
 	Ready    bool
+	// HasPreviousInstance is true when the container has a terminated
+	// previous run the kubelet can still serve logs for
+	// (LastTerminationState.Terminated with a container ID). A Waiting
+	// container that has one — CrashLoopBackOff between restarts — is
+	// readable: the kubelet's log handler answers a plain (non-previous)
+	// logs request for it with that last run's output, checking
+	// lastState.Terminated before Waiting, which is why `kubectl logs`
+	// shows the crash. Only a Waiting container without one (never
+	// started: ContainerCreating, a first-pull ImagePullBackOff) has
+	// nothing to read yet.
+	HasPreviousInstance bool
 	// IsSidecar is true for a native sidecar container (KEP-753: an
 	// initContainer with restartPolicy: Always) — a real API-level signal,
 	// not a name heuristic (docs/design README.md §10a: "sidecars labeled
@@ -335,6 +346,9 @@ func buildEphemeralContainerInfos(pod *corev1.Pod) []EphemeralContainerInfo {
 func applyContainerStatus(info *ContainerInfo, s corev1.ContainerStatus) {
 	info.Ready = s.Ready
 	info.Restarts = s.RestartCount
+	if last := s.LastTerminationState.Terminated; last != nil && last.ContainerID != "" {
+		info.HasPreviousInstance = true
+	}
 	switch {
 	case s.State.Running != nil:
 		info.State = "Running"

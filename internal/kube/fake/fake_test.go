@@ -1148,3 +1148,16 @@ func TestFakeKindForbiddenNormalizesClusterScopedKinds(t *testing.T) {
 		t.Error("SetKindForbidden(Node, team-a, err) did not normalize across namespace arguments for a cluster-scoped kind")
 	}
 }
+
+// TestDemoCrashLoopPodHasReadablePreviousRun keeps --demo's crash-looping
+// pods shaped like the real thing: a terminated last state with a container
+// ID, which is what podlogs streams from instead of parking on "waiting for
+// container to start" (review 04 H2).
+func TestDemoCrashLoopPodHasReadablePreviousRun(t *testing.T) {
+	t.Parallel()
+	pod := demoCrashLoopPod("worker-0", "default", metav1.Now(), "node-a")
+	infos := kube.PodFromObject(pod).ContainerInfos
+	if len(infos) == 0 || infos[0].State != "Waiting" || !infos[0].HasPreviousInstance {
+		t.Fatalf("ContainerInfos = %+v, want a Waiting container with a readable previous run", infos)
+	}
+}

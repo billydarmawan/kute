@@ -51,7 +51,14 @@ var errPodDeleted = errors.New("pod deleted")
 
 // containerReadyMsg and containerWaitingMsg are checkContainerCmd's two
 // outcomes — see beginStream's doc comment for the flow they drive.
-type containerReadyMsg struct{ streamID int }
+type containerReadyMsg struct {
+	streamID int
+	// crashLoop is the container's Waiting reason when it is ready only in
+	// the sense that a previous run is readable (CrashLoopBackOff between
+	// restarts) — empty for an ordinary running/terminated container. It
+	// drives the inline crash-looping note in the status line.
+	crashLoop string
+}
 type containerWaitingMsg struct {
 	streamID int
 	reason   string
@@ -93,6 +100,7 @@ func (m *Model) beginStream(state StreamState) tea.Cmd {
 	m.lastError = ""
 	m.permDenied = false
 	m.waitingReason = ""
+	m.crashLoopReason = ""
 	m.buffer.Entries = nil
 	m.buffer.DroppedCount = 0
 	m.rebuildLayout() // the row index is parallel to the buffer just cleared
@@ -153,6 +161,22 @@ func (m Model) checkContainerCmd(streamID int) tea.Cmd {
 		}
 		if !podFound || !containerFound {
 			return containerReadyMsg{streamID: streamID}
+		}
+		if info.HasPreviousInstance {
+			// Waiting, but it has run before (CrashLoopBackOff between
+			// restarts): the kubelet answers a plain logs request with the
+			// last terminated run's output — exactly what `kubectl logs`
+			// shows, and exactly what the user pressed l for. Parking here
+			// hid the crash until the container happened to be Running
+			// while a Pod event landed, up to the five-minute backoff cap.
+			// No previous=true: that would pin the stream to the old run,
+			// while the plain request reads it now and streamContainer's
+			// restart wait follows the next run.
+			reason := info.Reason
+			if reason == "" {
+				reason = "Waiting"
+			}
+			return containerReadyMsg{streamID: streamID, crashLoop: reason}
 		}
 		return containerWaitingMsg{streamID: streamID, reason: info.Reason}
 	}

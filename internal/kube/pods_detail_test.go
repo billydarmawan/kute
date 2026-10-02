@@ -387,3 +387,33 @@ func TestPodFromObjectSharesListProjectionFields(t *testing.T) {
 		t.Errorf("Status = %q, want Running", got.Status)
 	}
 }
+
+// TestPodFromObjectHasPreviousInstance pins what podlogs' pre-connect check
+// keys on (review 04 H2): a container has a readable previous run only when
+// its LastTerminationState is a termination with a container ID — the same
+// test the kubelet's log handler applies before falling back to "is waiting
+// to start". A synthesized ContainerStatusUnknown record carries no ID and
+// the kubelet can't serve it.
+func TestPodFromObjectHasPreviousInstance(t *testing.T) {
+	t.Parallel()
+	waiting := corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "crashing"},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "crash"}, {Name: "fresh"}, {Name: "lost"}}},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+			{Name: "crash", State: waiting, RestartCount: 4, LastTerminationState: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, ContainerID: "containerd://abc"},
+			}},
+			{Name: "fresh", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}}},
+			{Name: "lost", State: waiting, RestartCount: 1, LastTerminationState: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{ExitCode: 137, Reason: "ContainerStatusUnknown"},
+			}},
+		}},
+	}
+	want := map[string]bool{"crash": true, "fresh": false, "lost": false}
+	for _, ci := range PodFromObject(pod).ContainerInfos {
+		if ci.HasPreviousInstance != want[ci.Name] {
+			t.Errorf("%s: HasPreviousInstance = %v, want %v", ci.Name, ci.HasPreviousInstance, want[ci.Name])
+		}
+	}
+}

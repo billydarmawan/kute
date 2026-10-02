@@ -40,6 +40,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.streamID != 0 && msg.streamID != m.streamID {
 			return m, nil
 		}
+		m.crashLoopReason = msg.crashLoop
 		return m, m.connect(m.streamID)
 	case containerWaitingMsg:
 		if msg.streamID != 0 && msg.streamID != m.streamID {

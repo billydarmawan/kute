@@ -263,6 +263,32 @@ func TestCrashLoopingWorkloadSurfaces(t *testing.T) {
 	a.WaitFor("ROLLOUT HISTORY", Settle)
 }
 
+// TestCrashLoopingContainerLogsShowCrashOutput is review 04 H2: `l` on a
+// crash-looping container must show what it printed before it died. Between
+// restarts the container is Waiting(CrashLoopBackOff), and 5b used to park
+// every Waiting container on "waiting for container to start" — hiding the
+// crash for up to the five-minute backoff cap. The worker fixture prints
+// "worker starting" and exits 1 on every run, so that line is in every run's
+// log whatever state the container is in when the screen opens; it is never
+// on 5a, which this test leaves.
+func TestCrashLoopingContainerLogsShowCrashOutput(t *testing.T) {
+	RequireCluster(t)
+	a := Launch(t)
+	a.WaitFor("worker-", Connect)
+
+	a.waitForWorkerUnready(t)
+
+	a.filterTo(t, "worker-")
+	a.Enter()
+	a.WaitFor("CONTAINERS", Settle)
+	// Wait for a restart to have happened, so there is a previous run to read
+	// — the termination record is the durable statement of it.
+	a.WaitFor("Last termination", Settle)
+
+	a.Press("l")
+	a.WaitFor("worker starting", Settle)
+}
+
 // waitForWorkerUnready waits for the crash-looping fixture's row to show it is
 // not ready.
 //

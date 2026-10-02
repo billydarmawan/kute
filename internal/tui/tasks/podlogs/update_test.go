@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -463,6 +464,39 @@ func TestContainerReadyMsgConnects(t *testing.T) {
 		t.Fatalf("connect did not spin up the stream goroutine")
 	}
 	model.cancelStream()
+}
+
+// TestCrashLoopingStreamShowsInlineNote: logs opened on a crash-looping
+// container's previous run say so in the status line, so its last run's
+// output isn't mistaken for a live process — and a fresh beginStream (tab to
+// another container) drops the note.
+func TestCrashLoopingStreamShowsInlineNote(t *testing.T) {
+	t.Parallel()
+
+	model := testModel()
+	model.streamer = &fakeStreamer{connects: map[string][]string{"app": {"boom"}}}
+	_, cmd := model.Update(containerReadyMsg{crashLoop: "CrashLoopBackOff"})
+	if cmd == nil {
+		t.Fatalf("containerReadyMsg did not return a connect cmd")
+	}
+	model.cancelStream()
+	model.stream = StreamStreaming
+	model.appendEntry(LogEntry{Container: "app", Message: "panic: boom"})
+	model.SetSize(120, 24)
+
+	view := ansi.Strip(model.Body(120, 20))
+	if !strings.Contains(view, "app is crash-looping (CrashLoopBackOff) · showing its last run") {
+		t.Fatalf("status line lacks the crash-looping note:\n%s", view)
+	}
+	if !strings.Contains(view, "panic: boom") {
+		t.Fatalf("crash output not rendered:\n%s", view)
+	}
+
+	model.lister = &fakeRestartLister{podName: "api", container: "sidecar", state: "Running"}
+	_ = model.beginStream(StreamLoading)
+	if model.crashLoopReason != "" {
+		t.Fatalf("crashLoopReason = %q after beginStream, want cleared", model.crashLoopReason)
+	}
 }
 
 func TestResourceChangedMsgRechecksOnlyWhileWaitingOnPods(t *testing.T) {

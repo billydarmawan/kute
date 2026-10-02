@@ -1163,9 +1163,10 @@ func demoCrashLoopPod(name, ns string, created metav1.Time, node string) *corev1
 	}
 	pod.Status.ContainerStatuses[0].LastTerminationState = corev1.ContainerState{
 		Terminated: &corev1.ContainerStateTerminated{
-			ExitCode:   1,
-			Reason:     "Error",
-			FinishedAt: metav1.NewTime(created.Add(4 * time.Minute)),
+			ExitCode:    1,
+			Reason:      "Error",
+			FinishedAt:  metav1.NewTime(created.Add(4 * time.Minute)),
+			ContainerID: "containerd://" + name + "-previous",
 		},
 	}
 	return pod
