@@ -17,6 +17,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
@@ -751,11 +752,14 @@ func (c *Cluster) Drain(ctx context.Context, node string) (int, error) {
 		return 0, fmt.Errorf("cordon %s before drain: %w", node, err)
 	}
 
-	// List cluster-wide and filter by NodeName in Go rather than relying on
-	// a server-side field selector — pod field selectors aren't universally
-	// honored (notably the client-go fake clientset ignores them), so this
-	// stays correct against both.
-	pods, err := c.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	// The server narrows the list to this node's pods (spec.nodeName is a
+	// field selector every API server honors for Pods — what kubectl drain
+	// sends), so draining one node never pulls the whole cluster's pods over
+	// the wire. The NodeName check below stays, since the client-go fake
+	// clientset ignores field selectors.
+	pods, err := c.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("spec.nodeName", node).String(),
+	})
 	if err != nil {
 		return 0, fmt.Errorf("list pods on %s: %w", node, err)
 	}

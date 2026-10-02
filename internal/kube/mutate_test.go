@@ -886,6 +886,28 @@ func TestDrainCordonsAndSkipsDaemonSetAndMirrorPods(t *testing.T) {
 	}
 }
 
+// TestDrainListsOnlyTheNodesPods pins review 10 M5: drain found one node's
+// pods with an unfiltered cluster-wide list, pulling every pod in the
+// cluster over the wire. The list must carry a spec.nodeName selector.
+func TestDrainListsOnlyTheNodesPods(t *testing.T) {
+	t.Parallel()
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}}
+	c, cs := newTestCluster(node)
+
+	if _, err := c.Drain(t.Context(), "node-1"); err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	var selectors []string
+	for _, a := range cs.Actions() {
+		if la, ok := a.(k8stesting.ListAction); ok && la.GetResource().Resource == "pods" {
+			selectors = append(selectors, la.GetListRestrictions().Fields.String())
+		}
+	}
+	if len(selectors) != 1 || selectors[0] != "spec.nodeName=node-1" {
+		t.Fatalf("pod list field selectors = %q, want one list with spec.nodeName=node-1", selectors)
+	}
+}
+
 func TestDrainRejectsEmptyNodeName(t *testing.T) {
 	t.Parallel()
 	c, _ := newTestCluster()
