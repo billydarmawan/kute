@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -117,17 +118,24 @@ func (c *Cluster) ensureDynamicKind(kind ResourceKind, scope string, gvr schema.
 // Printer columns are the one thing neither provides, and they only live in
 // the part of a CRD that makes it huge. Those are fetched per-kind on first
 // use — see ensurePrinterColumns.
-func (c *Cluster) refreshDiscovery(ctx context.Context) {
+//
+// gen and cs are the generation and clientset Start snapshotted under c.mu:
+// reading c.clientset here would race SwitchContext's write of it, and the
+// result is dropped unless gen is still current, so a superseded Start can't
+// hand the new context the old cluster's CRDs.
+func (c *Cluster) refreshDiscovery(ctx context.Context, gen int, cs kubernetes.Interface) {
 	crdNames, err := c.listCRDNames(ctx)
 	if err != nil || len(crdNames) == 0 {
 		return
 	}
-	custom, err := c.discoverCustomResources(crdNames)
+	custom, err := discoverCustomResources(cs, crdNames)
 	if err != nil && len(custom) == 0 {
 		return
 	}
 	c.mu.Lock()
-	c.discovered = custom
+	if c.generation == gen {
+		c.discovered = custom
+	}
 	c.mu.Unlock()
 }
 
@@ -157,8 +165,8 @@ func (c *Cluster) listCRDNames(ctx context.Context) (map[string]bool, error) {
 // A partial-discovery error is tolerated and its usable half kept — one
 // unreachable aggregated API service (a metrics adapter, typically) must not
 // cost the user every other custom kind on the cluster.
-func (c *Cluster) discoverCustomResources(crdNames map[string]bool) ([]DiscoveredKind, error) {
-	_, lists, err := c.clientset.Discovery().ServerGroupsAndResources()
+func discoverCustomResources(cs kubernetes.Interface, crdNames map[string]bool) ([]DiscoveredKind, error) {
+	_, lists, err := cs.Discovery().ServerGroupsAndResources()
 	if lists == nil {
 		return nil, err
 	}

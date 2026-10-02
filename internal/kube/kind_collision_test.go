@@ -36,7 +36,7 @@ func TestDiscoveredKindNeverTakesABuiltInOrOwnedKey(t *testing.T) {
 			crdMeta("gateways.networking.istio.io"),
 			crdMeta("gateways.gateway.networking.k8s.io"),
 		)
-		c.refreshDiscovery(t.Context())
+		c.refreshDiscovery(t.Context(), c.generation, c.clientset)
 
 		keys := map[ResourceKind]string{}
 		for _, dk := range c.DiscoveredKinds() {

@@ -10,6 +10,8 @@ import (
 	"context"
 	"strconv"
 	"strings"
+
+	"k8s.io/client-go/kubernetes"
 )
 
 // TimeZoneCapability is the tri-state answer to "does the connected API
@@ -55,15 +57,20 @@ func (c *Cluster) TimeZoneCapability() TimeZoneCapability {
 // (offline, RBAC restricting discovery) leaves the capability at whatever
 // it already was (Unknown on a first connect) rather than failing the
 // whole Start/SwitchContext — a consumer already treats Unknown as
-// read-only, which is the safe outcome here too.
-func (c *Cluster) probeTimeZoneCapability(_ context.Context) {
-	info, err := c.clientset.Discovery().ServerVersion()
+// read-only, which is the safe outcome here too. gen and cs are Start's
+// snapshot, as for refreshDiscovery: the answer lands only if gen is still
+// current, so a superseded Start can't stamp the old server's version onto
+// the new context.
+func (c *Cluster) probeTimeZoneCapability(_ context.Context, gen int, cs kubernetes.Interface) {
+	info, err := cs.Discovery().ServerVersion()
 	if err != nil {
 		return
 	}
 	tz := classifyTimeZoneCapability(info.Major, info.Minor)
 	c.mu.Lock()
-	c.tzCapability = tz
+	if c.generation == gen {
+		c.tzCapability = tz
+	}
 	c.mu.Unlock()
 }
 

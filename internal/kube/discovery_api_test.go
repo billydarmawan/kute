@@ -7,10 +7,12 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/version"
 	discoveryfake "k8s.io/client-go/discovery/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	metadatafake "k8s.io/client-go/metadata/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 // crdMeta is one CRD as the metadata client sees it: a name and nothing
@@ -72,7 +74,7 @@ func TestRefreshDiscoveryUsesTheDiscoveryAPI(t *testing.T) {
 		crdMeta("clusterissuers.cert-manager.io"),
 	)
 
-	c.refreshDiscovery(t.Context())
+	c.refreshDiscovery(t.Context(), c.generation, c.clientset)
 
 	got := c.DiscoveredKinds()
 	if len(got) != 2 {
@@ -130,7 +132,7 @@ func TestRefreshDiscoveryIgnoresBuiltInGroups(t *testing.T) {
 		crdMeta("httproutes.gateway.networking.k8s.io"),
 	)
 
-	c.refreshDiscovery(t.Context())
+	c.refreshDiscovery(t.Context(), c.generation, c.clientset)
 
 	got := c.DiscoveredKinds()
 	if len(got) != 1 || got[0].Kind != "HTTPRoute" {
@@ -156,7 +158,7 @@ func TestRefreshDiscoveryDedupesMultiVersionCRDs(t *testing.T) {
 		crdMeta("widgets.example.com"),
 	)
 
-	c.refreshDiscovery(t.Context())
+	c.refreshDiscovery(t.Context(), c.generation, c.clientset)
 
 	got := c.DiscoveredKinds()
 	if len(got) != 1 {
@@ -179,7 +181,7 @@ func TestDiscoveredKindsStartWithoutPrinterColumns(t *testing.T) {
 		crdMeta("widgets.example.com"),
 	)
 
-	c.refreshDiscovery(t.Context())
+	c.refreshDiscovery(t.Context(), c.generation, c.clientset)
 
 	got := c.DiscoveredKinds()
 	if len(got) != 1 {
@@ -219,7 +221,7 @@ func TestRefreshDiscoveryWithNoCRDsDiscoversNothing(t *testing.T) {
 		{GroupVersion: "apps/v1", APIResources: []metav1.APIResource{{Name: "deployments", Kind: "Deployment"}}},
 	})
 
-	c.refreshDiscovery(t.Context())
+	c.refreshDiscovery(t.Context(), c.generation, c.clientset)
 
 	if got := c.DiscoveredKinds(); len(got) != 0 {
 		t.Fatalf("discovered %+v on a cluster with no CRDs", got)
@@ -278,7 +280,7 @@ func TestEnsurePrinterColumnsFetchesOneCRD(t *testing.T) {
 		crdMeta("widgets.example.com"),
 	)
 	c.dynClient = dyn
-	c.refreshDiscovery(t.Context())
+	c.refreshDiscovery(t.Context(), c.generation, c.clientset)
 
 	if cols := c.DiscoveredKinds()[0].PrinterColumns; len(cols) != 0 {
 		t.Fatalf("precondition: discovery should not have fetched columns, got %+v", cols)
@@ -319,7 +321,7 @@ func TestEnsurePrinterColumnsFetchesOncePerKind(t *testing.T) {
 		crdMeta("widgets.example.com"),
 	)
 	c.dynClient = dyn
-	c.refreshDiscovery(t.Context())
+	c.refreshDiscovery(t.Context(), c.generation, c.clientset)
 
 	for i := 0; i < 10; i++ {
 		c.fetchPrinterColumns(t.Context(), c.generation, "Widget")
@@ -373,7 +375,7 @@ func TestFetchPrinterColumnsDropsStaleGeneration(t *testing.T) {
 		crdMeta("widgets.example.com"),
 	)
 	c.dynClient = dyn
-	c.refreshDiscovery(t.Context())
+	c.refreshDiscovery(t.Context(), c.generation, c.clientset)
 
 	staleGen := c.generation
 	c.generation++ // simulates a SwitchContext that ran while this Get was in flight
@@ -389,5 +391,44 @@ func TestFetchPrinterColumnsDropsStaleGeneration(t *testing.T) {
 	c.mu.Unlock()
 	if fetched {
 		t.Fatal("crdColumnsFetched[Widget] = true from a stale-generation fetch; the replacement context would never retry it")
+	}
+}
+
+// TestSupersededStartLeavesDiscoveryAndVersionAlone pins Start's tail to its
+// own generation. A context switch landing while discovery or the version
+// probe is still on the wire (the detached initial Start inside a slow
+// aggregated API, say) must not let the old cluster's CRDs or server version
+// overwrite the new context's.
+func TestSupersededStartLeavesDiscoveryAndVersionAlone(t *testing.T) {
+	t.Parallel()
+	c := newDiscoveryTestCluster(
+		[]*metav1.APIResourceList{{
+			GroupVersion: "cert-manager.io/v1",
+			APIResources: []metav1.APIResource{{Name: "certificates", Kind: "Certificate", Namespaced: true}},
+		}},
+		crdMeta("certificates.cert-manager.io"),
+	)
+	cs := c.clientset.(*fake.Clientset)
+	cs.Discovery().(*discoveryfake.FakeDiscovery).FakedServerVersion = &version.Info{Major: "1", Minor: "30"}
+	// Each discovery read is where a SwitchContext lands: it bumps the
+	// generation while the old Start's request is in flight.
+	switchMidRead := func(k8stesting.Action) (bool, runtime.Object, error) {
+		c.mu.Lock()
+		c.generation++
+		c.mu.Unlock()
+		return false, nil, nil
+	}
+	cs.PrependReactor("get", "resource", switchMidRead)
+	cs.PrependReactor("get", "version", switchMidRead)
+
+	gen := c.generation
+	c.refreshDiscovery(t.Context(), gen, cs)
+	c.probeTimeZoneCapability(t.Context(), gen, cs)
+
+	if got := c.DiscoveredKinds(); len(got) != 0 {
+		t.Fatalf("superseded discovery wrote %d kinds into the new context: %+v", len(got), got)
+	}
+	if got := c.TimeZoneCapability(); got != TimeZoneCapabilityUnknown {
+		t.Fatalf("superseded version probe wrote %v into the new context, want Unknown", got)
 	}
 }

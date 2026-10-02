@@ -479,13 +479,20 @@ func (c *Cluster) Start(ctx context.Context) error {
 	if !synced {
 		return ErrCacheSyncFailed
 	}
+	// Everything from here on writes into the cluster this Start connected,
+	// so each write is gated on its generation: a Start that a
+	// SwitchContext has superseded (the detached initial one still inside
+	// slow discovery, say) must not mark the new context synced, or replace
+	// its CRDs or server-version answer with the old cluster's.
 	c.mu.Lock()
-	c.synced = true
-	c.reached = true
+	if c.generation == probe.generation {
+		c.synced = true
+		c.reached = true
+	}
 	c.mu.Unlock()
 
-	c.refreshDiscovery(ctx)
-	c.probeTimeZoneCapability(ctx)
+	c.refreshDiscovery(ctx, probe.generation, probe.clientset)
+	c.probeTimeZoneCapability(ctx, probe.generation, probe.clientset)
 	return nil
 }
 
