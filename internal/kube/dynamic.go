@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 )
@@ -311,6 +312,7 @@ func (c *Cluster) ensurePrinterColumns(kind ResourceKind) {
 	c.mu.Unlock()
 
 	go func() {
+		defer utilruntime.HandleCrash()
 		ctx, cancel := context.WithTimeout(context.Background(), crdFetchTimeout)
 		defer cancel()
 		changed := c.fetchPrinterColumns(ctx, gen, kind)

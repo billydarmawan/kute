@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/informers"
@@ -538,6 +539,7 @@ func waitForCacheSync(ctx context.Context, stopCh <-chan struct{}, synced ...cac
 	// once this function has already returned on the ctx branch.
 	done := make(chan bool, 1)
 	go func() {
+		defer utilruntime.HandleCrash()
 		done <- cache.WaitForCacheSync(waitCh, synced...)
 	}()
 	select {

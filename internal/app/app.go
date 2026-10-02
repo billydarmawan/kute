@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/klog/v2"
 
 	"github.com/kute-dev/kute/internal/diag"
@@ -1735,7 +1736,8 @@ func run(cfg Config, opts ...tea.ProgramOption) error {
 	}
 	defer sink.Close() // a close error at exit helps nobody
 	configureKlog(sink)
-	defer installPanicHandler(sink)()
+	var term terminalOwner
+	defer installPanicHandler(sink, term.release)()
 
 	model, cluster, demoCluster := NewModel(cfg)
 	logConfigLoad(sink, model.Session())
@@ -1747,6 +1749,7 @@ func run(cfg Config, opts ...tea.ProgramOption) error {
 		defer sess.Forwards.StopAll()
 	}
 	program := tea.NewProgram(newCrashCatcher(model, sink, live), opts...)
+	term.set(program)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1765,6 +1768,7 @@ func run(cfg Config, opts ...tea.ProgramOption) error {
 		defer cluster.Stop()
 		go forwardEvents(ctx, cluster, program, model.Session().Forwards)
 		go func() {
+			defer utilruntime.HandleCrash()
 			_ = cluster.Start(ctx)
 			// The one connect path where CRD discovery (folded into
 			// Start) finishes outside any tea.Cmd the root can await
@@ -1787,7 +1791,10 @@ func run(cfg Config, opts ...tea.ProgramOption) error {
 			// network round trip off-thread, so calling it directly here
 			// (rather than threading it through Model.Init) doesn't block
 			// program startup.
-			go func() { program.Send(cmd()) }()
+			go func() {
+				defer utilruntime.HandleCrash()
+				program.Send(cmd())
+			}()
 		}
 	}
 
@@ -1858,6 +1865,7 @@ func configureKlog(sink *diag.Sink) {
 // through, so browse's Forwards row reloads without any bespoke message or
 // Update case (docs/design README.md §13c).
 func watchForwardManager(ctx context.Context, mgr *kube.ForwardManager, program *tea.Program) {
+	defer utilruntime.HandleCrash()
 	events := mgr.Events()
 	for {
 		select {
@@ -1966,6 +1974,7 @@ func (c *eventCoalescer) flush(now time.Time) []kube.ResourceKind {
 }
 
 func forwardEvents(ctx context.Context, src eventSource, program *tea.Program, forwards *kube.ForwardManager) {
+	defer utilruntime.HandleCrash()
 	events := src.Events()
 	conn := src.ConnEvents()
 	pending := newEventCoalescer()

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/klog/v2"
 
 	"github.com/kute-dev/kute/internal/diag"
@@ -319,4 +320,41 @@ func catchPanic(t *testing.T, fn func()) (recovered string) {
 	}()
 	fn()
 	return ""
+}
+
+// A panic on a goroutine Bubble Tea never sees (an informer's, or one of
+// kute's own behind utilruntime.HandleCrash) must give the terminal back
+// before the footer is printed — otherwise the footer lands on the alt
+// screen and the process dies in raw mode — and must still leave a report.
+func TestPanicHandlerReleasesTheTerminalBeforeTheFooter(t *testing.T) {
+	live := newLiveState(nil, false)
+	sink := newTestSink(t, live)
+	footer := captureCrashOut(t)
+
+	releasedAt := -1
+	previousHandlers := utilruntime.PanicHandlers
+	restore := installPanicHandler(sink, func() { releasedAt = footer.Len() })
+	reallyCrash := utilruntime.ReallyCrash
+	utilruntime.ReallyCrash = false
+	defer func() { utilruntime.ReallyCrash = reallyCrash }()
+
+	func() {
+		defer utilruntime.HandleCrash()
+		panic("boom on a background goroutine")
+	}()
+
+	restore()
+	if len(utilruntime.PanicHandlers) != len(previousHandlers) {
+		t.Errorf("PanicHandlers not restored: %d handlers, want %d", len(utilruntime.PanicHandlers), len(previousHandlers))
+	}
+	if releasedAt != 0 {
+		t.Fatalf("terminal released at footer offset %d, want 0 (before the footer)", releasedAt)
+	}
+	report := sink.LastReport()
+	if report == "" {
+		t.Fatal("no crash report written for a background goroutine panic")
+	}
+	if !strings.Contains(footer.String(), report) {
+		t.Errorf("footer does not name the report; got:\n%s", footer.String())
+	}
 }

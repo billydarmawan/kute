@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 // ProbeResult is one kubeconfig context's reachability check.
@@ -56,6 +57,7 @@ func probeContextsWith(ctx context.Context, names []string, probe probeFunc) <-c
 	// probeConcurrency names a caller-side loop froze the UI until a whole
 	// wave of probes had finished (unboundedly, behind a hung exec plugin).
 	go func() {
+		defer utilruntime.HandleCrash()
 		defer close(out) // every probe reports through out, never through error
 		g := new(errgroup.Group)
 		g.SetLimit(probeConcurrency)
@@ -99,6 +101,7 @@ func probeBounded(ctx context.Context, name string, probe probeFunc) (time.Durat
 	}
 	done := make(chan result, 1)
 	go func() {
+		defer utilruntime.HandleCrash()
 		latency, err := probe(ctx, name)
 		done <- result{latency, err}
 	}()

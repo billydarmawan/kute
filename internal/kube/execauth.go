@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/pkg/apis/clientauthentication"
 	"k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -169,6 +170,7 @@ func (s *stderrCapture) writer() *os.File { return s.openPipe() }
 // block the credential plugin's own write, which is the hang this file exists
 // to prevent.
 func (s *stderrCapture) drain(r *os.File) {
+	defer utilruntime.HandleCrash()
 	chunk := make([]byte, 1024)
 	for {
 		n, err := r.Read(chunk)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 
 	tea "charm.land/bubbletea/v2"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -168,19 +169,40 @@ func (l *liveState) sync(model tea.Model, msg tea.Msg) {
 }
 
 // installPanicHandler puts the crash reporter in front of client-go's own
-// crash handling, which is the only way an informer goroutine's panic —
-// which never passes through Bubble Tea or kute's own frames — leaves
-// anything behind. utilruntime re-panics after its handlers run, so this
-// only ever adds the file and the footer; it cannot keep the process alive.
-// The returned func restores the previous handler list.
-func installPanicHandler(sink *diag.Sink) func() {
+// crash handling, which is the only way a panic on a goroutine outside
+// Bubble Tea — an informer's, or one of kute's own, each of which defers
+// utilruntime.HandleCrash — leaves anything behind. utilruntime re-panics
+// after its handlers run, so this cannot keep the process alive; what it
+// adds is the file, and the terminal back: Bubble Tea never sees this panic,
+// so without release the process died in raw mode on the alt screen, with
+// the footer printed into a buffer the user's `reset` then cleared. The
+// returned func restores the previous handler list.
+func installPanicHandler(sink *diag.Sink, release func()) func() {
 	previous := utilruntime.PanicHandlers
 	utilruntime.PanicHandlers = append(append([]func(context.Context, any){}, previous...),
 		func(_ context.Context, r any) {
-			path := sink.Report(diag.Crash{Cause: "informer", Value: r, Stack: debug.Stack()})
+			path := sink.Report(diag.Crash{Cause: "goroutine", Value: r, Stack: debug.Stack()})
+			release()
 			_, _ = io.WriteString(crashOut, sink.Footer(path))
 		})
 	return func() { utilruntime.PanicHandlers = previous }
+}
+
+// terminalOwner hands installPanicHandler the program once it exists — the
+// handler is installed first, so a panic during NewModel is still reported.
+type terminalOwner struct {
+	program atomic.Pointer[tea.Program]
+}
+
+func (t *terminalOwner) set(p *tea.Program) { t.program.Store(p) }
+
+// release restores the terminal Bubble Tea took over. Kill is synchronous
+// and idempotent (Bubble Tea's shutdown runs once), so two goroutines
+// panicking together both return with the terminal already restored.
+func (t *terminalOwner) release() {
+	if p := t.program.Load(); p != nil {
+		p.Kill()
+	}
 }
 
 // reportProgramCrash turns a Bubble Tea run error into the crash path when

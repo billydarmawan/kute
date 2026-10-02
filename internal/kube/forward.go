@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	// client-go's portforward.New/spdy.NewDialer (the pair this file uses) still
 	// take apimachinery's httpstream.Dialer, not the k8s.io/streaming replacement
 	// — that's only wired through the parallel NewForStreaming/NewDialerForStreaming
@@ -552,6 +553,7 @@ func (m *ForwardManager) StartPort(dialer ForwardDialer, resolver PodResolver, t
 // (Service/Deployment only — a Pod target that's gone stays gone), and
 // retry. Returns as soon as ctx is cancelled (Stop/Restart).
 func (m *ForwardManager) run(ctx context.Context, id, initialPod string) {
+	defer utilruntime.HandleCrash()
 	pod := initialPod
 	attempt := 0
 	for {
@@ -704,6 +706,7 @@ func (m *ForwardManager) ReconcilePodTargets() {
 }
 
 func (m *ForwardManager) reconcilePodTarget(sessionCtx context.Context, id string, expected *forwardEntry, checker ForwardPodChecker, namespace, pod string) {
+	defer utilruntime.HandleCrash()
 	ctx, cancel := context.WithTimeout(sessionCtx, 10*time.Second)
 	available, err := checker.ForwardPodAvailable(ctx, namespace, pod)
 	cancel()

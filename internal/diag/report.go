@@ -40,7 +40,7 @@ type Snapshot struct {
 // Crash is one panic, as handed to Report.
 type Crash struct {
 	// Cause names where the panic was caught: "update", "view",
-	// "informer", or "unknown" for a panic Bubble Tea swallowed before kute
+	// "goroutine" (an informer's or kute's own), or "unknown" for a panic Bubble Tea swallowed before kute
 	// could see the value.
 	Cause string
 	// Value is the recovered panic value. Nil when unavailable (the

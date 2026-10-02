@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -339,6 +340,7 @@ type healthProbeSnapshot struct {
 // ConnState.NextRetryAt while reconnecting. RetryNow bypasses either wait.
 // It runs until stopCh closes.
 func (c *Cluster) startHealthLoop(stopCh <-chan struct{}, probe healthProbeSnapshot) {
+	defer utilruntime.HandleCrash()
 	timer := time.NewTimer(nextProbeDelay(c.health.get(), time.Now()))
 	defer timer.Stop()
 	for {

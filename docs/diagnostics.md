@@ -65,7 +65,14 @@ reproduce on Windows" is the first question a terminal-rendering bug raises.
 | --- | --- | --- |
 | Root `Update`/`View`/`Init` | `app.crashCatcher`, which records and re-panics | value + stack |
 | An informer goroutine | `utilruntime.PanicHandlers` | value + stack |
+| A kute-owned goroutine (event forwarding, connect, update check, port-forward loops, health ping, probes, exec-plugin stderr drain) | `defer utilruntime.HandleCrash()` → the same `PanicHandlers` entry | value + stack |
 | A `tea.Cmd` goroutine | Bubble Tea itself, before kute sees it | context only; the stack went to the terminal |
+
+Neither goroutine row passes through Bubble Tea, so its recover never restores
+the terminal. The `PanicHandlers` entry does it instead — `Program.Kill()`,
+before printing the footer — so the footer lands on the normal screen and the
+shell is left in cooked mode. A new `go` statement in `internal/app` or
+`internal/kube` should defer `utilruntime.HandleCrash()` to join that row.
 
 `crashCatcher` deliberately re-panics after recording. Bubble Tea's own
 recover is what puts the terminal back into a usable state, and it can only do
