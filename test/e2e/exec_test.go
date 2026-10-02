@@ -35,8 +35,13 @@ func TestExecPickerDetectsShellsOnARealContainer(t *testing.T) {
 	a.Press("x")
 
 	// Both containers, named from the pod spec, with the will-run line §10a
-	// calls copyable documentation.
-	a.WaitForAll(Settle, "exec", pod, "2 containers", "server", "sidecar", "kubectl exec")
+	// calls copyable documentation. That line is hard-wrapped to the panel,
+	// and its global flags come before the verb — pinning kubectl to the
+	// context kute is on, not the kubeconfig's current one — so it's read
+	// ignoring wrapping rather than as one "kubectl exec" substring.
+	a.WaitForAll(Settle, "exec", pod, "2 containers", "server", "sidecar", "will run")
+	a.WaitForWrapped("kubectl --kubeconfig", Settle)
+	a.WaitForWrapped("--context "+ContextName(t)+" exec -it "+pod, Settle)
 
 	// The shells column resolves to a real answer for both containers.
 	// busybox has sh, and the only way to know that is to have run something

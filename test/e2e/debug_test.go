@@ -53,9 +53,11 @@ func TestPodDebugPanelStagesCopyMode(t *testing.T) {
 
 	// And the command, before it runs: --copy-to is what distinguishes a
 	// copy launch from an attach in the one line the user can actually
-	// check.
+	// check. The global flags come before the verb, pinning the subprocess
+	// to the context kute is on rather than the kubeconfig's current one.
 	a.WaitForWrapped("will run", Settle)
-	a.WaitForWrapped("kubectl debug", Settle)
+	a.WaitForWrapped("kubectl --kubeconfig", Settle)
+	a.WaitForWrapped("--context "+ContextName(t)+" debug -it "+name, Settle)
 	a.WaitForWrapped("--copy-to", Settle)
 
 	// Nothing ran. A commit is a tea.ExecProcess handoff, which suspends the
