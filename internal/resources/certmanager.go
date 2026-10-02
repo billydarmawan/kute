@@ -143,6 +143,12 @@ func projectCertificate(obj runtime.Object) Row {
 	renewalText, renewalClass := certRenewalCell(class, notAfter, renewalTime, now)
 
 	glyphClass := class
+	if class == StatusOK && expiresClass == StatusFail {
+		// Ready=True past notAfter is what a cert looks like once cert-
+		// manager stops reconciling it: the condition is stale, the cert is
+		// not. It sorts and counts as failing, not ready.
+		class, glyph, glyphClass = StatusFail, "✕", StatusFail // ✕
+	}
 	if class == StatusOK && expiresClass == StatusWarn {
 		// §35b: "among ready certs, soonest expiry floats up" — the glyph
 		// flags it without demoting Status, so it still counts and sorts as

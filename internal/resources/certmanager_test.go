@@ -84,8 +84,8 @@ func TestProjectCertificateExpiryBuckets(t *testing.T) {
 		wantGlyph  string
 	}{
 		{"unknown", time.Time{}, "–", StatusNeutral, StatusOK, "●"},
-		{"expired", now.Add(-24 * time.Hour), "expired", StatusFail, StatusOK, "●"},
-		{"expired hours ago", now.Add(-12 * time.Hour), "expired", StatusFail, StatusOK, "●"},
+		{"expired", now.Add(-24 * time.Hour), "expired", StatusFail, StatusFail, "✕"},
+		{"expired hours ago", now.Add(-12 * time.Hour), "expired", StatusFail, StatusFail, "✕"},
 		{"expiring soon", now.Add(22*24*time.Hour + time.Hour), "22d", StatusWarn, StatusOK, "◷"},
 		{"comfortable", now.Add(61*24*time.Hour + time.Hour), "61d", StatusOK, StatusOK, "●"},
 		{"long-dated", now.Add(8*365*24*time.Hour + time.Hour), "8y", StatusOK, StatusOK, "●"},
@@ -99,21 +99,19 @@ func TestProjectCertificateExpiryBuckets(t *testing.T) {
 			if row.ExpiresClass != c.wantClass {
 				t.Fatalf("ExpiresClass = %s, want %s", row.ExpiresClass, c.wantClass)
 			}
-			// A Ready=True Certificate's overall Status always stays OK —
+			// A Ready=True Certificate that is merely expiring stays OK —
 			// §35b: "among ready certs, soonest expiry floats up" means the
 			// expiring one still counts and sorts as ready. Only the glyph
-			// flags the <30d case.
+			// flags the <30d case. One already past notAfter is failing,
+			// whatever its stale Ready condition says.
 			if row.Status != c.wantStatus {
-				t.Fatalf("Status = %s, want %s (expiring-but-ready must not demote Status)", row.Status, c.wantStatus)
+				t.Fatalf("Status = %s, want %s", row.Status, c.wantStatus)
 			}
 			if row.Glyph != c.wantGlyph {
 				t.Fatalf("Glyph = %s, want %s", row.Glyph, c.wantGlyph)
 			}
 		})
 	}
-	// "expired" is a real StatusFail EXPIRES class, but it deliberately
-	// doesn't drag the whole row's Status down — Ready=True is Ready=True;
-	// EXPIRES carries the "past notAfter" fact on its own cell/class.
 }
 
 // TestCertExpiryBoundaries pins the bucketing both the EXPIRES cell and
