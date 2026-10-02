@@ -5,20 +5,20 @@
      NAME         RDY    ROLLOUT               IMAGE                       AGE  
 ────────────────────────────────────────────────────────────────────────────────
 ▎ ●  nva-worker   4/4    stable                …va.dev/nva-worker:3.4.2    30d  
-  1–1 of 1                                                              ██████  
                                                                                 
+  ╭──────────────────────────────────────────────────────────────────────────╮  
+  │ container   worker   usage: from the metrics poll                        │  
+  │──────────────────────────────────────────────────────────────────────────│  
+  │   FIELD       CURRENT   NEW           P95 USAGE                          │  
+  │   cpu request 250m      250m          ▮▮▮▮▮▮▮▮▯▯ 182m                    │  
+  │   cpu limit   1         1             ▮▮▯▯▯▯▯▯▯▯ 182m                    │  
+  │   mem request 512Mi     512Mi         ▮▮▮▮▮▮▮▮▮▮ 512Mi                   │  
+  │ › mem limit   512Mi     768Mi         ▮▮▮▮▮▮▮▮▮▮ 512Mi                   │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
                                                                                 
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
+────────────────────────────────────────────────────────────────────────────────
+  will run kubectl set resources deploy/nva-worker -c worker --limits=memory=76…
                                                                                 
                                                                                 
 ────────────────────────────────────────────────────────────────────────────────
-   CONFIRM  y confirm  esc cancel                                               
+   RESOURCES  ↵ apply changed fields  ↑↓ field  +/− nudge (64Mi / 50m)  u uns...

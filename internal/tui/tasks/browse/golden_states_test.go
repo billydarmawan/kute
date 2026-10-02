@@ -30,6 +30,7 @@ import (
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/testutil/goldentest"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 func goldenStateDir() string {
@@ -742,7 +743,7 @@ func goldenSetResourcesModel(t *testing.T, width, height int) Model {
 	m := New(Config{Session: sess, Lister: lister, Metrics: metrics, Mutator: &fakeMutator{}})
 	m.SetSize(width, height)
 	m = step(t, m, m.load()())
-	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+	m = step(t, m, tea.KeyPressMsg{Text: verbs.SetResources.Key})
 	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
