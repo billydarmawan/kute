@@ -32,7 +32,10 @@ func TestNonProdDeleteCommitsAndClampsSelection(t *testing.T) {
 		_, err := client.CoreV1().ConfigMaps(Namespace).Get(ctx, deleted, metav1.GetOptions{})
 		return err
 	})
-	a.WaitGone(deleted, Settle)
+	// The keybar's outcome line names the deleted object until the next key,
+	// so the row's absence is read from the table itself, not the frame.
+	a.WaitFor("✓ Delete ConfigMap "+deleted, Settle)
+	a.waitForRowGone(t, deleted)
 	a.waitForSelectedRow(t, neighbor)
 	if before.ResourceVersion == "" {
 		t.Fatal("created configmap had no resourceVersion")
@@ -61,7 +64,8 @@ func TestProdDeleteCommitsAfterTypedName(t *testing.T) {
 		return err
 	})
 	a.WaitGone(TypeToConfirm, Settle)
-	a.WaitGone(name, Settle)
+	a.WaitFor("✓ Delete ConfigMap "+name, Settle)
+	a.waitForRowGone(t, name)
 	a.WaitFor("ConfigMaps", Settle)
 }
 

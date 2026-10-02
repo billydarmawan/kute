@@ -5,6 +5,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -302,3 +303,65 @@ func deleteJobNow(t *testing.T, name string) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// waitForRowGone waits until name is no longer a row of the list on screen.
+//
+// A frame-wide WaitGone can't say this: a committed mutation names its object
+// in the keybar's outcome line ("✓ Delete ConfigMap <name>"), which stays up
+// until the next key press — so the name is on screen for as long as the test
+// keeps looking, row or no row. The predicate also requires the table header,
+// so a frame with no list on it at all (a modal still covering it, a loading
+// state) can't pass as "the row is gone".
+func (a *App) waitForRowGone(t *testing.T, name string) {
+	t.Helper()
+	frame, ok := a.poll(func(frame string) bool {
+		rows, found := tableRows(frame)
+		if !found {
+			return false
+		}
+		for _, row := range rows {
+			if lineHasExactField(row, name) {
+				return false
+			}
+		}
+		return true
+	}, Settle)
+	if !ok {
+		t.Fatalf("row %q was still in the table after %s:\n%s", name, Settle, frame)
+	}
+}
+
+// tableRows returns the body rows of the list on screen: the lines after the
+// NAME header and its rule, up to the next rule, blank line or range footer
+// ("1–4 of 4"). found reports whether a header was on screen at all.
+func tableRows(frame string) (rows []string, found bool) {
+	lines := strings.Split(frame, "\n")
+	start := -1
+	for i, line := range lines {
+		if lineHasExactField(line, "NAME") {
+			start = i + 1
+			break
+		}
+	}
+	if start < 0 {
+		return nil, false
+	}
+	for start < len(lines) && isRuleLine(lines[start]) {
+		start++
+	}
+	for _, line := range lines[start:] {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || isRuleLine(line) || rangeFooter.MatchString(trimmed) {
+			break
+		}
+		rows = append(rows, line)
+	}
+	return rows, true
+}
+
+var rangeFooter = regexp.MustCompile(`^\d+–\d+ of \d+`)
+
+func isRuleLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed != "" && strings.Trim(trimmed, "─") == ""
+}
