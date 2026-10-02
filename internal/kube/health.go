@@ -465,11 +465,22 @@ func (h *health) recordPing(latency time.Duration, err error, synced, reached bo
 // are deliberately left zero: there is no scheduled retry to count down to,
 // and 4a/4c read exactly that to swap the backoff countdown for the
 // re-authenticate hint.
+//
+// One failure is routinely reported twice: the auth gate's first-block
+// callback takes the plugin's stderr, then the request that tripped it (most
+// often the ping) reports the same failure with the ring already drained. So
+// a report that only restates a failure already on screen keeps the message
+// that named it, rather than replacing "run aws sso login" with client-go's
+// "exec: executable aws failed with exit code 255".
 func (h *health) setUnauthenticated(err error, latency time.Duration, prev ConnState) {
+	msg, fromPlugin := credentialMessage(err)
+	if !fromPlugin && prev.Phase == ConnUnauthenticated && prev.Err != "" && restatesCredentialFailure(err) {
+		msg = prev.Err
+	}
 	h.set(ConnState{
 		Phase:     ConnUnauthenticated,
 		Latency:   latency,
-		Err:       credentialErrorMessage(err),
+		Err:       msg,
 		FetchedAt: prev.FetchedAt,
 	})
 }

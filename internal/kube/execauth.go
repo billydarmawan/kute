@@ -291,14 +291,22 @@ func IsAuthenticationError(err error) bool {
 // The result is always one line: ConnState.Err renders into 4a's
 // single-line banner, where an embedded newline would break the strip.
 func credentialErrorMessage(err error) string {
+	msg, _ := credentialMessage(err)
+	return msg
+}
+
+// credentialMessage is credentialErrorMessage plus whether the text is the
+// plugin's own stderr rather than the fallback.
+func credentialMessage(err error) (msg string, fromPlugin bool) {
 	var resolved *resolvedCredentialError
 	if errors.As(err, &resolved) {
-		return resolved.msg
+		return resolved.msg, resolved.fromPlugin
 	}
 	text := strings.TrimSpace(CredentialPluginOutput())
-	if text == "" {
+	fromPlugin = text != ""
+	if !fromPlugin {
 		if err == nil {
-			return "credentials rejected"
+			return "credentials rejected", false
 		}
 		text = err.Error()
 	}
@@ -306,7 +314,16 @@ func credentialErrorMessage(err error) string {
 	if len(text) > maxCredentialErrorText {
 		text = text[:maxCredentialErrorText] + "…"
 	}
-	return text
+	return text, fromPlugin
+}
+
+// restatesCredentialFailure reports whether err is only a second report of
+// a credential failure already on screen: the gate refusing a request, or the
+// plugin failing again without saying why. Neither carries anything the
+// plugin's own earlier message didn't, so it must not replace it.
+func restatesCredentialFailure(err error) bool {
+	return errors.Is(err, errAuthenticationGated) ||
+		(err != nil && strings.Contains(err.Error(), credentialFailurePrefix))
 }
 
 // resolvedCredentialError carries credentialErrorMessage's text, computed
@@ -317,7 +334,8 @@ func credentialErrorMessage(err error) string {
 // and needsReauth classify it exactly as they would the original.
 type resolvedCredentialError struct {
 	error
-	msg string
+	msg        string
+	fromPlugin bool
 }
 
 func (e *resolvedCredentialError) Unwrap() error { return e.error }
@@ -333,7 +351,8 @@ func (h *health) resolveCredentialError(err error) error {
 	if errors.As(err, &resolved) {
 		return err
 	}
-	return &resolvedCredentialError{error: err, msg: credentialErrorMessage(err)}
+	msg, fromPlugin := credentialMessage(err)
+	return &resolvedCredentialError{error: err, msg: msg, fromPlugin: fromPlugin}
 }
 
 // maxCredentialErrorText caps the banner text. A plugin that dumps a stack

@@ -770,3 +770,18 @@ func TestRecordAuthenticationFailureDoesNotHoldClusterLockWhileReadingStderr(t *
 		t.Fatalf("ConnState = %+v, want unauthenticated", got)
 	}
 }
+
+// The gate's first-block callback and the ping that tripped it both report
+// the same plugin failure; the second report finds the stderr ring already
+// drained and must not replace the plugin's message with client-go's.
+func TestRepeatedCredentialFailureKeepsPluginMessage(t *testing.T) {
+	for _, second := range []error{credentialPluginFailure(), errAuthenticationGated} {
+		h := newHealth()
+		pluginStderr.append([]byte("Error loading SSO Token: Token has expired\n"))
+		h.setUnauthenticated(credentialPluginFailure(), 0, h.get())
+		h.recordPing(0, second, true, true, time.Now())
+		if got := h.get(); got.Phase != ConnUnauthenticated || got.Err != "Error loading SSO Token: Token has expired" {
+			t.Errorf("after a second report %q: ConnState = %+v, want the plugin's message kept", second, got)
+		}
+	}
+}
