@@ -170,3 +170,73 @@ func TestScopedEmptyHintsSkipGlobalRead(t *testing.T) {
 		t.Fatalf("hints.allCount = %d, want 5 from CountLive", msg.hints.allCount)
 	}
 }
+
+// perNamespaceCacheLister models KindHelmRelease's per-namespace release
+// caches (docs/lazy-informers.md §5.5): a read of (kind, namespace) starts
+// that exact cache, and KindStarted answers only for caches already read.
+// Every other kind is one cluster-wide cache that is already running.
+type perNamespaceCacheLister struct {
+	fakeLister
+	mu      sync.Mutex
+	started map[scopedListCall]bool
+	reads   []scopedListCall
+}
+
+func (l *perNamespaceCacheLister) ListRaw(ctx context.Context, kind kube.ResourceKind, namespace string) ([]runtime.Object, error) {
+	l.mu.Lock()
+	l.reads = append(l.reads, scopedListCall{kind, namespace})
+	l.started[scopedListCall{kind, namespace}] = true
+	l.mu.Unlock()
+	return l.fakeLister.ListRaw(ctx, kind, namespace)
+}
+
+func (l *perNamespaceCacheLister) KindStarted(kind kube.ResourceKind, namespace string) bool {
+	if kind != kube.KindHelmRelease {
+		return true
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.started[scopedListCall{kind, namespace}]
+}
+
+// TestEmptyHelmHintsStartNoReleaseInformers is review 03 H4: an empty Helm
+// Releases list must not compute its 10c hints by counting releases in every
+// namespace — each of those reads starts a per-namespace release-Secret
+// informer, and the cluster-wide total starts the 8.19 MB cluster-wide one.
+// Only release caches this session already paid for may be read.
+func TestEmptyHelmHintsStartNoReleaseInformers(t *testing.T) {
+	lister := &perNamespaceCacheLister{
+		fakeLister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+			kube.KindNamespace: {namespace("default"), namespace("team-a"), namespace("team-b")},
+			kube.KindHelmRelease: {
+				helmRelease("team-a", "redis", "redis", "18.1.5", "7.2.4", "deployed", 1),
+				helmRelease("team-b", "pg", "postgresql", "15.0.0", "16.1", "deployed", 1),
+				helmRelease("team-b", "kafka", "kafka", "26.0.0", "3.6", "deployed", 1),
+			},
+		}},
+		// default is the list on screen; team-a was visited earlier.
+		started: map[scopedListCall]bool{
+			{kube.KindHelmRelease, "default"}: true,
+			{kube.KindHelmRelease, "team-a"}:  true,
+		},
+	}
+	m := New(Config{Session: newSession(), Lister: lister})
+	m.SetSize(120, 36)
+	m.kind = kube.KindHelmRelease
+	m.desc, _ = m.session.Registry.Descriptor(kube.KindHelmRelease)
+
+	msg := firstEmptyHints(t, m.loadEmptyHints())
+
+	for _, r := range lister.reads {
+		if r.kind == kube.KindHelmRelease && r.namespace != "default" && r.namespace != "team-a" {
+			t.Errorf("empty-state hints read %s in %q, starting a release informer nothing on screen needs", r.kind, r.namespace)
+		}
+	}
+	// The hint is still computed from what's already cached.
+	if msg.hints.altNamespace != "team-a" || msg.hints.altCount != 1 {
+		t.Errorf("alt namespace = %q (%d), want team-a (1) from the already-running cache", msg.hints.altNamespace, msg.hints.altCount)
+	}
+	if msg.hints.allCount != 0 {
+		t.Errorf("allCount = %d, want 0: no free cluster-wide release count exists", msg.hints.allCount)
+	}
+}

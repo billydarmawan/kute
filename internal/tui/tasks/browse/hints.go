@@ -67,28 +67,38 @@ func (m Model) loadEmptyHints() tea.Cmd {
 	}
 }
 
-// allNamespacesCount answers the "N cluster-wide" hint detail. Under plain
-// (cluster-wide) mode this is a free cache read: resources.Count(kind, "")
-// goes through the same single cache already backing the namespace just
-// found empty. Under --namespace-scoped, kind's cache is keyed per
-// namespace (docs/lazy-informers.md §5.6), so that same
-// call would start a brand-new cluster-wide informer for kind merely to
-// decorate a hint — the exact implicit global read scoped mode exists to
-// avoid. tui.LiveCounter (CountLive) answers the same question with one
-// server-side list instead of an informer, so scoped mode uses that and
-// falls back to no detail at all when it isn't available (KindHelmRelease
-// has no cheap live count; the caller already degrades to a plain,
-// still-truthful line when this returns false).
+// allNamespacesCount answers the "N cluster-wide" hint detail. It reads
+// the cluster-wide cache only when that read is free (tui.KindCached): under
+// plain (cluster-wide) mode that is the same single cache already backing
+// the namespace just found empty, so for nearly every kind this is a plain
+// cache read. Two cases are not free, and both fall back to
+// tui.LiveCounter (CountLive, one server-side list instead of an informer):
+//
+//   - --namespace-scoped, where kind's cache is keyed per namespace
+//     (docs/lazy-informers.md §5.6), so a "" read would start a brand-new
+//     cluster-wide informer merely to decorate a hint — the exact implicit
+//     global read scoped mode exists to avoid.
+//   - KindHelmRelease, which is cached per namespace even in plain mode
+//     (§5.5), so a "" read starts the cluster-wide release-Secret informer
+//     (8.19 MB on the cluster §5.5 measured) and decodes every release.
+//
+// CountLive has no honest answer for KindHelmRelease, so that case reports
+// no detail at all; the caller already degrades to a plain, still-truthful
+// line when this returns false.
 func allNamespacesCount(ctx context.Context, lister resources.RawLister, kind kube.ResourceKind) (int, bool) {
+	scoped := false
 	if sc, ok := lister.(tui.ScopedChecker); ok && sc.Scoped() {
-		lc, ok := lister.(tui.LiveCounter)
-		if !ok {
-			return 0, false
-		}
-		n, err := lc.CountLive(ctx, kind, "")
+		scoped = true
+	}
+	if !scoped && tui.KindCached(lister, kind, "") {
+		n, err := resources.Count(ctx, lister, kind, "")
 		return n, err == nil
 	}
-	n, err := resources.Count(ctx, lister, kind, "")
+	lc, ok := lister.(tui.LiveCounter)
+	if !ok {
+		return 0, false
+	}
+	n, err := lc.CountLive(ctx, kind, "")
 	return n, err == nil
 }
 
@@ -96,13 +106,21 @@ func allNamespacesCount(ctx context.Context, lister resources.RawLister, kind ku
 // with the most instances of kind, for the "n switch namespace — X has N
 // pods" hint.
 //
-// Skipped entirely under --namespace-scoped: resources.Count(kind, ns) goes
-// through ListRaw, so calling it once per namespace would start one
-// per-namespace informer for kind just to decorate an empty state — the
-// exact breadth-first read the mode exists to avoid (docs/lazy-informers.md
-// §5.6, same reasoning as the namespace palette's own per-namespace count
-// loop). The caller already degrades to a plain, still-truthful line when
-// this returns nothing.
+// Only namespaces whose cache for kind is already running and filled
+// (tui.KindCached) are counted. For most kinds in plain mode that is every
+// namespace — one cluster-wide cache backs them all — so the hint is as
+// complete as ever. KindHelmRelease is the exception: it is cached per
+// namespace even in plain mode (docs/lazy-informers.md §5.5), so counting
+// every namespace would start one release-Secret informer per namespace and
+// decode every release in the cluster just to decorate an empty state. The
+// hint then names the busiest namespace this session has already read, or
+// nothing.
+//
+// Skipped entirely under --namespace-scoped: every namespaced kind is keyed
+// per namespace there (§5.6), so the KindCached gate would leave only the
+// namespaces already visited — and the namespace palette's own per-namespace
+// count loop makes the same call. The caller already degrades to a plain,
+// still-truthful line when this returns nothing.
 func busiestOtherNamespace(ctx context.Context, lister resources.RawLister, reg resources.Registry, kind kube.ResourceKind, current string) (string, int) {
 	if sc, ok := lister.(tui.ScopedChecker); ok && sc.Scoped() {
 		return "", 0
@@ -118,6 +136,9 @@ func busiestOtherNamespace(ctx context.Context, lister resources.RawLister, reg 
 	best, bestCount := "", 0
 	for _, row := range nsRows {
 		if row.Name == "" || row.Name == current {
+			continue
+		}
+		if !tui.KindCached(lister, kind, row.Name) {
 			continue
 		}
 		n, err := resources.Count(ctx, lister, kind, row.Name)
