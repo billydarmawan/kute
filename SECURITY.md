@@ -33,7 +33,7 @@ anywhere except one update check against `api.github.com`, which
 through kute:
 
 - Credential handling: kubeconfig parsing, exec credential plugins
-  ([`docs/managed-clusters.md`](docs/managed-clusters.md)), tokens in memory or on disk.
+  ([README § Authentication](README.md#authentication)), tokens in memory or on disk.
 - Command construction for the verbs that shell out (`exec`, `logs`, port-forward,
   `kubectl debug` node shell) — argument injection through a resource name, namespace,
   or container name.

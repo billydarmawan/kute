@@ -1508,7 +1508,7 @@
         <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #9a9ab2; max-width: 900px; line-height: 1.7;">
           <li>Third instance of the one palette shell (goto → ns → ctx), each a level up the breadcrumb. Same numeric-alias grammar as <a href="#6a">6a</a>: <span style="color: #e9e2ff;">digit selects a recent context, ↵ commits</span> — <span style="color: #e9e2ff;">c 1 ↵</span> is "go back". The confirm keystroke matters even more here: contexts can be PROD, and Enter is where the guard hooks in.</li>
           <li>Reachability is <span style="color: #e9e2ff;">probed lazily on open</span> — rows answer "can I even go there" before you commit (see <a href="#4c">4c</a> for what happens if you land on a dead one). Unreachable contexts stay listed, dimmed, still selectable.</li>
-          <li>The <span style="color: #ef9a9a;">PROD</span> tag: read from a kubeconfig annotation when present, or toggled right here with <span style="color: #e9e2ff;">p</span> on the selected row (stored in kute's own config — kubeconfig is never written). It's the hook for the "are you sure" guards on destructive actions in prod contexts.</li>
+          <li>The <span style="color: #ef9a9a;">PROD</span> tag: read from the <span style="color: #e9e2ff;">prodContexts</span> list in kute's own <span style="color: #e9e2ff;">config.yaml</span>, and toggled right here with <span style="color: #e9e2ff;">ctrl+p</span> on the selected row (written back to that list — kubeconfig is never written). It's the hook for the "are you sure" guards on destructive actions in prod contexts.</li>
           <li>Each context remembers its own namespace + kind + filter — switching back to microk8s-cluster lands exactly where you left it.</li>
         </ul>
       </sc-if>
@@ -2290,7 +2290,7 @@
       <div style="display: flex; align-items: baseline; gap: 10px;">
         <span style="border: 1px solid #a78bfa; color: #a78bfa; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px;">8b</span>
         <span style="font-size: 14px; font-weight: 700; color: #f0f0fa;">Destructive-action confirm</span>
-        <span style="font-size: 12px; color: #676780;">ctrl-d to delete · y/N normally · type-the-name in PROD contexts</span>
+        <span style="font-size: 12px; color: #676780;">D to delete · y/N normally · type-the-name in PROD contexts</span>
       </div>
 
       <div style="width: 960px; background: #0b0b10; border: 1px solid #26263a; border-radius: 10px; overflow: hidden; font-size: 12.5px; line-height: 1.5; box-shadow: 0 12px 40px rgba(0,0,0,0.5); position: relative;">
