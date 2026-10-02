@@ -1110,7 +1110,13 @@ func (m Model) load() tea.Cmd {
 // and their own esc-back) — the same staleness switchNamespace's doc
 // comment describes, just for the Kind dimension instead of Namespace.
 func (m *Model) switchKind(kind kube.ResourceKind) tea.Cmd {
-	if m.session == nil || kind == m.kind {
+	if m.session == nil {
+		return nil
+	}
+	// m.rows != nil: same rule as goToResource — a never-loaded instance
+	// (routeGoto's fresh browse, seeded from Session.Location) must still
+	// load when the jump names the kind it already holds.
+	if kind == m.kind && m.rows != nil {
 		return nil
 	}
 	desc, ok := m.session.Registry.Descriptor(kind)
@@ -1124,7 +1130,8 @@ func (m *Model) switchKind(kind kube.ResourceKind) tea.Cmd {
 }
 
 // switchNamespace mutates namespace in place, keeping kind and filter, and
-// re-issues load()/metrics setup. A no-op for the namespace already active.
+// re-issues load()/metrics setup. A no-op for the namespace already active,
+// unless this instance has never loaded (see switchKind).
 // resetAndLoad normally clears the filter along with the rest of the
 // per-view state (right for a kind switch, whose query no longer means
 // anything against a different kind's names), so a namespace switch snapshots
@@ -1144,7 +1151,7 @@ func (m *Model) switchKind(kind kube.ResourceKind) tea.Cmd {
 // right after 'a' kept scoping counts to the namespace you'd left, even
 // though the header already said "∗ all namespaces".
 func (m *Model) switchNamespace(namespace string) tea.Cmd {
-	if namespace == m.namespace {
+	if namespace == m.namespace && m.rows != nil {
 		return nil
 	}
 	m.namespace = namespace

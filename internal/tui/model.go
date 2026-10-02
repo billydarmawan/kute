@@ -604,13 +604,21 @@ func (m *Model) routeGoto(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, false
 	}
 	fresh := m.buildBrowse()
-	updated, cmd := fresh.Update(msg)
-	task, ok := updated.(Task)
-	if !ok {
-		return nil, false
-	}
 	m.stack = append(m.stack, m.task)
-	return tea.Batch(cmd, m.activate(task)), true
+	// Activate (connection replay) first, then Init, then the jump itself:
+	// an offline replay must land before Init decides whether to arm polls,
+	// and Init must run at all — nothing else ever starts a fresh
+	// instance's load, so a jump to the kind/namespace the Session already
+	// names would otherwise sit on "Loading …" forever. Retargeting after
+	// Init lets a real kind/namespace switch bump browse's epochs, so the
+	// superseded Init load and metrics chain are dropped on arrival.
+	activated := m.activate(fresh)
+	initCmd := m.task.Init()
+	updated, cmd := m.task.Update(msg)
+	if task, ok := updated.(Task); ok {
+		m.task = task
+	}
+	return tea.Batch(activated, initCmd, cmd), true
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -12,7 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
-	"github.com/kute-dev/kute/internal/tui"
 )
 
 // aksNode models a real managed node: 16Gi of machine, ~13Gi of it
@@ -64,7 +63,6 @@ func TestNodeMEMBarDividesByCapacity(t *testing.T) {
 	sess.Location.Kind = kube.KindNode
 	m := New(Config{Session: sess, Lister: lister, NodeMetrics: nodeMetrics})
 	m.SetSize(160, 36)
-	m = step(t, m, tui.GotoKindMsg{Kind: kube.KindNode})
 	m = step(t, m, m.load()())
 	m = step(t, m, m.loadNodeMetrics(m.metricsEpoch)())
 

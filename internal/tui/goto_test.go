@@ -993,3 +993,55 @@ func TestRootModelSwitchNamespaceFromObjectScreenEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+// initRecordingTask records Init alongside screenTask's own conn/goto log,
+// so a test can see the order the root drives a freshly built task in.
+type initRecordingTask struct {
+	screenTask
+}
+
+func (t *initRecordingTask) Init() tea.Cmd {
+	t.updates = append(t.updates, "init")
+	return nil
+}
+
+// Update returns t itself, not the promoted screenTask's &t.screenTask, so
+// the root keeps holding this type (and its Init) after the conn replay.
+func (t *initRecordingTask) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	t.screenTask.Update(msg)
+	return t, nil
+}
+
+// TestRouteGotoInitsTheFreshTaskAfterConnReplay pins 13 H3: routeGoto
+// builds a brand-new browse and must Init it — nothing else ever starts a
+// fresh instance's load, so a jump to the kind the Session already names
+// stayed on "Loading …" forever. Init runs after the connection replay
+// (an offline screen must know it's offline before deciding to arm polls)
+// and before the jump itself (so a real retarget supersedes Init's load).
+func TestRouteGotoInitsTheFreshTaskAfterConnReplay(t *testing.T) {
+	t.Parallel()
+	sess := &tui.Session{Theme: tui.Dark(), Location: tui.Location{Context: "c", Kind: kube.KindPod}}
+
+	detail := &screenTask{name: "poddetail"}
+	browseTask := &pushableScreenTask{screenTask: screenTask{name: "browse"}, next: detail}
+	var fresh *initRecordingTask
+	buildBrowse := func() tui.Task {
+		fresh = &initRecordingTask{screenTask: screenTask{name: "fresh-browse"}}
+		return fresh
+	}
+
+	model := tui.NewWithSession(browseTask, sess).WithRootFactories(nil, buildBrowse)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	updated, _ = updated.(tui.Model).Update(kube.ConnStateMsg{Phase: kube.ConnConnected})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "open"}) // push poddetail
+	updated, _ = updated.(tui.Model).Update(tui.GotoKindMsg{Kind: kube.KindPod})
+	_ = updated.(tui.Model)
+
+	if fresh == nil {
+		t.Fatal("expected routeGoto to build a fresh browse task")
+	}
+	want := []string{"conn", "init", "goto"}
+	if strings.Join(fresh.updates, ",") != strings.Join(want, ",") {
+		t.Fatalf("fresh task saw %v, want %v (Init after the conn replay, before the jump)", fresh.updates, want)
+	}
+}

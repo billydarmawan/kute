@@ -98,3 +98,58 @@ func TestGotoResourceOnAFreshInstanceAlwaysLoads(t *testing.T) {
 		t.Fatal("expected goToResource to issue a load cmd for a never-loaded instance, got nil")
 	}
 }
+
+// TestSameKindOrNamespaceJumpOnAFreshInstanceAlwaysLoads extends the
+// goToResource guard above to the other two jumps routeGoto routes into a
+// brand-new instance (13 H3): a GotoKindMsg for the kind New() already
+// seeded from Session.Location, or a SwitchNamespaceMsg for the namespace
+// it already holds (the palette's `current` row), returned a nil cmd and
+// left the screen on "Loading Pods…" forever.
+func TestSameKindOrNamespaceJumpOnAFreshInstanceAlwaysLoads(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		msg  tea.Msg
+	}{
+		{"same kind", tui.GotoKindMsg{Kind: kube.KindPod}},
+		{"same namespace", tui.SwitchNamespaceMsg{Namespace: "default"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session := newSession()
+			session.Location.Kind = kube.KindPod
+			session.Location.Namespace = "default"
+			lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{}}
+			m := New(Config{Session: session, Lister: lister})
+
+			_, cmd := m.Update(tc.msg)
+			if cmd == nil {
+				t.Fatalf("%T on a never-loaded instance returned a nil cmd; nothing will ever load it", tc.msg)
+			}
+		})
+	}
+}
+
+// TestSameKindOrNamespaceJumpOnALoadedInstanceIsANoOp keeps the other half
+// of the contract: once rows have landed, re-picking the current kind or
+// namespace must not throw away the view and reload it.
+func TestSameKindOrNamespaceJumpOnALoadedInstanceIsANoOp(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		msg  tea.Msg
+	}{
+		{"same kind", tui.GotoKindMsg{Kind: kube.KindPod}},
+		{"same namespace", tui.SwitchNamespaceMsg{Namespace: "default"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session := newSession()
+			session.Location.Kind = kube.KindPod
+			session.Location.Namespace = "default"
+			lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{}}
+			m := New(Config{Session: session, Lister: lister})
+			m.rows = []resources.Row{}
+
+			if _, cmd := m.Update(tc.msg); cmd != nil {
+				t.Fatalf("%T for the already-loaded kind/namespace issued a reload", tc.msg)
+			}
+		})
+	}
+}
