@@ -3,14 +3,14 @@ worker-0            CrashLoopBackOff
 cache-0 ╭─────────────────────────────────────────────────────────────╮         
         │ ? help  keys for PODS view · globals below                  │         
         │─────────────────────────────────────────────────────────────│         
-        │ PODS VIEW  SCOPE             LIST      RESOURCE             │         
-        │ l logs     g goto            /      …  y yaml               │         
-        │ e exec     n namespace       1-9    …  E edit               │         
-        │ D delete   a all namespaces  ↑↓ jk  …  e events             │         
-        │ y yaml     c context         ctrl-d …  t timeline           │         
-        │                              ctrl-u …  m labels/annotations │         
-        │                              space  …                       │         
-        │                              ↵      …                       │         
+        │ PODS VIEW  SCOPE           LIST             RESOURCE        │         
+        │ l logs     g goto          /      filter    y yaml          │         
+        │ e exec     n namespace     1-9    sort co…  E edit          │         
+        │ D delete   a all namespa…  ↑↓ jk  move      e events        │         
+        │ y yaml     c context       ctrl-d half-pa…  t timeline      │         
+        │                            ctrl-u half-pa…  m labels/annot… │         
+        │                            space  mark                      │         
+        │                            ↵      open                      │         
         │─────────────────────────────────────────────────────────────│         
         │ MISC   U what's new  ? help  esc back  ctrl+q quit          │         
         │─────────────────────────────────────────────────────────────│         

@@ -44,3 +44,28 @@ func TestRenderHelpDoesNotTruncateColumns(t *testing.T) {
 		}
 	}
 }
+
+// TestHelpColumnWidthsShrinksEvenly pins M4: at 80 columns the old
+// smallest-need-first fill topped up the three narrower columns and left the
+// widest (LIST) at the floor, ellipsizing every one of its labels to "…".
+func TestHelpColumnWidthsShrinksEvenly(t *testing.T) {
+	natural := [4]int{9, 16, 22, 20} // PODS VIEW, SCOPE, LIST, RESOURCE
+	const available, floor = 53, 8
+	widths := helpColumnWidths(natural, available, floor)
+	sum := 0
+	for i, w := range widths {
+		sum += w
+		if w > natural[i] {
+			t.Errorf("column %d widened past its natural width: %d > %d", i, w, natural[i])
+		}
+	}
+	if sum > available {
+		t.Fatalf("widths %v overflow the %d-cell budget", widths, available)
+	}
+	if widths[0] != natural[0] {
+		t.Errorf("a column narrower than the common cap should keep its natural width, got %v", widths)
+	}
+	if widths[2] <= floor+4 {
+		t.Errorf("the widest column was starved to %d cells (widths %v)", widths[2], widths)
+	}
+}

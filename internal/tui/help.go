@@ -156,34 +156,27 @@ func helpColumnNaturalWidth(heading string, hints []KeyHint) int {
 // helpColumnWidths distributes available cells across the four main columns.
 // When every column's natural width already fits, it's returned unchanged —
 // helpInset's own trailing fill absorbs any width left over. Otherwise it
-// shrinks smallest-need-first down to floor: a column whose natural width
-// barely exceeds floor is topped up to its full natural width before a
-// column with a much larger appetite (typically CURRENT VIEW, which varies
-// per screen) gets anything beyond floor, protecting the three fixed,
-// memorized-vocabulary columns from truncating first.
+// water-fills: every column is raised toward one common cap, so a column
+// narrower than the cap keeps its full natural width and the wider ones
+// share what's left evenly, each truncating a little. (Topping up the
+// narrow columns in full first left the widest — LIST at 80 columns — at
+// floor, ellipsizing every one of its labels to a bare "…".)
 func helpColumnWidths(natural [4]int, available, floor int) [4]int {
 	total := natural[0] + natural[1] + natural[2] + natural[3]
 	if total <= available {
 		return natural
 	}
 	widths := [4]int{floor, floor, floor, floor}
-	budget := available - floor*4
-	if budget <= 0 {
+	if available <= floor*4 {
 		return widths // pathologically narrow terminal; Truncate saves every cell
 	}
 	order := []int{0, 1, 2, 3}
 	slices.SortFunc(order, func(a, b int) int { return cmp.Compare(natural[a], natural[b]) })
-	for _, i := range order {
-		need := natural[i] - floor
-		if need <= 0 {
-			continue
-		}
-		grant := min(need, budget)
-		widths[i] += grant
-		budget -= grant
-		if budget == 0 {
-			break
-		}
+	budget := available
+	for k, i := range order {
+		share := budget / (len(order) - k)
+		widths[i] = max(min(natural[i], share), floor)
+		budget -= widths[i]
 	}
 	return widths
 }
