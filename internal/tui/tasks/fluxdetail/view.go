@@ -94,10 +94,14 @@ func (m Model) readyBody(width, height int) string {
 // failureCard is §31a's top band — 4a's red-tint banner idiom, not a
 // destructive-confirm border (red *borders* stay reserved for those).
 func (m Model) failureCard(width int) string {
+	// Suspended outranks a failure (§30a): a suspended object's conditions
+	// are frozen, so a Ready=False on it is history rather than a live
+	// failure, and Flux won't retry it — a RECONCILE FAILED card with a
+	// countdown would contradict the list's ‖ suspended.
+	if m.suspended {
+		return m.suspendedCard(width)
+	}
 	if m.fail == nil {
-		if m.suspended {
-			return m.suspendedCard(width)
-		}
 		return ""
 	}
 	theme := m.Theme()
@@ -140,6 +144,19 @@ func (m Model) suspendedCard(width int) string {
 	lines := []string{head.Render("SUSPENDED · reconciliation is paused")}
 	if drift := m.driftNote(); drift != "" {
 		lines = append(lines, body.Render(drift))
+	}
+	if m.fail != nil {
+		// The frozen failure, muted: the last thing Flux said before it
+		// stopped looking, not a claim about now.
+		dim := lipgloss.NewStyle().Foreground(theme.TextDim)
+		last := "last status before suspend"
+		if m.fail.Reason != "" {
+			last += " · " + m.fail.Reason
+		}
+		lines = append(lines, dim.Render(last))
+		for _, l := range wrap(m.fail.Message, width-4) {
+			lines = append(lines, dim.Render(l))
+		}
 	}
 	return strings.Join(lines, "\n")
 }

@@ -3,7 +3,9 @@ package fluxdetail
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	appsv1 "k8s.io/api/apps/v1"
@@ -212,5 +214,39 @@ func TestDependsOnReadsRegistryKindInOwnNamespace(t *testing.T) {
 	}
 	if !slices.Contains(lister.reads, string(kube.KindFluxHelmRelease)+"@data") {
 		t.Errorf("reads = %v, want the dependency read in its own namespace", lister.reads)
+	}
+}
+
+// TestSuspendedOutranksAFrozenFailure is M3: a suspended Kustomization whose
+// frozen Ready is False rendered RECONCILE FAILED with a retry countdown —
+// a retry that never comes — while the list showed it ‖ suspended.
+func TestSuspendedOutranksAFrozenFailure(t *testing.T) {
+	kust := discovered("Kustomization", "kustomizations", kube.FluxGroupKustomize)
+	reg, groups := resources.BuildDiscoveredRegistry(kube.AssignRegistryKinds([]kube.DiscoveredKind{kust}), nil)
+	ks := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": kube.FluxGroupKustomize + "/v1", "kind": "Kustomization",
+		"metadata": map[string]any{"name": "apps", "namespace": "flux-system"},
+		"spec":     map[string]any{"suspend": true, "interval": "10m"},
+		"status": map[string]any{"conditions": []any{map[string]any{
+			"type": "Ready", "status": "False", "reason": "HealthCheckFailed", "message": "boom",
+			"lastTransitionTime": time.Now().Add(-3 * time.Hour).UTC().Format(time.RFC3339),
+		}}},
+	}}
+	lister := &recordingLister{objs: map[kube.ResourceKind][]runtime.Object{"Kustomization": {ks}}}
+	sess := &tui.Session{Theme: tui.Dark(), Registry: reg, Groups: groups,
+		Location: tui.Location{Context: "c", Namespace: "flux-system"}}
+	m := New(Config{Session: sess, Lister: lister, Kind: "Kustomization", Namespace: "flux-system", Name: "apps"})
+	m.SetSize(120, 30)
+	upd, _ := m.Update(m.load()())
+	view := plain(upd.(*Model).Render())
+
+	if strings.Contains(view, "RECONCILE FAILED") || strings.Contains(view, "retry in") {
+		t.Errorf("a suspended object must not render a live failure card:\n%s", view)
+	}
+	if !strings.Contains(view, "SUSPENDED") {
+		t.Errorf("expected the suspended card:\n%s", view)
+	}
+	if !strings.Contains(view, "last status before suspend · HealthCheckFailed") || !strings.Contains(view, "boom") {
+		t.Errorf("expected the frozen failure as a muted history line:\n%s", view)
 	}
 }
