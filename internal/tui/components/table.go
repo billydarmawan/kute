@@ -80,14 +80,26 @@ type Row struct {
 
 // Table renders the inverted-layout resource table.
 type Table struct {
-	Columns  []Column
-	Rows     []Row
-	Selected int
-	Offset   int
-	Width    int
-	Height   int
-	SortKey  string
-	SortAsc  bool
+	Columns []Column
+	// Rows is every row of the list, or — when RowsTotal is set — only the
+	// window [RowsStart, RowsStart+len(Rows)) of a RowsTotal-row list.
+	Rows []Row
+	// RowsStart/RowsTotal let a caller with a long list build (and style)
+	// only the rows the viewport shows: set RowsTotal to the full row count,
+	// ask VisibleRange for the window, and hand over just those rows with
+	// RowsStart = the window's Start. Selected/Offset stay absolute indexes
+	// into the full list, and the footer counts RowsTotal, so the output is
+	// identical to passing every row — the per-frame cost is not (docs/review
+	// 03 H5: 44.5 ms a frame at 5,000 pods when every row was built). Zero
+	// RowsTotal means Rows is the whole list, as before these fields existed.
+	RowsStart int
+	RowsTotal int
+	Selected  int
+	Offset    int
+	Width     int
+	Height    int
+	SortKey   string
+	SortAsc   bool
 
 	// HeaderStyle styles the uppercase header row.
 	HeaderStyle lipgloss.Style
@@ -136,14 +148,21 @@ func (t Table) Render() string {
 	}
 
 	for _, idx := range t.visibleRowsV2() {
-		row := t.Rows[idx]
+		local := idx - t.RowsStart
+		if local < 0 || local >= len(t.Rows) {
+			// A windowed caller handed over a window that doesn't cover
+			// the viewport; draw nothing rather than index out of range —
+			// a panic in a render path takes the whole program down.
+			continue
+		}
+		row := t.Rows[local]
 		if row.GroupHeader != "" {
 			lines = append(lines, t.renderGroupRowV2(row, idx == t.Selected, width))
 			continue
 		}
 		lines = append(lines, t.renderRowV2(row, idx == t.Selected, widths, width))
 	}
-	if len(t.Rows) == 0 {
+	if t.totalRows() == 0 {
 		lines = append(lines, Pad("  No resources found", width-tableRightMargin)+strings.Repeat(" ", tableRightMargin))
 	}
 	return strings.Join(lines, "\n")
@@ -419,23 +438,33 @@ func (t Table) visibleRowCount() int {
 		rowCount--
 	}
 	if rowCount < 1 {
-		rowCount = len(t.Rows)
+		rowCount = t.totalRows()
 	}
 	return rowCount
 }
 
+// totalRows is the full list's row count: RowsTotal for a windowed caller,
+// else every row it handed over.
+func (t Table) totalRows() int {
+	if t.RowsTotal > 0 {
+		return t.RowsTotal
+	}
+	return len(t.Rows)
+}
+
 func (t Table) visibleRowsV2() []int {
 	rowCount := t.visibleRowCount()
+	total := t.totalRows()
 	start := t.Offset
 	if start < 0 {
 		start = 0
 	}
-	if start > len(t.Rows) {
-		start = len(t.Rows)
+	if start > total {
+		start = total
 	}
 	end := start + rowCount
-	if end > len(t.Rows) {
-		end = len(t.Rows)
+	if end > total {
+		end = total
 	}
 	indexes := make([]int, 0, end-start)
 	for i := start; i < end; i++ {
@@ -447,7 +476,7 @@ func (t Table) visibleRowsV2() []int {
 // VisibleRange reports the [Start,End) row window currently rendered plus
 // the total row count, so a screen can render the "1–9 of 36" footer.
 func (t Table) VisibleRange() VisibleRange {
-	return ClampRange(t.Offset, t.visibleRowCount(), len(t.Rows))
+	return ClampRange(t.Offset, t.visibleRowCount(), t.totalRows())
 }
 
 // FooterLine renders the range text ("1–9 of 36") left-aligned and a

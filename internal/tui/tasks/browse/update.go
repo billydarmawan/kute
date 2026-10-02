@@ -83,6 +83,18 @@ func (m *Model) Reload() tea.Cmd {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	task, cmd := m.update(msg)
+	// Whatever the handler swapped (rows, metrics, kind), the whole-list
+	// figures View reads are brought back in step here, once, instead of
+	// being recomputed on every frame (aggregates.go).
+	m.syncAggregates()
+	if next, ok := task.(*Model); ok && next != m {
+		next.syncAggregates()
+	}
+	return task, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, ok := tui.RoutePaste(msg, m.pasteTarget()); ok {
 		return m, cmd
 	}

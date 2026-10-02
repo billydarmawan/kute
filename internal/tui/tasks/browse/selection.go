@@ -32,6 +32,9 @@ func (m *Model) recomputeVisible() {
 	m.visible = applyFilter(m.rows, m.filterInput.Value())
 	m.rebuildDisplay()
 	m.restoreSelection(ref)
+	// Unconditional, not syncAggregates: the CronJob/Job ticks rewrite
+	// m.rows in place and land here, and an identity key can't see that.
+	m.refreshAggregates()
 }
 
 // selectedRef is the selected data row's namespace + name, or the zero

@@ -511,6 +511,11 @@ type Model struct {
 	// bars until then); keyed by kube.PodKey(namespace, name), never bare
 	// name — all-namespaces mode lists same-named pods side by side.
 	podMetrics map[string]kube.PodMetrics
+	// aggs caches the whole-list figures a frame shows (health tallies,
+	// metrics bar denominators, majority kubelet version, namespace count),
+	// kept in step by Update so a frame costs its visible window rather than
+	// the list (aggregates.go).
+	aggs rowAggregates
 	// pods is the fuller kube.PodFromObject projection (Pod and CronJob
 	// kinds only — the CronJob branch reuses its own best-effort Pod read,
 	// see loadCronJobRows) — Row only carries display Cells, but the 'l'

@@ -262,3 +262,42 @@ func TestColumnWidthsMatchesWhatRenderUses(t *testing.T) {
 		t.Errorf("a cell of exactly ColumnWidths' width was truncated:\n%s", table.Render())
 	}
 }
+
+// TestTableWindowedRowsRenderIdentically pins RowsStart/RowsTotal's contract:
+// handing Table only the window VisibleRange reports must draw exactly what
+// handing it every row does — table, footer and all — at every scroll
+// position, including a selection inside the window and short lists.
+func TestTableWindowedRowsRenderIdentically(t *testing.T) {
+	for _, total := range []int{0, 1, 5, 40} {
+		all := make([]Row, total)
+		for i := range all {
+			if i%7 == 3 {
+				all[i] = Row{GroupHeader: "group " + strings.Repeat("x", i%5), GroupStyle: lipgloss.NewStyle().Bold(true)}
+				continue
+			}
+			all[i] = Row{Cells: []Cell{{Text: "row-" + strings.Repeat("r", i%9)}, {Text: "1d"}}}
+		}
+		for _, height := range []int{1, 2, 8} {
+			for offset := -1; offset <= total+1; offset++ {
+				base := Table{
+					Width:          40,
+					Height:         height,
+					Columns:        []Column{{Title: "Name", Min: 10, Flex: true}, {Title: "Age", Min: 4, Align: AlignRight}},
+					Selected:       offset + 1,
+					Offset:         offset,
+					ShowHeaderRule: true,
+				}
+				full := base
+				full.Rows = all
+				windowed := base
+				windowed.RowsTotal = total
+				win := windowed.VisibleRange()
+				windowed.Rows = all[win.Start:win.End]
+				windowed.RowsStart = win.Start
+				if got, want := windowed.Render()+"\n"+windowed.FooterLine(40), full.Render()+"\n"+full.FooterLine(40); got != want {
+					t.Fatalf("total=%d height=%d offset=%d: windowed render differs\n got:\n%s\nwant:\n%s", total, height, offset, got, want)
+				}
+			}
+		}
+	}
+}

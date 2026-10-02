@@ -293,7 +293,8 @@ func (m Model) columnHeaderLine(theme tui.Theme, width int) string {
 // OK/Warn/Fail/Neutral order, skipping zero counts, plus a right-aligned
 // total.
 func (m Model) healthStripLine(theme tui.Theme, width int) string {
-	counts := m.desc.Health(m.rows)
+	aggs := m.aggregates()
+	counts := aggs.health
 	if m.desc.Custom && !m.desc.StatusSemantics && len(m.rows) > 0 && counts.OK+counts.Warn+counts.Fail == 0 {
 		// docs/design README.md §14a: a CRD kind whose instances carry no
 		// Ready/Available condition at all gets no fake health — the strip
@@ -424,7 +425,7 @@ func (m Model) healthStripLine(theme tui.Theme, width int) string {
 	}
 	suffix := ""
 	if m.grouped() {
-		suffix = fmt.Sprintf(" · %d namespaces", distinctNamespaces(m.rows))
+		suffix = fmt.Sprintf(" · %d namespaces", aggs.namespaces)
 	}
 	inner := stripInnerWidth(width)
 	right := labelStyle.Render(rightText + suffix)
@@ -1047,7 +1048,8 @@ func (m Model) tableBody(width, height int) string {
 		// misdescribe the order.
 		sortKey, sortAsc = "status", true
 	}
-	cpuMax, memMax := m.metricsMax()
+	aggs := m.aggregates()
+	cpuMax, memMax := aggs.cpuMax, aggs.memMax
 	muted := m.offline() || m.cachedView
 	styles := [2]rowCellStyles{newRowCellStyles(theme, false, muted, false), newRowCellStyles(theme, true, muted, false)}
 	// marksOn/markedStyle back 20a's mark column and marked-row tint — the
@@ -1062,13 +1064,43 @@ func (m Model) tableBody(width, height int) string {
 	if marksOn {
 		tableCols = append([]components.Column{{Title: "", Min: 1}}, cols...)
 	}
-	majorityVersion := ""
-	if m.kind == kube.KindNode {
-		majorityVersion = m.nodeMajorityVersion()
-	}
+	majorityVersion := aggs.nodeMajority
 
-	rows := make([]components.Row, 0, len(m.display))
-	for idx, dr := range m.display {
+	// One line reserved for FooterLine always; CronJobs reserve a second for
+	// §36a's trailing behavior strip, docked below the table rather than
+	// among Strips' top-of-screen lines (keep in sync with selection.go's
+	// tableDataRows).
+	reserved := 1
+	cronJobStrip := m.kind == kube.KindCronJob && !m.offline()
+	if cronJobStrip {
+		reserved = 2
+	}
+	t := components.Table{
+		Columns:        tableCols,
+		RowsTotal:      len(m.display),
+		Selected:       m.selected,
+		Offset:         m.offset,
+		Width:          width,
+		Height:         max(height-reserved, 1),
+		SortKey:        sortKey,
+		SortAsc:        sortAsc,
+		HeaderStyle:    lipgloss.NewStyle().Foreground(theme.TextFaint),
+		SortStyle:      lipgloss.NewStyle().Foreground(theme.Accent),
+		SelBarStyle:    lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.SelBg),
+		SelRowStyle:    lipgloss.NewStyle().Background(theme.SelBg),
+		FooterStyle:    lipgloss.NewStyle().Foreground(theme.TextGhost),
+		ShowHeaderRule: true,
+		RuleStyle:      lipgloss.NewStyle().Foreground(theme.TextGhost2),
+	}
+	// Window first, style second (docs/review/03 H5, podlogs' visibleWindow
+	// precedent): Table only ever draws [Start, End), so building and
+	// styling cells for the rest of m.display was the whole of a 5,000-pod
+	// frame's cost. The Table works out the window itself, so the slice
+	// handed back is exactly the one it will draw.
+	win := t.VisibleRange()
+	rows := make([]components.Row, 0, win.End-win.Start)
+	for idx := win.Start; idx < win.End; idx++ {
+		dr := m.display[idx]
 		selected := idx == m.selected
 		switch dr.kind {
 		case rowKindHeader:
@@ -1117,33 +1149,7 @@ func (m Model) tableBody(width, height int) string {
 		// Style alone doesn't reach (components.Table's renderRowV2).
 		rows = append(rows, components.Row{Cells: cells, RowStyle: st.dim})
 	}
-
-	// One line reserved for FooterLine always; CronJobs reserve a second for
-	// §36a's trailing behavior strip, docked below the table rather than
-	// among Strips' top-of-screen lines (keep in sync with selection.go's
-	// tableDataRows).
-	reserved := 1
-	cronJobStrip := m.kind == kube.KindCronJob && !m.offline()
-	if cronJobStrip {
-		reserved = 2
-	}
-	t := components.Table{
-		Columns:        tableCols,
-		Rows:           rows,
-		Selected:       m.selected,
-		Offset:         m.offset,
-		Width:          width,
-		Height:         max(height-reserved, 1),
-		SortKey:        sortKey,
-		SortAsc:        sortAsc,
-		HeaderStyle:    lipgloss.NewStyle().Foreground(theme.TextFaint),
-		SortStyle:      lipgloss.NewStyle().Foreground(theme.Accent),
-		SelBarStyle:    lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.SelBg),
-		SelRowStyle:    lipgloss.NewStyle().Background(theme.SelBg),
-		FooterStyle:    lipgloss.NewStyle().Foreground(theme.TextGhost),
-		ShowHeaderRule: true,
-		RuleStyle:      lipgloss.NewStyle().Foreground(theme.TextGhost2),
-	}
+	t.Rows, t.RowsStart = rows, win.Start
 	out := t.Render() + "\n" + t.FooterLine(width)
 	if cronJobStrip {
 		out += "\n" + m.cronJobBehaviorStripLine(theme, width)
