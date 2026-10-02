@@ -264,7 +264,7 @@ func TestCronJobClockTickNeverCallsTheLister(t *testing.T) {
 	before := lister.calls
 	beforeNext := m.rows[0].Cells[5]
 
-	updated, cmd := m.Update(cronJobTickMsg{epoch: m.reloadEpoch})
+	updated, cmd := m.Update(cronJobTickMsg{epoch: m.clockEpoch})
 	m = *updated.(*Model)
 	if cmd == nil {
 		t.Fatal("expected the tick to reschedule itself")

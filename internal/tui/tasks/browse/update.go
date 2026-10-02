@@ -73,6 +73,10 @@ func (m *Model) pasteTarget() tui.PasteTarget {
 // ResourceChangedMsg case for m.kind/auxKindOf, minus the CRD-columns
 // special case — a genuine column-set change still needs its own
 // ResourceChangedMsg, since Reload has no changed kind to check against.
+//
+// It does not re-arm the CronJob/Job clock: that chain runs on clockEpoch,
+// which a reload leaves alone, and the root held its in-flight tick while
+// this screen was parked — re-arming here would start a second chain.
 func (m *Model) Reload() tea.Cmd {
 	m.reloadEpoch++
 	return m.scheduleReload(m.reloadEpoch)
@@ -219,7 +223,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.load()
 		}
 	case cronJobTickMsg:
-		if msg.epoch != m.reloadEpoch || !m.ticksCronJobClock() {
+		if msg.epoch != m.clockEpoch || !m.ticksCronJobClock() {
 			// Superseded by a kind/namespace/context switch (or the kind is
 			// no longer CronJob/Job) — let the chain die here rather than
 			// rescheduling a tick nothing needs any more.
@@ -231,7 +235,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.applyCronJobTick(m.now)
 		}
-		return m, m.scheduleCronJobTick(m.reloadEpoch)
+		return m, m.scheduleCronJobTick(m.clockEpoch)
 	case rowsLoadedMsg:
 		return m.applyRowsLoaded(msg)
 	case spinner.TickMsg:

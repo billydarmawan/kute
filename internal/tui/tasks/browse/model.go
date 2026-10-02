@@ -608,6 +608,12 @@ type Model struct {
 	// epoch it captured is still current.
 	reloadEpoch  int
 	metricsEpoch int
+	// clockEpoch guards §36a/§37a's one-second cronJobTickMsg chain. It is
+	// bumped only by resetAndLoad — never by a reload — so exactly one chain
+	// stays alive while a CronJob/Job list is shown: a watch event, the
+	// KindsSynced gate, the empty-rows retry or Reload() on pop must neither
+	// kill the running chain nor start a second one.
+	clockEpoch int
 
 	state    tui.TaskState
 	feedback string
@@ -692,11 +698,13 @@ type reloadDueMsg struct{ epoch int }
 type metricsTickMsg struct{ epoch int }
 
 // cronJobTickMsg drives §36a's one-second UI clock (Phase 4 task 5, §4.5).
-// epoch is m.reloadEpoch at scheduling time — reused rather than a
-// dedicated field, since every path that would need to invalidate a stale
-// tick chain (kind switch, namespace switch, context switch) already bumps
-// reloadEpoch via resetAndLoad, and resetAndLoad itself is what starts the
-// next chain when the new kind is still CronJob.
+// epoch is m.clockEpoch at scheduling time. It deliberately isn't
+// reloadEpoch: every watch event for the kind or an aux kind (Pod, for both
+// CronJob and Job) bumps reloadEpoch, and nothing on that path re-arms the
+// clock, so sharing it froze NEXT/DURATION and m.now within seconds on any
+// live cluster. Only resetAndLoad (kind/namespace/context switch) bumps
+// clockEpoch, and it starts the next chain itself when the new kind still
+// ticks.
 type cronJobTickMsg struct{ epoch int }
 
 // scheduleCronJobTick arranges the next §36a clock tick one second out.
@@ -979,7 +987,7 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds, m.loadMetricsCmd(m.metricsEpoch), m.scheduleMetricsTick(m.metricsEpoch))
 	}
 	if m.ticksCronJobClock() {
-		cmds = append(cmds, m.scheduleCronJobTick(m.reloadEpoch))
+		cmds = append(cmds, m.scheduleCronJobTick(m.clockEpoch))
 	}
 	if prefetch := m.prefetchAuxKinds(); prefetch != nil {
 		cmds = append(cmds, prefetch)
@@ -1367,6 +1375,7 @@ func (m *Model) resetAndLoad() tea.Cmd {
 	m.sortAsc = false
 	m.reloadEpoch++
 	m.metricsEpoch++
+	m.clockEpoch++
 
 	// 15a: "revisiting a kind seen this session: cached rows dimmed instead
 	// of skeletons" — seed the loading view from rowCache if this exact
@@ -1392,7 +1401,7 @@ func (m *Model) resetAndLoad() tea.Cmd {
 		cmds = append(cmds, m.loadMetricsCmd(m.metricsEpoch), m.scheduleMetricsTick(m.metricsEpoch))
 	}
 	if m.ticksCronJobClock() {
-		cmds = append(cmds, m.scheduleCronJobTick(m.reloadEpoch))
+		cmds = append(cmds, m.scheduleCronJobTick(m.clockEpoch))
 	}
 	if prefetch := m.prefetchAuxKinds(); prefetch != nil {
 		cmds = append(cmds, prefetch)
