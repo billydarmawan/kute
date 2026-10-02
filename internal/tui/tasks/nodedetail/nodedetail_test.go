@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
+	"github.com/kute-dev/kute/internal/testutil/goldentest"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
@@ -543,4 +544,26 @@ func (f *fakeMutator) Drain(_ context.Context, node string) (int, error) {
 	}
 	f.drained = append(f.drained, node)
 	return 1, nil
+}
+
+// TestDrainConfirmBorderIsRed pins review 10 M6 on node detail's own copy of
+// the drain card: a Foreground-styled border is never colored by lipgloss
+// v2, so the card lost Theme.ConfirmBorder's destructive red.
+func TestDrainConfirmBorderIsRed(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {testNode("node-a")},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, NodeName: "node-a", Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: verbs.Drain.Key})
+	if !m.actions.Active() {
+		t.Fatal("expected ctrl+d to open a drain confirmation")
+	}
+	red := lipgloss.NewStyle().Foreground(m.Theme().ConfirmBorder).Render("╭")
+	red = red[:strings.Index(red, "╭")+len("╭")]
+	if !strings.Contains(goldentest.Truecolor(m.Render()), red) {
+		t.Fatalf("expected the drain card's top-left corner drawn in ConfirmBorder (%q)", red)
+	}
 }

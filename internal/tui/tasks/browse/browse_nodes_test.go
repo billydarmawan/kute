@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
+	"github.com/kute-dev/kute/internal/testutil/goldentest"
 	"github.com/kute-dev/kute/internal/tui"
 )
 
@@ -641,5 +643,30 @@ func TestNodeMajorityVersionIsStableAcrossTies(t *testing.T) {
 	m.rows = append(m.rows, resources.Row{Cells: []string{"node-g", "v1.32.0"}})
 	if got := m.nodeMajorityVersion(); got != "v1.32.0" {
 		t.Fatalf("nodeMajorityVersion = %q, want the outright majority v1.32.0", got)
+	}
+}
+
+// TestDrainConfirmBorderIsRed pins review 10 M6: the drain card styled its
+// border with Foreground, which lipgloss v2 never applies to a border, so
+// one of the most disruptive confirms rendered with an uncolored border
+// instead of Theme.ConfirmBorder's destructive red.
+func TestDrainConfirmBorderIsRed(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {nodeObj("node-a", true, false)},
+	}}
+	session := newSession()
+	session.Location.Kind = kube.KindNode
+	m := New(Config{Session: session, Lister: lister, Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "ctrl+d"})
+	if !m.actions.Active() {
+		t.Fatal("expected ctrl+d to open a drain confirmation")
+	}
+	red := lipgloss.NewStyle().Foreground(m.Theme().ConfirmBorder).Render("╭")
+	red = red[:strings.Index(red, "╭")+len("╭")]
+	if !strings.Contains(goldentest.Truecolor(m.Render()), red) {
+		t.Fatalf("expected the drain card's top-left corner drawn in ConfirmBorder (%q)", red)
 	}
 }

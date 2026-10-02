@@ -1707,7 +1707,7 @@ func (m Model) View() tea.View {
 func renderQuitConfirm(theme Theme) string {
 	bg := lipgloss.NewStyle().Background(theme.BgPalette)
 	styles := components.ConfirmStyles{
-		Border: bg.Foreground(theme.BorderPalette),
+		Border: bg.BorderForeground(theme.BorderPalette),
 		Title:  bg.Foreground(theme.Text).Bold(true),
 		Detail: bg.Foreground(theme.TextSecondary),
 		Rule:   bg.Foreground(theme.TextGhost),
