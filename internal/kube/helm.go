@@ -402,6 +402,90 @@ func LatestHelmReleases(all []HelmRelease) []HelmRelease {
 	return out
 }
 
+// DecodeLatestHelmReleases is LatestHelmReleases(DecodeHelmReleases(objs))
+// without decoding the revisions it would throw away — the list's one row per
+// release, at the cost of one decode per release rather than one per
+// revision.
+//
+// Decoding is the expensive part (base64, gunzip of up to 32 MiB, JSON, then a
+// YAML re-marshal of the values map), and helm keeps ten revisions per release
+// by default, so decoding everything and then keeping the newest discards
+// roughly nine tenths of the work. Helm labels every revision Secret with its
+// release `name` and `version` (EncodeHelmReleaseSecret writes the same
+// labels), so the newest revision per release is chosen from metadata first
+// and only that one is decoded.
+//
+// The output matches the decode-everything path: a newest revision that fails
+// to decode falls back to the next-highest one (exactly as
+// DecodeHelmReleases' skip-on-error would have left it), and a Secret missing
+// either label — or carrying a version that isn't a number — is decoded
+// unconditionally and competes on its decoded revision as before.
+func DecodeLatestHelmReleases(objs []runtime.Object) []HelmRelease {
+	return decodeLatestHelmReleases(objs, DecodeHelmReleaseSecret)
+}
+
+// decodeLatestHelmReleases is DecodeLatestHelmReleases with the per-Secret
+// decoder as a parameter, so a test can count how many Secrets it decodes.
+func decodeLatestHelmReleases(objs []runtime.Object, decode func(*corev1.Secret) (HelmRelease, error)) []HelmRelease {
+	type candidate struct {
+		index   int
+		version int
+		secret  *corev1.Secret
+	}
+	groups := map[string][]candidate{}
+	var order []string // group keys in first-seen order, for determinism
+	var unlabelled []candidate
+	for i, obj := range objs {
+		secret, ok := obj.(*corev1.Secret)
+		if !ok || secret.Type != HelmReleaseSecretType {
+			continue
+		}
+		name := secret.Labels["name"]
+		version, err := strconv.Atoi(secret.Labels["version"])
+		if name == "" || err != nil {
+			unlabelled = append(unlabelled, candidate{index: i, secret: secret})
+			continue
+		}
+		key := secret.Namespace + "\x00" + name
+		if _, seen := groups[key]; !seen {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], candidate{index: i, version: version, secret: secret})
+	}
+
+	type decoded struct {
+		index   int
+		release HelmRelease
+	}
+	out := make([]decoded, 0, len(order)+len(unlabelled))
+	for _, key := range order {
+		cands := groups[key]
+		// Newest first; a stable sort keeps input order among equal versions,
+		// which is the tie-break LatestHelmReleases' strict `>` applies.
+		slices.SortStableFunc(cands, func(a, b candidate) int { return cmp.Compare(b.version, a.version) })
+		for _, c := range cands {
+			if r, err := decode(c.secret); err == nil {
+				out = append(out, decoded{index: c.index, release: r})
+				break
+			}
+		}
+	}
+	for _, c := range unlabelled {
+		if r, err := decode(c.secret); err == nil {
+			out = append(out, decoded{index: c.index, release: r})
+		}
+	}
+	// Back into input order before the final collapse, so any tie it has to
+	// break (an unlabelled Secret matching a labelled one's revision) breaks
+	// the same way the decode-everything path did.
+	slices.SortFunc(out, func(a, b decoded) int { return cmp.Compare(a.index, b.index) })
+	releases := make([]HelmRelease, len(out))
+	for i, d := range out {
+		releases[i] = d.release
+	}
+	return LatestHelmReleases(releases)
+}
+
 // HelmReleaseSecretsFor narrows release Secrets to one release's own
 // revisions, before anything decodes them.
 //

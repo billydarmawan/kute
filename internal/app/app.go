@@ -100,7 +100,7 @@ func (l helmAwareLister) ListRaw(ctx context.Context, kind kube.ResourceKind, na
 	if err != nil {
 		return nil, err
 	}
-	releases := kube.LatestHelmReleases(kube.DecodeHelmReleases(secrets))
+	releases := kube.DecodeLatestHelmReleases(secrets)
 	index := l.charts.Index()
 	// One read of the three rolling caches for the whole list, not one per
 	// release — see resources.UnsettledWorkloads.

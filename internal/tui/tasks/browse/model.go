@@ -1035,9 +1035,18 @@ func (m Model) load() tea.Cmd {
 			return msg
 		}
 		var rows []resources.Row
-		var podObjs []runtime.Object
+		var podObjs, helmObjs []runtime.Object
 		var err error
-		if kind == kube.KindPod && m.releasePodView {
+		if kind == kube.KindHelmRelease {
+			// One read serves both the rows and the helmReleases map: every
+			// ListRaw(HelmRelease) decodes release Secrets and re-reads the
+			// three workload caches for the rollout glyph, so a second read
+			// for the map doubled the most expensive load in the app.
+			helmObjs, err = lister.ListRaw(ctx, kube.KindHelmRelease, ns)
+			if err == nil {
+				rows = resources.Project(desc, helmObjs)
+			}
+		} else if kind == kube.KindPod && m.releasePodView {
 			podObjs, err = lister.ListRaw(ctx, kube.KindPod, ns)
 			if err == nil {
 				replicaSets, jobs, err := releasePodSupportObjects(ctx, lister, ns, m.releasePodSources)
@@ -1084,7 +1093,7 @@ func (m Model) load() tea.Cmd {
 		case kube.KindNode:
 			nodeCap, podCountByNode, clusterPodTotal, nodePodHealth = loadNodeExtras(ctx, lister, podDesc.Project)
 		case kube.KindHelmRelease:
-			helmReleases = helmReleasesByName(ctx, lister, ns)
+			helmReleases = helmReleasesFromObjs(helmObjs)
 			cacheNote = chartCacheNoteFor(lister, time.Now())
 		}
 		return rowsLoadedMsg{
@@ -1486,17 +1495,13 @@ func releasePodSupportObjects(ctx context.Context, lister resources.RawLister, n
 	return replicaSets, jobs, nil
 }
 
-// helmReleasesByName re-fetches the full decoded kube.HelmRelease per row:
-// Row only carries the display Cells, not the chart/values/revision fields
-// 'v'/'h'/'R' need (helm.go's openReleaseValues/openReleaseHistory/
-// beginRollback).
 func helmReleaseKey(namespace, name string) string { return namespace + "\x00" + name }
 
-func helmReleasesByName(ctx context.Context, lister resources.RawLister, namespace string) map[string]kube.HelmRelease {
-	objs, err := lister.ListRaw(ctx, kube.KindHelmRelease, namespace)
-	if err != nil {
-		return nil
-	}
+// helmReleasesFromObjs keeps the full decoded kube.HelmRelease per row, from
+// the same ListRaw result the rows were projected from: Row only carries the
+// display Cells, not the chart/values/revision fields 'v'/'h'/'R' need
+// (helm.go's openReleaseValues/openReleaseHistory/beginRollback).
+func helmReleasesFromObjs(objs []runtime.Object) map[string]kube.HelmRelease {
 	out := make(map[string]kube.HelmRelease, len(objs))
 	for _, obj := range objs {
 		if ho, ok := obj.(*kube.HelmReleaseObject); ok {

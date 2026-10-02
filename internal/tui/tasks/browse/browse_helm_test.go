@@ -553,3 +553,47 @@ func (f *fakeHelmMutator) HelmRollback(_ context.Context, namespace, name string
 	return nil
 }
 func (f *fakeHelmMutator) RolloutUndo(context.Context, string, string, int) error { return nil }
+
+// helmCountingLister counts ListRaw(HelmRelease) calls only: the other kinds
+// a load may read (workload caches for hints, Nodes) are not what this pins.
+type helmCountingLister struct {
+	fakeLister
+	helmReads int
+}
+
+func (l *helmCountingLister) ListRaw(ctx context.Context, kind kube.ResourceKind, namespace string) ([]runtime.Object, error) {
+	if kind == kube.KindHelmRelease {
+		l.helmReads++
+	}
+	return l.fakeLister.ListRaw(ctx, kind, namespace)
+}
+
+// TestHelmReleaseLoadReadsReleasesOnce pins review 08 H2: one load reads the
+// release list once and builds both the rows and the v/h/R/↵/p map from it.
+// Every ListRaw(HelmRelease) decodes release Secrets and re-reads the three
+// workload caches for the rollout glyph, and the list reloads on every
+// workload change in scope, so a second read for the map doubled the cost
+// of every rollout.
+func TestHelmReleaseLoadReadsReleasesOnce(t *testing.T) {
+	lister := &helmCountingLister{fakeLister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindHelmRelease: {
+			helmRelease("default", "postgresql", "postgresql", "12.1.9", "15.4.0", "deployed", 3),
+			helmRelease("default", "redis", "redis", "18.1.5", "7.2.4", "deployed", 2),
+		},
+	}}}
+	session := newSession()
+	session.Location.Kind = kube.KindHelmRelease
+	m := New(Config{Session: session, Lister: lister})
+	m.SetSize(120, 36)
+	m = step(t, m, m.load()())
+
+	if lister.helmReads != 1 {
+		t.Fatalf("one load issued %d ListRaw(HelmRelease) calls, want 1", lister.helmReads)
+	}
+	if len(m.rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(m.rows))
+	}
+	if got := m.helmReleases[helmReleaseKey("default", "postgresql")]; got.Revision != 3 || got.Chart != "postgresql" {
+		t.Fatalf("helmReleases[postgresql] = %+v, want revision 3 of chart postgresql", got)
+	}
+}
