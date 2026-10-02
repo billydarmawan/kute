@@ -25,8 +25,9 @@
 // want to type. Only pressing ↵ on a row enters editing mode, and only there
 // does every printable character (including 'a'/'A'/'y') insert literally.
 // This mirrors the add sub-mode's own key/value buffers, which have always
-// worked this way. Removal is 'ctrl+d' (not 'delete'), matching the rest of
-// browse's own row-delete chord instead of a second, inconsistent one.
+// worked this way. Removal is 'D' (not 'delete'), matching browse's own
+// row-delete key instead of a second, inconsistent one — safe as a bare
+// letter because navigation mode never takes typed text.
 //
 // A TierInline confirm (a Service-selector-joined label edit, or any
 // removal) renders *inside* the still-open panel rather than closing it

@@ -223,7 +223,7 @@ func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // 'x') inserts literally into whichever buffer has focus; ctrl-x toggles
 // the value's mask (docs/design README.md §27b: "ctrl-x re-mask input" —
 // a chorded key so plain 'x' stays available to type, the same reasoning
-// meta.go's own ctrl-d removal chord uses rather than a bare letter).
+// that makes configmapdata's apply+restart ctrl-r rather than a bare R).
 // tab/shift+tab move focus between the key and value buffers, the same
 // two-buffer shape meta.go's own add sub-flow uses.
 func (m *Model) updateAddKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
