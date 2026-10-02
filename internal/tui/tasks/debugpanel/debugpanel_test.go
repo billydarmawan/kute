@@ -114,6 +114,37 @@ func TestPodAccessReviewDenialStaysInsideDebugPanel(t *testing.T) {
 	}
 }
 
+// TestRBACNoOpinionReviewIsADenial pins the shape every RBAC-only cluster
+// answers an ungranted review with — allowed=false, denied=false. The
+// review already ran the server's whole authorizer chain, so that is the
+// real request's 403, not an inconclusive answer.
+func TestRBACNoOpinionReviewIsADenial(t *testing.T) {
+	reviewer := &fakeAccessReviewer{result: kube.AccessReviewResult{}}
+	m := New(Config{
+		Session: nonProdSession(), Namespace: "default", Name: "api-0",
+		Containers: podContainers(), Access: reviewer,
+	})
+	updated, _ := m.Update(m.Init()())
+	mm := updated.(*Model)
+	if mm.accessState != accessDenied {
+		t.Fatalf("access state = %v, want denied", mm.accessState)
+	}
+	mm.SetSize(120, 36)
+	if rendered := mm.Render(); !strings.Contains(rendered, "create "+kube.DebugAttachResource+" is denied") {
+		t.Fatalf("denial is not visible inside the panel: %q", rendered)
+	}
+
+	// An evaluation error is the one inconclusive server answer: warn and
+	// fail open.
+	mm.handleAccessReviewed(accessReviewedMsg{
+		gen: mm.accessGen, query: mm.accessQuery(),
+		result: kube.AccessReviewResult{EvaluationError: "role not found"},
+	})
+	if mm.accessState != accessAllowed {
+		t.Fatalf("access state = %v, want fail-open allowed on an evaluation error", mm.accessState)
+	}
+}
+
 func TestCopyModeReviewsCreatePodsAndIgnoresStaleAttachVerdict(t *testing.T) {
 	reviewer := &fakeAccessReviewer{}
 	m := New(Config{

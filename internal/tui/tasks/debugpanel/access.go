@@ -89,11 +89,17 @@ func (m *Model) handleAccessReviewed(msg accessReviewedMsg) {
 		m.accessState = accessAllowed
 	case msg.result.Allowed:
 		m.accessState = accessAllowed
-	case msg.result.Denied:
-		m.accessState = accessDenied
-	default:
-		// No opinion or an evaluation error is inconclusive, not a denial.
+	case msg.result.EvaluationError != "":
+		// The server couldn't finish evaluating — inconclusive, so the
+		// launch stays available with the warning.
 		m.accessState = accessAllowed
+	default:
+		// allowed=false is the server's denial whether or not denied is
+		// set: the review already ran the API server's whole authorizer
+		// chain against the real identity, and "no authorizer allowed it"
+		// is exactly what makes the real request a 403. RBAC never sets
+		// denied, so waiting for it would never deny on an RBAC cluster.
+		m.accessState = accessDenied
 	}
 }
 

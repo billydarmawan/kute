@@ -120,17 +120,17 @@ func TestPodDebugPanelStagesAttachOnAShelllessPod(t *testing.T) {
 	a.WaitFor("Pods", Settle)
 }
 
-// TestPodDebugPanelDoesNotInventADenial pins the access gate's own rule:
-// "no opinion is inconclusive, not a denial".
+// TestPodDebugPanelShowsTheServersDenial pins the access gate's own rule:
+// allowed=false is the server's denial.
 //
 // kind authorizes with RBAC, which answers a SelfSubjectAccessReview for an
-// ungranted verb with allowed=false and denied=false — it declines to allow
-// rather than denying. That is precisely the shape the panel must not read
-// as a refusal: doing so recreates the false-denial trap, where the app
-// blocks a launch the API server would have accepted (another authorizer,
-// another group). Only a real API server produces this answer, which is why
-// the rule has no unit-level guard.
-func TestPodDebugPanelDoesNotInventADenial(t *testing.T) {
+// ungranted verb with allowed=false and denied=false. The review has already
+// run the API server's whole authorizer chain against the real identity, so
+// that is exactly the 403 the launch itself would get — reading it as
+// inconclusive would leave the panel offering a launch that can only fail,
+// and never show §41a's denial or its w who-can recovery. Only a real API
+// server produces this answer, which is why the rule needs an e2e guard.
+func TestPodDebugPanelShowsTheServersDenial(t *testing.T) {
 	RequireCluster(t)
 	const name = "phase3-debug-restricted"
 	createPodWithImage(t, mutationClient(t), name, "kute-e2e.invalid/nothing-here:v1")
@@ -150,11 +150,9 @@ func TestPodDebugPanelDoesNotInventADenial(t *testing.T) {
 	// The review has to actually finish — a panel still checking says
 	// nothing about how it reads the answer.
 	a.WaitGone("checking access", Settle)
-	a.Never("is denied", 3*time.Second)
-	// The will-run line is still offered: the API server remains the
-	// backstop, and the panel's job is to document the command, not to
-	// pre-refuse it.
-	a.WaitForWrapped("will run", Settle)
+	// The reason text is the server's own when it gives one, so assert on
+	// the recovery key only the denied state offers.
+	a.WaitFor("who-can", Settle)
 
 	a.Esc()
 	a.WaitFor("Pods", Settle)

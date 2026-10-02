@@ -1501,9 +1501,10 @@ func (c *Cluster) CanI(ctx context.Context, query kube.WhoCanQuery) (kube.Access
 	if result.CurrentUser == "" {
 		return kube.AccessReviewResult{EvaluationError: "current user is unknown"}, nil
 	}
+	// Like RBAC on a real API server, a miss is allowed=false with denied
+	// unset — never the explicit Denied only a deny-capable authorizer sets.
 	return kube.AccessReviewResult{
 		Allowed: result.CurrentUserGranted,
-		Denied:  !result.CurrentUserGranted,
 		Reason:  result.CurrentUserVia,
 	}, nil
 }
