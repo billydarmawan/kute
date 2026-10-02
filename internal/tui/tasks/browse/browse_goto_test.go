@@ -1,6 +1,7 @@
 package browse
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -398,5 +399,24 @@ func TestGotoResourceMsgClusterScopedKindIgnoresNamespace(t *testing.T) {
 	}
 	if m.namespace != "default" {
 		t.Fatalf("namespace = %q, want unchanged (default) for a cluster-scoped kind jump", m.namespace)
+	}
+}
+
+// A failed 7a switch that had to roll back rebuilt every cache: browse must
+// re-read its list, or the rows sit frozen with nothing left to update them.
+// A failure before teardown left the caches alone, so it needs nothing.
+func TestFailedSwitchContextReloadsOnlyAfterRollback(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-1")},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if _, cmd := m.Update(tui.SwitchContextMsg{Err: errors.New("no such context")}); cmd != nil {
+		t.Error("a switch that failed before teardown reloaded the list")
+	}
+	if _, cmd := m.Update(tui.SwitchContextMsg{Err: errors.New("timed out"), RolledBack: true}); cmd == nil {
+		t.Error("a rolled-back switch did not reload the list")
 	}
 }

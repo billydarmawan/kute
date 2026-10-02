@@ -355,6 +355,13 @@ func switchContextCmd(sess *Session, name string) tea.Cmd {
 		// context's kubeconfig-default one — see SwitchContext's doc
 		// comment. Ignored entirely in cluster-wide mode.
 		if err := cluster.SwitchContext(ctx, name, restoreNS); err != nil {
+			var notStarted *kube.SwitchNotStartedError
+			if errors.As(err, &notStarted) {
+				// Failed before anything was torn down: the original context
+				// is still live, and rebuilding it would only throw away its
+				// lazily started informers for nothing.
+				return SwitchContextMsg{Err: err}
+			}
 			// SwitchContext replaces informer factories in place. Rebuild the
 			// original context before reporting failure so the task and Session
 			// location we intentionally leave untouched still point at a usable
@@ -365,7 +372,7 @@ func switchContextCmd(sess *Session, name string) tea.Cmd {
 			if rollbackErr != nil {
 				err = errors.Join(err, fmt.Errorf("restore context %s: %w", oldContext, rollbackErr))
 			}
-			return SwitchContextMsg{Err: err}
+			return SwitchContextMsg{Err: err, RolledBack: true}
 		}
 		return SwitchContextMsg{Context: name, Namespace: restoreNS, Kind: restoreKind, Filter: restoreFilter}
 	}

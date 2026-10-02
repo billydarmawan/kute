@@ -1167,6 +1167,13 @@ func (c *Cluster) SwitchNamespace(namespace string) {
 	c.mu.Unlock()
 }
 
+// SwitchNotStartedError is a SwitchContext failure that happened before the
+// current context was touched (the target's client could not be built).
+type SwitchNotStartedError struct{ Err error }
+
+func (e *SwitchNotStartedError) Error() string { return e.Err.Error() }
+func (e *SwitchNotStartedError) Unwrap() error { return e.Err }
+
 // SwitchContext rebuilds the clientset, metrics client, and informer
 // factories against a different kubeconfig context, then restarts the
 // informers. namespace, when non-empty and this Cluster is in scoped mode,
@@ -1181,10 +1188,14 @@ func (c *Cluster) SwitchNamespace(namespace string) {
 // The events channel is preserved, so a caller already ranging over Events
 // keeps receiving notifications from the new cluster. It blocks until the
 // new caches sync (or ctx is done).
+//
+// A failure to build the target's client returns a *SwitchNotStartedError:
+// nothing has been torn down yet, so the current context is still fully live
+// and there is nothing to roll back.
 func (c *Cluster) SwitchContext(ctx context.Context, contextName, namespace string) error {
 	client, err := NewClientForContext(contextName)
 	if err != nil {
-		return err
+		return &SwitchNotStartedError{Err: err}
 	}
 	metrics, _ := metricsclient.NewForConfig(client.RESTConfig)
 	dynClient, _ := dynamic.NewForConfig(client.RESTConfig)

@@ -240,6 +240,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			return m, m.switchContext(msg)
 		}
+		if msg.RolledBack {
+			// Same kind and namespace, but the rollback rebuilt every cache
+			// from scratch: re-read (keeping the filter and selection), or
+			// the rows sit frozen with nothing left to update them.
+			return m, m.load()
+		}
 	case reloadDueMsg:
 		if msg.epoch == m.reloadEpoch {
 			return m, m.load()

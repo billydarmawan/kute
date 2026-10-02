@@ -77,6 +77,11 @@ type SwitchContextMsg struct {
 	Kind      kube.ResourceKind
 	Filter    string
 	Err       error
+	// RolledBack is set with Err when the failed switch had already torn
+	// the original context down and rebuilt it: every lazily started
+	// informer is gone, so the active task must re-read what it shows or
+	// sit on rows nothing will ever update again.
+	RolledBack bool
 }
 
 type ContextLoadedMsg struct {

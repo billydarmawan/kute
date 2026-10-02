@@ -409,8 +409,14 @@ type Model struct {
 	// it also closes the startup window before the first periodic /livez probe.
 	neverConnected bool
 	showingSetup   bool
-	buildSetup     func(kube.ConnState) Task
-	buildBrowse    func() Task
+	// switching is set while a 7a context switch is in flight. Informer
+	// events then come from a target the screen doesn't show yet (or from a
+	// rollback): forwarding them reloaded the old kind and namespace against
+	// half-filled caches under the old header, which could read as a false
+	// empty state. SwitchContextMsg clears it, and both its outcomes reload.
+	switching   bool
+	buildSetup  func(kube.ConnState) Task
+	buildBrowse func() Task
 
 	// buildUpdate builds 28b's what's-new panel (WithUpdatePanel) — set
 	// independently of buildSetup/buildBrowse above: unlike 4c/10b's
@@ -803,6 +809,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	case SwitchContextMsg:
+		m.switching = false
+		if m.session != nil && msg.Err != nil && msg.RolledBack {
+			// The original context was rebuilt in place: same Location, but
+			// fresh caches and a fresh discovery.
+			m.session.InvalidateCounts()
+			if m.session.Cluster != nil {
+				m.session.Registry, m.session.Groups = resources.BuildDiscoveredRegistry(m.session.Cluster.DiscoveredKinds(), m.session.Cluster)
+			}
+		}
 		// Also forwarded to the task below (unchanged msg), so browse can
 		// switch its own kind/namespace and reload against the rebuilt
 		// cluster (mvp-plan.md Phase 3, 7a). Err set means the switch
@@ -853,6 +868,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Kind == kube.KindCustomResourceDefinition && m.session != nil && m.session.Cluster != nil {
 			m.session.Registry, m.session.Groups = resources.BuildDiscoveredRegistry(m.session.Cluster.DiscoveredKinds(), m.session.Cluster)
 			m.refreshGotoPaletteCorpus()
+		}
+		if m.switching {
+			return m, nil // see switching's doc comment
 		}
 	case kube.CRDsDiscoveredMsg:
 		// The one connect path where discovery finishes outside any
@@ -1124,6 +1142,7 @@ func (m Model) handlePaletteKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 			cmd = namespaceDispatch(m.session, item)
 		case palette.ScopeContext:
 			cmd = contextDispatch(m.session, item)
+			m.switching = cmd != nil
 		case palette.ScopeVerb:
 			cmd = whoCanVerbDispatch(item)
 		case palette.ScopeResource:
