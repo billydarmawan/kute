@@ -322,3 +322,52 @@ func TestFluxVerbsAreInertWithoutAMutator(t *testing.T) {
 		t.Errorf("keybar should not offer suspend without a mutator")
 	}
 }
+
+// TestFluxEnterOpensReconcilerDetailOnlyForReconcilers is M9: ↵ sent every
+// Flux kind to §31a, where a GitRepository has no chain and no inventory,
+// instead of to 14d's CONDITIONS and EVENTS as §30a specifies.
+func TestFluxEnterOpensReconcilerDetailOnlyForReconcilers(t *testing.T) {
+	gitDK := kube.DiscoveredKind{
+		Kind: "GitRepository", Plural: "gitrepositories", Group: kube.FluxGroupSource,
+		GVR:         schema.GroupVersionResource{Group: kube.FluxGroupSource, Version: "v1", Resource: "gitrepositories"},
+		Versions:    []kube.CRDVersion{{Name: "v1", Served: true, Storage: true}},
+		Established: true, CRDName: "gitrepositories." + kube.FluxGroupSource,
+	}
+	repo := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": kube.FluxGroupSource + "/v1", "kind": "GitRepository",
+		"metadata": map[string]any{"name": "fleet", "namespace": "flux-system"},
+	}}
+	reg, groups := resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{kustomizationDK(), gitDK}, nil)
+
+	for _, tc := range []struct {
+		kind     kube.ResourceKind
+		obj      runtime.Object
+		wantFlux bool
+	}{
+		{"Kustomization", kustomization("apps", false, "True", "ok"), true},
+		{"GitRepository", repo, false},
+	} {
+		var opened string
+		session := newSession()
+		session.Registry, session.Groups = reg, groups
+		session.Location.Kind, session.Location.Namespace = tc.kind, "flux-system"
+		m := New(Config{
+			Session: session,
+			Lister:  fakeLister{objs: map[kube.ResourceKind][]runtime.Object{tc.kind: {tc.obj}}},
+			OpenFluxDetail: func(kube.ResourceKind, string, string, int, int) (tea.Model, tea.Cmd) {
+				opened = "flux"
+				return stubTask{}, nil
+			},
+			OpenObjectDetail: func(kube.ResourceKind, string, string, []ObjectSiblingRef, int, int, int) (tea.Model, tea.Cmd) {
+				opened = "14d"
+				return stubTask{}, nil
+			},
+		})
+		m.SetSize(120, 36)
+		m = step(t, m, m.Init()())
+		m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		if want := map[bool]string{true: "flux", false: "14d"}[tc.wantFlux]; opened != want {
+			t.Errorf("%s: ↵ opened %q, want %q", tc.kind, opened, want)
+		}
+	}
+}

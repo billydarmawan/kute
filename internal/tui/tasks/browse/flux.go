@@ -31,9 +31,12 @@ func (m Model) fluxVerbsApply() bool {
 // openSelectedFluxDetail pushes §31a for the cursor row. Gated on the
 // descriptor's own Flux flag, so it precedes crddetail.go's generic 14d
 // branch (a Flux descriptor is Custom too) without either needing a
-// kind-name check.
+// kind-name check — and on its API group, because §31a is the *reconciler*
+// screen: a source, an alert, a provider or an image policy has no chain
+// and no inventory for it to show, and §30a sends those to 14d, the same
+// split 30b's tree makes.
 func (m Model) openSelectedFluxDetail() (tea.Model, tea.Cmd, bool) {
-	if !m.desc.Flux || m.openFluxDetail == nil {
+	if !m.desc.Flux || m.openFluxDetail == nil || !isFluxReconcilerGroup(m.desc.APIGroup) {
 		return nil, nil, false
 	}
 	row, ok := m.selectedRow()
@@ -42,6 +45,12 @@ func (m Model) openSelectedFluxDetail() (tea.Model, tea.Cmd, bool) {
 	}
 	task, cmd := m.openFluxDetail(m.kind, row.Namespace, row.Name, m.width, m.height)
 	return task, cmd, task != nil
+}
+
+// isFluxReconcilerGroup reports whether group serves Flux's reconciler
+// kinds (Kustomization, HelmRelease) — the ones §31a is built for.
+func isFluxReconcilerGroup(group string) bool {
+	return group == kube.FluxGroupKustomize || group == kube.FluxGroupHelm
 }
 
 // beginFluxSuspend toggles spec.suspend on row — one verb, two directions,
