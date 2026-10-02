@@ -164,6 +164,9 @@ type Model struct {
 
 	// reloadEpoch guards a cache-sync retry against a newer load.
 	reloadEpoch int
+	// kindErrs are the Flux kinds the last load couldn't read, named on the
+	// strip so a partial tree never passes for the whole one.
+	kindErrs []kindError
 
 	conn kube.ConnState
 	now  time.Time
@@ -186,7 +189,10 @@ type loadedMsg struct {
 	// can gate on their caches rather than claiming a cluster has no Flux
 	// objects while the informers are still filling.
 	kinds []kube.ResourceKind
-	err   error
+	// kindErrs are the kinds that couldn't be read — dropped from the join
+	// rather than failing it. err is set only when every kind failed.
+	kindErrs []kindError
+	err      error
 }
 
 func New(cfg Config) Model {

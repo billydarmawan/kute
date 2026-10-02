@@ -2,6 +2,7 @@ package fluxtree
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -685,5 +686,88 @@ func TestAppliesLineSummarisesTheInventoryByNamespace(t *testing.T) {
 		if got := appliesLine(tc.ids); got != tc.want {
 			t.Errorf("%s: appliesLine = %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// kindErrLister reports a fixed error for some kinds, the way *kube.Cluster
+// does for a kind whose cache can't fill.
+type kindErrLister struct {
+	resources.RawLister
+	errs map[kube.ResourceKind]error
+}
+
+func (l kindErrLister) KindError(kind kube.ResourceKind, _ string) error { return l.errs[kind] }
+
+// ListRaw answers an erroring kind with the empty cache it really has.
+func (l kindErrLister) ListRaw(ctx context.Context, kind kube.ResourceKind, ns string) ([]runtime.Object, error) {
+	if _, failing := l.errs[kind]; failing {
+		return []runtime.Object{}, nil
+	}
+	return l.RawLister.ListRaw(ctx, kind, ns)
+}
+
+func kindErrTree(t *testing.T, errs func(reg resources.Registry) map[kube.ResourceKind]error) (*Model, tea.Cmd) {
+	t.Helper()
+	c := fake.NewDemo()
+	reg, groups := resources.BuildDiscoveredRegistry(c.DiscoveredKinds(), c)
+	sess := &tui.Session{Theme: tui.Dark(), Registry: reg, Groups: groups}
+	m := New(Config{Session: sess, Lister: kindErrLister{RawLister: c, errs: errs(reg)}})
+	m.SetSize(160, 36)
+	upd, cmd := m.Update(m.load()())
+	return upd.(*Model), cmd
+}
+
+// TestOneUnreadableFluxKindDegradesTheTree is M6: one kind this identity
+// may not list turned the whole tree into an error that promised a retry
+// nothing scheduled. It now drops out of the join, the strip names it, and
+// a reconciler whose source it hides isn't called broken.
+func TestOneUnreadableFluxKindDegradesTheTree(t *testing.T) {
+	forbidden := errors.New(`helmrepositories.source.toolkit.fluxcd.io is forbidden: User "u" cannot list resource`)
+	got, cmd := kindErrTree(t, func(resources.Registry) map[kube.ResourceKind]error {
+		return map[kube.ResourceKind]error{"HelmRepository": forbidden}
+	})
+	if got.state != tui.TaskStateReady {
+		t.Fatalf("state = %s (%s), want ready", got.state, got.feedback)
+	}
+	if cmd != nil {
+		t.Error("a denial alone must not schedule a retry")
+	}
+	got.expanded = true
+	got.recomputeVisible()
+	view := plain(got.Render())
+	if !strings.Contains(view, "not shown") || !strings.Contains(view, "forbidden") {
+		t.Errorf("the strip should name the unreadable kind:\n%s", view)
+	}
+	if !strings.Contains(view, "HelmRepository: forbidden") || !strings.Contains(view, "source unreadable: helmrepository/bitnami") {
+		t.Errorf("a source kute can't read should say so:\n%s", view)
+	}
+	if !strings.Contains(view, "nebula-workers") {
+		t.Errorf("the readable kinds should still render:\n%s", view)
+	}
+	if strings.Contains(view, "source not found: helmrepository") {
+		t.Errorf("a source kute can't read must not be reported missing:\n%s", view)
+	}
+
+	// A stalled kind — not a denial — is what "retrying" can honestly
+	// promise, so that is when a retry is scheduled.
+	_, cmd = kindErrTree(t, func(resources.Registry) map[kube.ResourceKind]error {
+		return map[kube.ResourceKind]error{"HelmRepository": errors.New("the server is currently unable to handle the request")}
+	})
+	if cmd == nil {
+		t.Error("a stalled kind should schedule a retry")
+	}
+
+	// Every kind failing is still the error state.
+	all, _ := kindErrTree(t, func(reg resources.Registry) map[kube.ResourceKind]error {
+		out := map[kube.ResourceKind]error{}
+		for _, k := range reg.Kinds() {
+			if d, _ := reg.Descriptor(k); d.Flux {
+				out[k] = forbidden
+			}
+		}
+		return out
+	})
+	if all.state != tui.TaskStateError {
+		t.Errorf("state = %s, want error when no Flux kind can be read", all.state)
 	}
 }

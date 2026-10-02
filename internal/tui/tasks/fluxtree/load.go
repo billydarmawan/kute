@@ -14,6 +14,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
+	"github.com/kute-dev/kute/internal/tui"
 )
 
 // load reads every Flux kind the cluster serves and joins the reconcilers to
@@ -39,6 +40,23 @@ func (m Model) load() tea.Cmd {
 		sourceKinds, reconcilerKinds, chartKind := fluxKinds(registry)
 		read := append(append([]kube.ResourceKind{}, sourceKinds...), reconcilerKinds...)
 
+		// One kind that can't be read — a least-privilege tenant Forbidden
+		// from Buckets or the image-automation kinds is the common case —
+		// degrades the tree rather than failing it: that kind drops out of
+		// the join and the strip names it. Only when nothing at all can be
+		// read is the screen an error.
+		var kindErrs []kindError
+		readKind := func(kind kube.ResourceKind) []runtime.Object {
+			objs, err := lister.ListRaw(ctx, kind, "")
+			if err == nil {
+				err = tui.KindsError(lister, "", kind)
+			}
+			if err != nil {
+				kindErrs = append(kindErrs, kindError{kind: kind, err: err})
+			}
+			return objs
+		}
+
 		sources := map[string]*group{}
 		var order []string
 		for _, kind := range sourceKinds {
@@ -46,10 +64,7 @@ func (m Model) load() tea.Cmd {
 			if !ok {
 				continue
 			}
-			objs, err := lister.ListRaw(ctx, kind, "")
-			if err != nil {
-				return loadedMsg{err: err, kinds: read}
-			}
+			objs := readKind(kind)
 			for _, obj := range objs {
 				row := sourceRowOf(desc, kind, obj)
 				key := joinKey(kind, row.namespace, row.name)
@@ -67,13 +82,12 @@ func (m Model) load() tea.Cmd {
 			if !ok {
 				continue
 			}
-			objs, err := lister.ListRaw(ctx, kind, "")
-			if err != nil {
-				return loadedMsg{err: err, kinds: read}
-			}
-			for _, obj := range objs {
+			for _, obj := range readKind(kind) {
 				rows = append(rows, reconcilerRowOf(desc, kind, obj))
 			}
+		}
+		if len(read) > 0 && len(kindErrs) == len(read) {
+			return loadedMsg{err: kindErrs[0].err, kinds: read, kindErrs: kindErrs}
 		}
 
 		// A HelmRelease's spec.chartRef may name a HelmChart, which is not a
@@ -83,10 +97,7 @@ func (m Model) load() tea.Cmd {
 		// that informer.
 		if chartKind != "" && slices.ContainsFunc(rows, func(r treeRow) bool { return r.sourceKind.APIKind() == "HelmChart" }) {
 			read = append(read, chartKind)
-			objs, err := lister.ListRaw(ctx, chartKind, "")
-			if err != nil {
-				return loadedMsg{err: err, kinds: read}
-			}
+			objs := readKind(chartKind)
 			charts := map[string]*unstructured.Unstructured{}
 			for _, obj := range objs {
 				if u, ok := obj.(*unstructured.Unstructured); ok {
@@ -109,7 +120,7 @@ func (m Model) load() tea.Cmd {
 			key := joinKey(row.sourceKind, row.sourceNamespace, row.sourceName)
 			g, ok := sources[key]
 			if !ok {
-				g = &group{head: missingSourceRow(row)}
+				g = &group{head: missingSourceRow(row, kindErrOf(kindErrs, row.sourceKind))}
 				sources[key] = g
 				order = append(order, key)
 			}
@@ -131,8 +142,23 @@ func (m Model) load() tea.Cmd {
 			groups = append(groups, *g)
 		}
 		sortGroups(groups)
-		return loadedMsg{groups: groups, kinds: read}
+		return loadedMsg{groups: groups, kinds: read, kindErrs: kindErrs}
 	}
+}
+
+// kindError is one Flux kind this load couldn't read, and why.
+type kindError struct {
+	kind kube.ResourceKind
+	err  error
+}
+
+func kindErrOf(errs []kindError, kind kube.ResourceKind) error {
+	for _, e := range errs {
+		if e.kind == kind {
+			return e.err
+		}
+	}
+	return nil
 }
 
 // registry is the kind catalog to read Flux descriptors from.
@@ -294,7 +320,11 @@ func baseRow(desc resources.Descriptor, kind kube.ResourceKind, obj runtime.Obje
 // missingSourceRow is the synthetic head for a sourceRef that resolved to
 // nothing. It names the reference rather than inventing an object, and says
 // plainly what was looked for and not found.
-func missingSourceRow(child treeRow) treeRow {
+//
+// readErr is why the source's kind couldn't be read, when it couldn't: then
+// "not found" would be a claim kute has no grounds for, so the sub-line says
+// the source is unreadable instead.
+func missingSourceRow(child treeRow, readErr error) treeRow {
 	name := child.sourceName
 	if name == "" {
 		name = "no source"
@@ -307,15 +337,19 @@ func missingSourceRow(child treeRow) treeRow {
 		class:      resources.StatusWarn,
 		revision:   "–",
 		reconciled: "–",
-		subLine:    missingSubLine(child),
+		subLine:    missingSubLine(child, readErr),
 		isSource:   true,
 		missing:    true,
 	}
 }
 
-func missingSubLine(child treeRow) string {
+func missingSubLine(child treeRow, readErr error) string {
 	if child.sourceName == "" {
 		return "no sourceRef — nothing tells this reconciler what to apply"
+	}
+	if readErr != nil {
+		return "source unreadable: " + strings.ToLower(string(child.sourceKind)) + "/" + child.sourceName +
+			" in " + child.sourceNamespace + " — " + kindErrReason(readErr)
 	}
 	return "source not found: " + strings.ToLower(string(child.sourceKind)) + "/" + child.sourceName +
 		" in " + child.sourceNamespace

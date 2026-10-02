@@ -73,11 +73,6 @@ func (m Model) isFluxKind(kind kube.ResourceKind) bool {
 
 func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
 	m.reloadEpoch++
-	if msg.err != nil {
-		m.state = tui.TaskStateError
-		m.feedback = msg.err.Error()
-		return nil
-	}
 	if !tui.KindsSynced(m.lister, "", msg.kinds...) {
 		// A non-empty join can still be partial while one of the Flux caches is
 		// filling. Do not publish it as ready: the tree would silently miss
@@ -85,10 +80,16 @@ func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
 		m.state = tui.TaskStateLoading
 		return tui.ScheduleCacheSyncRetry(m.reloadEpoch)
 	}
-	if err := tui.KindsError(m.lister, "", msg.kinds...); err != nil {
+	m.kindErrs = msg.kindErrs
+	if msg.err != nil {
+		// Nothing could be read at all. A failing kind is degraded per kind
+		// in load, so this is every Flux kind failing at once.
 		m.state = tui.TaskStateError
-		m.feedback = fmt.Sprintf("couldn't read Flux objects: %v — retrying", err)
-		return nil
+		m.feedback = fmt.Sprintf("couldn't read Flux objects: %v", msg.err)
+		if m.stalled() {
+			m.feedback += " — retrying"
+		}
+		return m.scheduleStallRetry()
 	}
 	m.groups = msg.groups
 	m.recomputeVisible()
@@ -106,7 +107,36 @@ func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
 		}
 		m.state = tui.TaskStateEmpty
 	}
-	return nil
+	return m.scheduleStallRetry()
+}
+
+// stalled reports whether any unreadable kind is failing for a reason that
+// may yet clear (an initial LIST being retried) rather than a denial, which
+// won't change while the process runs.
+func (m Model) stalled() bool {
+	for _, e := range m.kindErrs {
+		if !kube.IsPermissionError(e.err) {
+			return true
+		}
+	}
+	return false
+}
+
+// stallRetryInterval is how often a tree with a stalled kind re-reads its
+// caches. A stalled kind that recovers with no objects emits no change
+// event, so without this the strip would name it unreadable for good —
+// yet the read is only ever a cache read, so there is no reason to do it at
+// CacheSyncRetryInterval's 250 ms for as long as a stall lasts.
+const stallRetryInterval = 5 * time.Second
+
+// scheduleStallRetry backs the "retrying" a stalled kind's note promises.
+// Nothing is scheduled for a denial alone.
+func (m Model) scheduleStallRetry() tea.Cmd {
+	if !m.stalled() {
+		return nil
+	}
+	gen := m.reloadEpoch
+	return tea.Tick(stallRetryInterval, func(time.Time) tea.Msg { return tui.CacheSyncRetryMsg{Gen: gen} })
 }
 
 // handleResult lands a verb's outcome on the keybar result line and reloads, so

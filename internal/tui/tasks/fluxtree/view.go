@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/components"
@@ -72,6 +73,9 @@ func (m Model) stripLineCount() int {
 	if m.state == tui.TaskStateLoading || m.state == tui.TaskStateReady || m.state == tui.TaskStateEmpty {
 		n++
 	}
+	if m.unreadableNote() != "" {
+		n++
+	}
 	if m.execFeedback != "" {
 		n++
 	}
@@ -87,11 +91,38 @@ func (m Model) Strips(width int) []string {
 	if m.state == tui.TaskStateReady || m.state == tui.TaskStateEmpty {
 		out = append(out, insetStripLine(m.healthLine(theme, width), width))
 	}
+	if note := m.unreadableNote(); note != "" {
+		out = append(out, insetStripLine(
+			statusStyle(theme, resources.StatusWarn).Render(tui.GlyphWarning+" "+note), width))
+	}
 	if m.execFeedback != "" {
 		out = append(out, insetStripLine(
 			lipgloss.NewStyle().Foreground(theme.TextDim).Render(m.execFeedback), width))
 	}
 	return out
+}
+
+// unreadableNote names the Flux kinds the tree couldn't read, so a partial
+// tree never passes for the whole one. Empty when every kind was read, and
+// outside Ready/Empty, where the body already says what went wrong.
+func (m Model) unreadableNote() string {
+	if len(m.kindErrs) == 0 || (m.state != tui.TaskStateReady && m.state != tui.TaskStateEmpty) {
+		return ""
+	}
+	parts := make([]string, 0, len(m.kindErrs))
+	for _, e := range m.kindErrs {
+		parts = append(parts, e.kind.APIKind()+": "+kindErrReason(e.err))
+	}
+	return "not shown · " + strings.Join(parts, " · ")
+}
+
+// kindErrReason is the short form of why a kind couldn't be read: a denial
+// is the common case and reads as one word; anything else verbatim.
+func kindErrReason(err error) string {
+	if kube.IsPermissionError(err) {
+		return "forbidden"
+	}
+	return err.Error()
 }
 
 // healthLine is the strip: the reconciler tally on the left (the number an
@@ -179,7 +210,7 @@ func (m Model) Body(width, height int) string {
 		}, width, height)
 	case tui.TaskStateEmpty:
 		return components.CenterLines([]string{
-			lipgloss.NewStyle().Foreground(theme.TextDim).Render("No Flux sources or reconcilers in this cluster."),
+			lipgloss.NewStyle().Foreground(theme.TextDim).Render(m.emptyText()),
 		}, width, height)
 	}
 	return m.table(theme, width, height).Render()
@@ -293,4 +324,13 @@ func newStyles(theme tui.Theme) styles {
 			resources.StatusNeutral: lipgloss.NewStyle().Foreground(theme.Info),
 		},
 	}
+}
+
+// emptyText is the empty state's claim, narrowed when some kinds couldn't
+// be read: then "none in this cluster" is more than kute knows.
+func (m Model) emptyText() string {
+	if len(m.kindErrs) > 0 {
+		return "No Flux sources or reconcilers this identity can read."
+	}
+	return "No Flux sources or reconcilers in this cluster."
 }
