@@ -92,6 +92,12 @@ func (m *Model) openDaemonSetPods(row resources.Row) tea.Cmd {
 // switches back to the origin kind and selects the row esc came from, via
 // the same pendingSelect mechanism goToResource uses for a cross-kind jump.
 func (m *Model) backToOrigin() tea.Cmd {
-	m.pendingSelect = rowRef{name: m.originName}
+	m.pendingSelect = rowRef{namespace: m.originRowNamespace, name: m.originName}
+	if m.originWidened {
+		m.namespace = m.originNamespace
+		if m.session != nil {
+			m.session.Location.Namespace = m.originNamespace
+		}
+	}
 	return m.switchKind(m.originKind)
 }

@@ -123,9 +123,12 @@ func (m *Model) openReleaseObjects(row resources.Row) tea.Cmd {
 	// Helm normally applies into its release namespace, but a rendered
 	// manifest may name another one explicitly. Retain the familiar scoped
 	// view for the common case; widen only when that is needed to avoid
-	// silently omitting an owned Pod.
+	// silently omitting an owned Pod — and remember what it was, so esc
+	// (backToOrigin) restores it.
+	prevNamespace, widened := m.namespace, false
 	for _, source := range sources {
 		if source.Namespace != row.Namespace {
+			widened = m.namespace != ""
 			m.namespace = ""
 			m.session.Location.Namespace = ""
 			break
@@ -140,6 +143,7 @@ func (m *Model) openReleaseObjects(row resources.Row) tea.Cmd {
 	m.rows, m.visible, m.display = nil, nil, nil
 	m.cachedView = false
 	m.originKind, m.originName = kube.KindHelmRelease, row.Name
+	m.originNamespace, m.originWidened, m.originRowNamespace = prevNamespace, widened, row.Namespace
 	// switchKind created its load command before the semantic association was
 	// installed. Supersede it so the first Pods read cannot briefly use the
 	// ordinary unfiltered path.

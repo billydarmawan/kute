@@ -358,6 +358,44 @@ func TestHelmPodsOpensFilteredPods(t *testing.T) {
 	}
 }
 
+// TestHelmPodsEscRestoresNamespaceAfterWidening: p on a release whose
+// manifest names another namespace widens the Pods view to all namespaces,
+// and esc must put the user's own namespace back — not leave the session
+// (and the Helm list's release informer) cluster-wide — and reselect the
+// release in its own namespace, not a same-named one elsewhere.
+func TestHelmPodsEscRestoresNamespaceAfterWidening(t *testing.T) {
+	release := helmRelease("default", "shop", "shop", "1.0.0", "1.0.0", "deployed", 1)
+	release.Release.Manifest = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-worker
+  namespace: other
+`
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindHelmRelease: {release},
+	}}
+	session := newSession()
+	session.Location.Kind = kube.KindHelmRelease
+	m := New(Config{Session: session, Lister: lister})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "p"})
+	if m.kind != kube.KindPod || m.namespace != "" {
+		t.Fatalf("expected the release Pods widened to all namespaces, got kind=%s ns=%q", m.kind, m.namespace)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "esc"})
+	if m.kind != kube.KindHelmRelease || m.namespace != "default" || session.Location.Namespace != "default" {
+		t.Fatalf("after esc: kind=%s ns=%q session ns=%q, want HelmRelease in default", m.kind, m.namespace, session.Location.Namespace)
+	}
+	if m.pendingSelect.name != "" {
+		t.Fatalf("expected the release reselected once rows landed, pendingSelect still %+v", m.pendingSelect)
+	}
+	if row, ok := m.selectedRow(); !ok || row.Name != "shop" || row.Namespace != "default" {
+		t.Fatalf("selected row = %+v (ok=%v), want default/shop", row, ok)
+	}
+}
+
 func TestEnterOnHelmReleaseShowsOnlyManifestOwnedPods(t *testing.T) {
 	controller := true
 	release := helmRelease("default", "aim-bp-app", "app", "1.0.0", "1.0.0", "deployed", 1)

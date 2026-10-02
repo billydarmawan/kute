@@ -615,6 +615,17 @@ type Model struct {
 	// so esc can't misfire once the user has moved on to something else.
 	originKind kube.ResourceKind
 	originName string
+	// originNamespace is set (originWidened) when opening the child view
+	// widened the list to all namespaces — openReleaseObjects does, for a
+	// release whose manifest names another namespace — so esc can put the
+	// user's own namespace back rather than leaving the session in
+	// all-namespaces mode (and the Helm list on the cluster-wide release
+	// informer, docs/lazy-informers.md §5.5). originRowNamespace pins the
+	// origin row's own namespace, so the reselect can't land on a same-named
+	// row in another namespace.
+	originNamespace    string
+	originWidened      bool
+	originRowNamespace string
 	// releasePodSources narrows the current Pods view to controller-owned Pods
 	// declared by the Helm release Enter was pressed on. It is deliberately
 	// separate from the user's fuzzy filter.
@@ -1288,6 +1299,7 @@ func (m *Model) goToResource(msg tui.GotoResourceMsg) tea.Cmd {
 func (m *Model) clearOrigin() {
 	m.originKind = ""
 	m.originName = ""
+	m.originNamespace, m.originWidened, m.originRowNamespace = "", false, ""
 }
 
 // browseCacheKey identifies one kind+namespace view for rowCache — the same
