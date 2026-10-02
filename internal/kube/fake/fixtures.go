@@ -2136,16 +2136,34 @@ func demoFluxFixtures(c *Cluster, age func(time.Duration) metav1.Time) {
 	// what its health check is failing on and what §31a's failure card
 	// resolves the reconcile failure to.
 	workerReplicas := int32(4)
+	workerLabels := map[string]string{"app": "nebula-worker"}
 	c.Seed(kube.KindDeployment, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "nebula-worker", Namespace: ns, CreationTimestamp: age(148 * 24 * time.Hour)},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &workerReplicas,
-			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
-				Containers: []corev1.Container{{Name: "worker", Image: "nebula-worker:3.5.0"}},
-			}},
+			Selector: &metav1.LabelSelector{MatchLabels: workerLabels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: workerLabels},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "worker", Image: "nebula-worker:3.5.0"}},
+				},
+			},
 		},
 		Status: appsv1.DeploymentStatus{Replicas: 4, ReadyReplicas: 3, UpdatedReplicas: 4},
 	})
+	// Its four pods — the fourth is the one replica the health check is
+	// waiting on, OOMKilled into CrashLoopBackOff, so §31a's drill-through
+	// follows the Deployment to a real reason ("exit 137, OOMKilled").
+	for _, suffix := range []string{"7c9d4-2xq8p", "7c9d4-9fk2m", "7c9d4-tw4ld"} {
+		pod := demoPod("nebula-worker-"+suffix, ns, age(4*time.Minute), corev1.PodRunning, corev1.PodQOSBurstable, "node-a", true, 0, nil)
+		pod.Labels = workerLabels
+		c.Seed(kube.KindPod, pod)
+	}
+	oomPod := demoCrashLoopPod("nebula-worker-7c9d4-h7zrn", ns, age(4*time.Minute), "node-a")
+	oomPod.Labels = workerLabels
+	oomPod.Status.ContainerStatuses[0].LastTerminationState.Terminated.ExitCode = 137
+	oomPod.Status.ContainerStatuses[0].LastTerminationState.Terminated.Reason = "OOMKilled"
+	c.Seed(kube.KindPod, oomPod)
 	c.Seed(kube.KindConfigMap, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: "nebula-worker-config", Namespace: ns, CreationTimestamp: age(148 * 24 * time.Hour)},
 		Data:       map[string]string{"LOG_LEVEL": "info"},

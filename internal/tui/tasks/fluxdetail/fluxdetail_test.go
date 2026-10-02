@@ -66,6 +66,10 @@ func TestFailureCardPromotesTheReasonAndTheCulprit(t *testing.T) {
 	if !strings.Contains(view, "3/4") {
 		t.Errorf("expected the workload's live replica count:\n%s", view)
 	}
+	// §31a's "zero digs": past the workload to its worst pod's real reason.
+	if !strings.Contains(view, "CrashLoopBackOff — exit 137, OOMKilled") {
+		t.Errorf("expected the drill-through to reach the pod's termination reason:\n%s", view)
+	}
 }
 
 // TestAppliedButUnhealthyIsDistinctFromDrift pins the one line §31a says

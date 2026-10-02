@@ -9,7 +9,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
@@ -68,6 +70,10 @@ func (m Model) load() tea.Cmd {
 		chn := buildChain(ctx, lister, kind, obj, namespace)
 		inv, invPending := buildInventory(ctx, lister, reg, obj, &chn)
 		fail := buildFailure(obj, inv, time.Now())
+		if fail != nil {
+			podsPending := drillToPod(ctx, lister, fail, inv)
+			invPending = invPending || podsPending
+		}
 
 		return loadedMsg{
 			fail:       fail,
@@ -286,6 +292,7 @@ func buildInventory(ctx context.Context, lister resources.RawLister, reg resourc
 		it := &out[i]
 		if o, ok := found[key{it.Kind, it.Namespace, it.Name}]; ok {
 			it.Ready, it.Status = objectReadiness(o)
+			it.obj = o
 		}
 		it.Glyph = inventoryGlyph(it.Status)
 	}
@@ -463,6 +470,94 @@ func buildFailure(u *unstructured.Unstructured, inv []inventoryItem, now time.Ti
 		break
 	}
 	return f
+}
+
+// drillToPod finishes §31a's drill-through: from the failing workload to
+// its worst pod, and the real reason found there ("3/4 · CrashLoopBackOff —
+// exit 137, OOMKilled") — the replica count says *that* the health check is
+// waiting, the pod says why. One cached Pod read in the culprit's own
+// namespace, matched by the workload's own selector; nothing is added when
+// no pod has anything worse to say. Reports whether that Pod cache is
+// still filling.
+func drillToPod(ctx context.Context, lister resources.RawLister, f *failure, inv []inventoryItem) (pending bool) {
+	var culprit runtime.Object
+	for _, it := range inv {
+		if it.Kind == f.Culprit && it.Namespace == f.CulpritNamespace && it.Name == f.CulpritName {
+			culprit = it.obj
+			break
+		}
+	}
+	var ls *metav1.LabelSelector
+	switch w := culprit.(type) {
+	case *appsv1.Deployment:
+		ls = w.Spec.Selector
+	case *appsv1.StatefulSet:
+		ls = w.Spec.Selector
+	case *appsv1.DaemonSet:
+		ls = w.Spec.Selector
+	default:
+		return false
+	}
+	sel, err := metav1.LabelSelectorAsSelector(ls)
+	if err != nil || sel.Empty() {
+		return false
+	}
+	objs, err := lister.ListRaw(ctx, kube.KindPod, f.CulpritNamespace)
+	pending = !tui.KindsSynced(lister, f.CulpritNamespace, kube.KindPod)
+	if err != nil {
+		return pending
+	}
+	if reason := worstPodReason(objs, sel); reason != "" {
+		f.Detail += " · " + reason
+	}
+	return pending
+}
+
+// worstPodReason is the reason the most recently failed matching pod gives
+// — its container's waiting reason plus its last abnormal termination, the
+// same reading 5a's termination banner makes (kube.PodFromObject). A pod
+// that is running and ready has nothing to add.
+func worstPodReason(objs []runtime.Object, sel labels.Selector) string {
+	var (
+		worst    kube.Pod
+		found    bool
+		worstEnd time.Time
+	)
+	for _, o := range objs {
+		p, ok := o.(*corev1.Pod)
+		if !ok || !sel.Matches(labels.Set(p.Labels)) {
+			continue
+		}
+		pod := kube.PodFromObject(p)
+		if len(pod.Unready) == 0 && pod.LastTermination == nil {
+			continue
+		}
+		var end time.Time
+		if pod.LastTermination != nil {
+			end = pod.LastTermination.FinishedAt
+		}
+		// Not ready outranks ready-but-once-failed; among equals, the most
+		// recent termination wins.
+		unready, worstUnready := len(pod.Unready) > 0, len(worst.Unready) > 0
+		if !found || (unready && !worstUnready) || (unready == worstUnready && end.After(worstEnd)) {
+			worst, worstEnd, found = pod, end, true
+		}
+	}
+	if !found {
+		return ""
+	}
+	reason := worst.Reason
+	if lt := worst.LastTermination; lt != nil {
+		term := fmt.Sprintf("exit %d", lt.ExitCode)
+		if lt.Reason != "" {
+			term += ", " + lt.Reason
+		}
+		if reason == "" || reason == string(corev1.PodRunning) {
+			return term
+		}
+		return reason + " — " + term
+	}
+	return reason
 }
 
 // retryInterval resolves how long until Flux tries again: the explicit

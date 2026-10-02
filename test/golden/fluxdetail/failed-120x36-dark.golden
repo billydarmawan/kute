@@ -2,7 +2,7 @@
 [38;2;68;68;92m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
 [1;38;2;239;106;106mRECONCILE FAILED · HealthCheckFailed · 4m ago · retry in 3m 12s[m                                                         
 [38;2;201;138;138mhealth check failed after 2m0s: Deployment/nebula-stage/nebula-worker status: 'InProgress'[m                              
-[38;2;103;103;128m▸ opens Deployment/nebula-worker · 3/4[m                                                                                  
+[38;2;103;103;128m▸ opens Deployment/nebula-worker · 3/4 · CrashLoopBackOff — exit 137, OOMKilled[m                                         
                                                                                                                         
 [38;2;85;85;110msource            [m[38;2;154;154;178mgit/flux-system · ./clusters/stage/workers · interval 5m[m                                              
 [38;2;85;85;110msource revision   [m[38;2;154;154;178mmain@8f3c2a1[m                                                                                          

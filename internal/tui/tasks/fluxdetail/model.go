@@ -18,6 +18,7 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
@@ -50,6 +51,9 @@ type inventoryItem struct {
 	Ready     string
 	Status    resources.StatusClass
 	Glyph     string
+	// obj is the cached object behind the row, when the caches had it —
+	// what the failure card's drill-through follows to the pods.
+	obj runtime.Object
 }
 
 // chain is §31a's middle band: what this object is wired to.
@@ -94,10 +98,11 @@ type failure struct {
 	// the first attempt the next one can only be projected from it.
 	RetryEvery time.Duration
 	// Culprit names the inventory object the failure resolved to, and
-	// Detail the real reason found on it ("CrashLoopBackOff — exit 137,
-	// OOMKilled"). Both empty when the join found nothing, in which case
-	// the card shows the condition message alone rather than inventing a
-	// lead.
+	// Detail what was found on it: the workload's replica count, then the
+	// real reason its worst pod gives ("3/4 · CrashLoopBackOff — exit 137,
+	// OOMKilled", drillToPod). Both empty when the join found nothing, in
+	// which case the card shows the condition message alone rather than
+	// inventing a lead.
 	Culprit kube.ResourceKind
 	CulpritName,
 	CulpritNamespace,

@@ -75,6 +75,11 @@ func (m Model) reloadsOn(kind kube.ResourceKind) bool {
 	if kind == m.kind || kind == m.chn.SourceKind {
 		return true
 	}
+	// The failure card's drill-through reads the culprit workload's pods
+	// (drillToPod), so its reason would go stale on a pod restart.
+	if kind == kube.KindPod && m.fail != nil && m.fail.CulpritName != "" {
+		return true
+	}
 	for _, it := range m.inventory {
 		if it.Kind == kind {
 			return true
