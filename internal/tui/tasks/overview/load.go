@@ -40,12 +40,16 @@ func bestEffort(lister resources.RawLister, kind kube.ResourceKind) (pending, de
 
 // load fetches every source 19a's panels need — Node/Pod projections (via
 // the registry, so status/glyph derivation never drifts from 11a/2a's own),
-// raw Node capacity, a node-usage poll, and the ReplicaSet-derived rollout
-// feed windowed to the last 30m — in one pass.
+// raw Node capacity, and the ReplicaSet-derived rollout feed windowed to the
+// last 30m — in one pass, from the caches only. CAPACITY's cpu/mem usage is
+// deliberately not read here: load runs on watch events, and metrics-server
+// is polled on the sync interval only (loadMetrics).
+//
+// The reply carries m.loadSeq, which the caller bumps (startLoad) — Init
+// runs on a value copy and uses New's seq directly.
 func (m Model) load() tea.Cmd {
-	epoch := m.reloadEpoch
+	seq := m.loadSeq
 	lister := m.lister
-	nodeMetricsSrc := m.nodeMetrics
 	registry := resources.Registry{}
 	if m.session != nil {
 		registry = m.session.Registry
@@ -55,12 +59,108 @@ func (m Model) load() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, timeout)
 		defer cancel()
-		data, err := loadOverview(ctx, lister, nodeMetricsSrc, registry)
-		return loadedMsg{epoch: epoch, data: data, err: err}
+		data, err := loadOverview(ctx, lister, registry)
+		return loadedMsg{seq: seq, data: data, err: err}
 	}
 }
 
-func loadOverview(ctx context.Context, lister resources.RawLister, nodeMetricsSrc NodeMetricsReader, registry resources.Registry) (loadedData, error) {
+// startLoad issues a load newer than every one already in flight.
+func (m *Model) startLoad() tea.Cmd {
+	m.loadSeq++
+	return m.load()
+}
+
+// reloadDebounce coalesces a burst of watch events into one load — the same
+// window browse and nodedetail reload on.
+const reloadDebounce = 250 * time.Millisecond
+
+// reloadDueMsg fires the debounced reload scheduleReload armed.
+type reloadDueMsg struct{}
+
+// scheduleReload arms one reload reloadDebounce from now unless one is
+// already armed, so a burst of events costs one load. Unlike a trailing-edge
+// debounce, a steady stream of events can't keep pushing it back.
+func (m *Model) scheduleReload() tea.Cmd {
+	if m.reloadPending {
+		return nil
+	}
+	m.reloadPending = true
+	return tea.Tick(reloadDebounce, func(time.Time) tea.Msg { return reloadDueMsg{} })
+}
+
+// pollInterval is how often CAPACITY's cpu/mem refresh — the same cadence
+// browse and nodedetail poll node usage at, so a screen away from 11a never
+// shows an older number.
+const pollInterval = 2 * time.Second
+
+// loadMetrics is one node-usage poll on the current chain.
+func (m Model) loadMetrics() tea.Cmd {
+	src := m.nodeMetrics
+	if src == nil {
+		return nil
+	}
+	epoch := m.metricsEpoch
+	timeout := m.timeout
+	parent := m.session.ClusterContext()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parent, timeout)
+		defer cancel()
+		msg := metricsLoadedMsg{epoch: epoch}
+		msg.available, msg.cpuUsed, msg.memUsed = readClusterUsage(ctx, src)
+		return msg
+	}
+}
+
+// scheduleMetricsTick arranges the next tick of an existing poll chain.
+func (m Model) scheduleMetricsTick(epoch int) tea.Cmd {
+	if !m.pollsMetrics() {
+		return nil
+	}
+	return tea.Tick(pollInterval, func(time.Time) tea.Msg { return metricsTickMsg{epoch: epoch} })
+}
+
+// restartMetrics retires any running poll chain and reads usage now — on
+// restore from the stack (the chain's ticks went to whichever screen was
+// active and never came back) and on reconnect (pollsMetrics let it lapse
+// while offline).
+func (m *Model) restartMetrics() tea.Cmd {
+	m.metricsEpoch++
+	if !m.pollsMetrics() {
+		return nil
+	}
+	return m.loadMetrics()
+}
+
+// pollsMetrics reports whether a usage poll is worth making: a seam to read,
+// and a reachable cluster — the same gate nodedetail.pollsMetrics applies.
+func (m Model) pollsMetrics() bool {
+	return m.nodeMetrics != nil && !m.conn.Offline()
+}
+
+// readClusterUsage sums every node's live usage from one NodeMetrics poll.
+func readClusterUsage(ctx context.Context, src NodeMetricsReader) (available bool, cpuUsed, memUsed int64) {
+	metrics, err := src.NodeMetrics(ctx)
+	if err != nil {
+		return false, 0, 0
+	}
+	for _, nm := range metrics {
+		// "n/a"/"" is kube.NodeMetric's own no-metrics-server sentinel
+		// (browse/nodes.go's nodeMetricCell checks the same thing per
+		// row) — a node reporting it contributes nothing, and if every
+		// node does (demo mode always does), available must stay false
+		// so capacityLines shows the "no metrics-server" note instead of
+		// a misleadingly flatlined 0-used bar.
+		if nm.CPU == "" || nm.CPU == "n/a" {
+			continue
+		}
+		available = true
+		cpuUsed += nm.CPUMilli
+		memUsed += nm.MemBytes
+	}
+	return available, cpuUsed, memUsed
+}
+
+func loadOverview(ctx context.Context, lister resources.RawLister, registry resources.Registry) (loadedData, error) {
 	var data loadedData
 
 	nodeObjs, err := lister.ListRaw(ctx, kube.KindNode, "")
@@ -94,25 +194,6 @@ func loadOverview(ctx context.Context, lister resources.RawLister, nodeMetricsSr
 	data.version = majorityVersion(versions)
 	data.nodeHealthy = data.nodeCount - len(data.nodeTrouble)
 	sortTrouble(data.nodeTrouble)
-
-	if nodeMetricsSrc != nil {
-		if metrics, mErr := nodeMetricsSrc.NodeMetrics(ctx); mErr == nil {
-			for _, nm := range metrics {
-				// "n/a"/"" is kube.NodeMetric's own no-metrics-server sentinel
-				// (browse/nodes.go's nodeMetricCell checks the same thing per
-				// row) — a node reporting it contributes nothing, and if every
-				// node does (demo mode always does), metricsAvailable must
-				// stay false so capacityLines shows the "no metrics-server"
-				// note instead of a misleadingly flatlined 0-used bar.
-				if nm.CPU == "" || nm.CPU == "n/a" {
-					continue
-				}
-				data.metricsAvailable = true
-				data.capCPUUsed += nm.CPUMilli
-				data.capMemUsed += nm.MemBytes
-			}
-		}
-	}
 
 	podObjs, err := lister.ListRaw(ctx, kube.KindPod, "")
 	if err != nil {

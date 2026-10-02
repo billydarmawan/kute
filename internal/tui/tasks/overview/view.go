@@ -224,6 +224,9 @@ func (m Model) capacityLines(theme tui.Theme) []string {
 			allocationBarLine("cpu", m.capCPUUsed, m.capCPUTotal, theme, func(v int64) string { return fmt.Sprintf("%dm", v) }),
 			allocationBarLine("mem", m.capMemUsed, m.capMemTotal, theme, formatBytes),
 		)
+	} else if m.nodeMetrics != nil && !m.metricsPolled {
+		// The first poll is still in flight — not yet a claim either way.
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — reading metrics-server…"))
 	} else {
 		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — no metrics-server installed"))
 	}

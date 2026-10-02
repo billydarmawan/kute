@@ -144,17 +144,45 @@ type Model struct {
 	// header badge's real connection state, same as every other screen.
 	conn kube.ConnState
 
-	reloadEpoch int
-	state       tui.TaskState
-	feedback    string
-	spinner     spinner.Model
+	// reloadEpoch gates applyLoaded's own still-syncing retry
+	// (tui.CacheSyncRetryMsg). loadSeq numbers every load issued and
+	// appliedSeq is the newest one applied, so replies landing out of order
+	// can never put an older snapshot back on screen. reloadPending is set
+	// while a debounced watch-event reload is armed.
+	reloadEpoch   int
+	loadSeq       int
+	appliedSeq    int
+	reloadPending bool
+
+	// metricsEpoch identifies the live node-usage poll chain (loadMetrics);
+	// a tick or reply from a retired chain is dropped, so exactly one loop
+	// runs. metricsPolled is set once a poll has answered, so CAPACITY
+	// doesn't claim "no metrics-server" while the first is in flight.
+	metricsEpoch  int
+	metricsPolled bool
+
+	state    tui.TaskState
+	feedback string
+	spinner  spinner.Model
 }
 
 // loadedMsg carries one load()'s result.
 type loadedMsg struct {
-	epoch int
-	data  loadedData
-	err   error
+	seq  int
+	data loadedData
+	err  error
+}
+
+// metricsTickMsg drives the node-usage poll — CAPACITY's cpu/mem only
+// refresh, since usage emits no watch event (CLAUDE.md: "metrics poll on the
+// sync interval only").
+type metricsTickMsg struct{ epoch int }
+
+// metricsLoadedMsg carries one poll's cluster-wide usage sum.
+type metricsLoadedMsg struct {
+	epoch            int
+	available        bool
+	cpuUsed, memUsed int64
 }
 
 // loadedData is every field load() computes in one pass — applied onto
@@ -166,9 +194,8 @@ type loadedData struct {
 	podCount  int
 	nsCount   int
 
-	metricsAvailable          bool
-	capCPUUsed, capCPUTotal   int64
-	capMemUsed, capMemTotal   int64
+	capCPUTotal               int64
+	capMemTotal               int64
 	capPodsUsed, capPodsTotal int64
 
 	nodeTrouble []resources.Row
@@ -205,6 +232,8 @@ func New(cfg Config) Model {
 		state:          state,
 		feedback:       feedback,
 		spinner:        components.NewSpinner(),
+		loadSeq:        1,
+		metricsEpoch:   1,
 	}
 }
 
@@ -212,7 +241,9 @@ func (m Model) Init() tea.Cmd {
 	if m.lister == nil {
 		return nil
 	}
-	return tea.Batch(m.load(), m.spinner.Tick)
+	// Init runs on a value copy, so it loads and polls on New's seq and
+	// chain (both 1) directly rather than through the pointer helpers.
+	return tea.Batch(m.load(), m.spinner.Tick, m.loadMetrics())
 }
 
 func (m *Model) SetSize(width, height int) {

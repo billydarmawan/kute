@@ -146,6 +146,11 @@ func step(t *testing.T, m Model, msg tea.Msg) Model {
 	}
 	updated, cmd := m.Update(msg)
 	next := *updated.(*Model)
+	if _, ok := msg.(metricsLoadedMsg); ok {
+		// Its Cmd is the poll chain's next tick — following it would keep
+		// step polling forever. One reading is enough.
+		return next
+	}
 	if cmd != nil {
 		return step(t, next, cmd())
 	}

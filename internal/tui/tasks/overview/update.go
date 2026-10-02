@@ -15,16 +15,41 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
 		if isOverviewKind(msg.Kind) && m.lister != nil {
-			return m, m.load()
+			return m, m.scheduleReload()
+		}
+	case reloadDueMsg:
+		m.reloadPending = false
+		if m.lister != nil {
+			return m, m.startLoad()
 		}
 	case kube.ConnStateMsg:
+		wasOffline := m.conn.Offline()
 		m.conn = kube.ConnState(msg)
+		if wasOffline && !m.conn.Offline() {
+			// pollsMetrics refuses to arm while offline, so the chain died
+			// when the connection dropped; coming back up has to restart it.
+			return m, m.restartMetrics()
+		}
 	case tui.CacheSyncRetryMsg:
 		if msg.Gen == m.reloadEpoch && m.lister != nil {
-			return m, m.load()
+			return m, m.startLoad()
 		}
 	case loadedMsg:
 		return m.applyLoaded(msg)
+	case metricsTickMsg:
+		// A tick from a retired chain is dropped rather than re-armed —
+		// that is what keeps exactly one poll loop alive.
+		if msg.epoch == m.metricsEpoch {
+			return m, m.loadMetrics()
+		}
+	case metricsLoadedMsg:
+		if msg.epoch != m.metricsEpoch {
+			return m, nil
+		}
+		m.metricsPolled = true
+		m.metricsAvailable = msg.available
+		m.capCPUUsed, m.capMemUsed = msg.cpuUsed, msg.memUsed
+		return m, m.scheduleMetricsTick(m.metricsEpoch)
 	case spinner.TickMsg:
 		if m.state != tui.TaskStateLoading {
 			return m, nil
@@ -48,7 +73,11 @@ func (m *Model) Reload() tea.Cmd {
 	if m.lister == nil {
 		return nil
 	}
-	return m.load()
+	// A debounced reload armed before this screen was covered fired at
+	// whatever was active instead; this load supersedes it. The usage
+	// poll's chain died the same way.
+	m.reloadPending = false
+	return tea.Batch(m.startLoad(), m.restartMetrics())
 }
 
 // isOverviewKind reports whether kind's change should trigger a reload —
@@ -66,9 +95,12 @@ func isOverviewKind(kind kube.ResourceKind) bool {
 }
 
 func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
-	if msg.epoch != m.reloadEpoch {
+	// Loads race — the slowest reply is not necessarily the oldest — so
+	// only one newer than everything already applied may land.
+	if msg.seq <= m.appliedSeq {
 		return m, nil
 	}
+	m.appliedSeq = msg.seq
 	if msg.err != nil {
 		m.state = tui.TaskStateError
 		if kube.IsPermissionError(msg.err) {
@@ -102,9 +134,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	m.nodeCount = d.nodeCount
 	m.podCount = d.podCount
 	m.nsCount = d.nsCount
-	m.metricsAvailable = d.metricsAvailable
-	m.capCPUUsed, m.capCPUTotal = d.capCPUUsed, d.capCPUTotal
-	m.capMemUsed, m.capMemTotal = d.capMemUsed, d.capMemTotal
+	m.capCPUTotal, m.capMemTotal = d.capCPUTotal, d.capMemTotal
 	m.capPodsUsed, m.capPodsTotal = d.capPodsUsed, d.capPodsTotal
 	m.nodeTrouble, m.nodeHealthy = d.nodeTrouble, d.nodeHealthy
 	m.podTrouble, m.podHealthy = d.podTrouble, d.podHealthy
