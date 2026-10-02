@@ -140,7 +140,11 @@ func goldenPodDetailModel(t *testing.T, width, height int) Model {
 		Siblings: []SiblingRef{{Namespace: "nva-stage", Name: "nva-worker-9k2ss"}, {Namespace: "nva-stage", Name: "nva-worker-x4b7t"}},
 	})
 	m.SetSize(width, height)
-	m = step(t, m, m.Init()())
+	// Init's batch by hand: step follows every Cmd, and the usage poll's
+	// next tick would keep it polling forever — one reading is enough.
+	m = step(t, m, m.load()())
+	updated, _ := m.Update(m.loadMetrics()())
+	m = *updated.(*Model)
 	// The header badge's "· 12ms" comes from the conn-state ping loop — a
 	// fixed latency keeps the golden deterministic.
 	m = step(t, m, kube.ConnStateMsg{Phase: kube.ConnConnected, Latency: 12 * time.Millisecond})

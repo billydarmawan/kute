@@ -189,6 +189,12 @@ type Model struct {
 	// loadEpoch is bumped by every sibling move; loadedMsg carries the value
 	// its load() saw, so a reply for the pod just left is dropped.
 	loadEpoch int
+	// metricsEpoch identifies the live usage-poll chain (loadMetrics); a tick
+	// or reply from a retired chain is dropped, so exactly one loop runs.
+	// usage/usageOK are its last reading, overlaid on every reload's pod.
+	metricsEpoch int
+	usage        kube.PodMetrics
+	usageOK      bool
 
 	pod   kube.Pod
 	found bool
@@ -274,6 +280,18 @@ type loadedMsg struct {
 	configErrors []configError
 }
 
+// metricsTickMsg drives the usage poll — the CPU/MEM bars' only refresh,
+// since a pod's usage emits no watch event (CLAUDE.md: "metrics poll on the
+// sync interval only").
+type metricsTickMsg struct{ epoch int }
+
+// metricsLoadedMsg carries one usage poll for the pod as of its chain.
+type metricsLoadedMsg struct {
+	epoch int
+	usage kube.PodMetrics
+	ok    bool
+}
+
 func New(cfg Config) Model {
 	if cfg.LoadTimeout == 0 {
 		cfg.LoadTimeout = 10 * time.Second
@@ -310,6 +328,7 @@ func New(cfg Config) Model {
 		name:         cfg.Name,
 		siblings:     cfg.Siblings,
 		siblingIndex: cfg.SiblingIndex,
+		metricsEpoch: 1,
 		state:        state,
 		feedback:     feedback,
 		spinner:      components.NewSpinner(),
@@ -320,7 +339,9 @@ func (m Model) Init() tea.Cmd {
 	if m.lister == nil {
 		return nil
 	}
-	return tea.Batch(m.load(), m.spinner.Tick)
+	// Init runs on a value copy, so it reads usage on New's chain (epoch 1)
+	// directly rather than through restartMetrics' pointer receiver.
+	return tea.Batch(m.load(), m.spinner.Tick, m.loadMetrics())
 }
 
 func (m *Model) SetSize(width, height int) {

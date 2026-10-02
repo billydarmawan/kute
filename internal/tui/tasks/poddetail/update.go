@@ -35,7 +35,7 @@ func (m *Model) Reload() tea.Cmd {
 	if m.lister == nil {
 		return nil
 	}
-	return m.load()
+	return tea.Batch(m.load(), m.restartMetrics())
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -65,10 +65,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case kube.ConnStateMsg:
+		wasOffline := m.conn.Offline()
 		m.conn = kube.ConnState(msg)
 		m.actions.SetOffline(m.conn.Offline())
+		if wasOffline && !m.conn.Offline() && m.lister != nil {
+			return m, m.restartMetrics()
+		}
 	case loadedMsg:
 		return m.applyLoaded(msg)
+	case metricsTickMsg:
+		if msg.epoch == m.metricsEpoch && m.pollsMetrics() {
+			return m, m.loadMetrics()
+		}
+	case metricsLoadedMsg:
+		if msg.epoch != m.metricsEpoch {
+			return m, nil
+		}
+		m.usage, m.usageOK = msg.usage, msg.ok
+		if m.found {
+			m.applyUsage()
+		}
+		return m, m.scheduleMetricsTick(m.metricsEpoch)
 	case spinner.TickMsg:
 		if m.state != tui.TaskStateLoading {
 			return m, nil
@@ -150,6 +167,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.pod = msg.pod
+	m.applyUsage()
 	m.found = true
 	m.eventRows = msg.events
 	m.eventsErr = msg.eventsErr
@@ -381,6 +399,7 @@ func (m *Model) moveSibling(delta int) tea.Cmd {
 	m.gone = false
 	m.found = false
 	m.pod = kube.Pod{}
+	m.usage, m.usageOK = kube.PodMetrics{}, false
 	m.eventRows = nil
 	m.eventsErr = nil
 	m.related = nil
@@ -395,7 +414,7 @@ func (m *Model) moveSibling(delta int) tea.Cmd {
 		m.feedback = "no cluster connection"
 		return nil
 	}
-	return tea.Batch(m.load(), m.spinner.Tick)
+	return tea.Batch(m.load(), m.spinner.Tick, m.restartMetrics())
 }
 
 // totalContainerRows is the combined CONTAINERS + INIT CONTAINERS +

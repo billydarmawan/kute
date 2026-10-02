@@ -5,6 +5,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	appsv1 "k8s.io/api/apps/v1"
@@ -20,13 +21,13 @@ import (
 )
 
 // load fetches the pod itself (found=false, not an error, when it's no
-// longer in the cache — a watch delete), merges best-effort live metrics for
-// the CPU/MEM bars, and best-effort fetches its events. A metrics or events
-// failure never fails the whole load — the pod's own fields are what
-// matters; bars/events just degrade to "–"/empty.
+// longer in the cache — a watch delete) and best-effort fetches its events.
+// An events failure never fails the whole load — the pod's own fields are
+// what matters. Live usage for the CPU/MEM bars is deliberately not read
+// here: load runs on every watch event, and metrics-server is polled on the
+// sync interval only (loadMetrics).
 func (m Model) load() tea.Cmd {
 	lister := m.lister
-	metrics := m.metrics
 	events := m.events
 	namespace := m.namespace
 	name := m.name
@@ -47,15 +48,6 @@ func (m Model) load() tea.Cmd {
 			return loadedMsg{epoch: epoch, found: false}
 		}
 		pod := kube.PodFromObject(obj)
-
-		if metrics != nil {
-			if podMetrics, err := metrics.PodMetricsByNamespace(ctx, namespace); err == nil {
-				if pm, ok := podMetrics[kube.PodKey(namespace, name)]; ok {
-					pod.CPU, pod.MEM = pm.CPU, pm.MEM
-					pod.CPUMilli, pod.MEMBytes = pm.CPUMilli, pm.MemBytes
-				}
-			}
-		}
 
 		var eventRows []kube.Event
 		var eventsErr error
@@ -84,6 +76,72 @@ func (m Model) load() tea.Cmd {
 			sources: podContainerSources(obj.Spec), configErrors: podConfigErrors(obj.Status),
 		}
 	}
+}
+
+// pollInterval is how often the CPU/MEM bars refresh — the same cadence
+// browse and nodedetail poll at, so opening a pod doesn't change how fresh
+// the number is.
+const pollInterval = 2 * time.Second
+
+// loadMetrics reads the pod's live usage — one poll of the usage chain
+// (metricsTickMsg). A failed or empty read reports ok=false, and the bars
+// keep "–".
+func (m Model) loadMetrics() tea.Cmd {
+	metrics := m.metrics
+	if metrics == nil {
+		return nil
+	}
+	namespace, name := m.namespace, m.name
+	epoch := m.metricsEpoch
+	timeout := m.timeout
+	parent := m.session.ClusterContext()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parent, timeout)
+		defer cancel()
+		msg := metricsLoadedMsg{epoch: epoch}
+		if podMetrics, err := metrics.PodMetricsByNamespace(ctx, namespace); err == nil {
+			msg.usage, msg.ok = podMetrics[kube.PodKey(namespace, name)]
+		}
+		return msg
+	}
+}
+
+// scheduleMetricsTick arranges the next tick of an existing poll chain.
+func (m Model) scheduleMetricsTick(epoch int) tea.Cmd {
+	if !m.pollsMetrics() {
+		return nil
+	}
+	return tea.Tick(pollInterval, func(time.Time) tea.Msg { return metricsTickMsg{epoch: epoch} })
+}
+
+// restartMetrics retires any running poll chain and reads usage now — on a
+// sibling move (the usage on screen belongs to the pod just left), on
+// restore from the stack (the chain's ticks went to whichever screen was
+// active and never came back), and on reconnect (pollsMetrics let it lapse
+// while offline).
+func (m *Model) restartMetrics() tea.Cmd {
+	m.metricsEpoch++
+	if !m.pollsMetrics() {
+		return nil
+	}
+	return m.loadMetrics()
+}
+
+// pollsMetrics reports whether a usage poll is worth making: a seam to read,
+// and a reachable cluster — the same gate nodedetail.pollsMetrics applies.
+func (m Model) pollsMetrics() bool {
+	return m.metrics != nil && !m.conn.Offline()
+}
+
+// applyUsage overlays the last usage poll on the loaded pod, which load()
+// replaces wholesale on every watch event.
+func (m *Model) applyUsage() {
+	if !m.usageOK {
+		m.pod.CPU, m.pod.MEM, m.pod.CPUMilli, m.pod.MEMBytes = "", "", 0, 0
+		return
+	}
+	m.pod.CPU, m.pod.MEM = m.usage.CPU, m.usage.MEM
+	m.pod.CPUMilli, m.pod.MEMBytes = m.usage.CPUMilli, m.usage.MemBytes
 }
 
 // relatedItem is one RELATED entry (docs/design README.md §5a) — a

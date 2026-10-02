@@ -1242,3 +1242,54 @@ type sentinelTask struct{}
 func (sentinelTask) Init() tea.Cmd                       { return nil }
 func (sentinelTask) Update(tea.Msg) (tea.Model, tea.Cmd) { return sentinelTask{}, nil }
 func (sentinelTask) View() tea.View                      { return tea.View{} }
+
+type countingMetrics struct {
+	calls int
+	cpu   string
+}
+
+func (c *countingMetrics) PodMetricsByNamespace(_ context.Context, ns string) (map[string]kube.PodMetrics, error) {
+	c.calls++
+	return map[string]kube.PodMetrics{kube.PodKey(ns, "api-0"): {CPU: c.cpu, CPUMilli: 1}}, nil
+}
+
+// TestUsagePollsOnTheSyncIntervalNotOnWatchEvents: a watch-driven reload
+// reads only the caches — never metrics-server, which a busy namespace would
+// otherwise hit once per event — keeps the last usage on the bars, and the
+// bars refresh from the poll chain's own tick even when nothing changes.
+func TestUsagePollsOnTheSyncIntervalNotOnWatchEvents(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindPod: {runningPod("api-0", "default", "node-a")}}}
+	metrics := &countingMetrics{cpu: "4m"}
+	m := New(Config{Session: newSession(), Lister: lister, Metrics: metrics, Namespace: "default", Name: "api-0"})
+	m.SetSize(120, 40)
+	m = step(t, m, m.load()())
+	updated, tick := m.Update(m.loadMetrics()())
+	m = *updated.(*Model)
+	if metrics.calls != 1 || m.pod.CPU != "4m" || tick == nil {
+		t.Fatalf("after open: calls=%d cpu=%q tick armed=%v", metrics.calls, m.pod.CPU, tick != nil)
+	}
+
+	for range 3 {
+		updated, cmd := m.Update(kube.ResourceChangedMsg{Kind: kube.KindPod})
+		m = *updated.(*Model)
+		m = step(t, m, cmd())
+	}
+	if metrics.calls != 1 {
+		t.Fatalf("watch reloads polled metrics-server: %d calls, want 1", metrics.calls)
+	}
+	if m.pod.CPU != "4m" {
+		t.Fatalf("reload dropped the last usage reading: cpu=%q", m.pod.CPU)
+	}
+
+	metrics.cpu = "9m"
+	updated, cmd := m.Update(metricsTickMsg{epoch: m.metricsEpoch})
+	m = *updated.(*Model)
+	updated, _ = m.Update(cmd())
+	m = *updated.(*Model)
+	if metrics.calls != 2 || m.pod.CPU != "9m" {
+		t.Fatalf("tick poll: calls=%d cpu=%q, want 2 and 9m", metrics.calls, m.pod.CPU)
+	}
+	if _, cmd := m.Update(metricsTickMsg{epoch: m.metricsEpoch - 1}); cmd != nil {
+		t.Fatal("a retired chain's tick must not poll")
+	}
+}
