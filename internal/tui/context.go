@@ -174,19 +174,29 @@ func probeTone(res kube.ProbeResult) palette.Tone {
 	}
 }
 
+// probeContexts is kube.ProbeContexts, as a seam so tests can stand in a
+// prober that blocks the way a hung exec credential plugin does.
+var probeContexts = kube.ProbeContexts
+
 // probeContextsCmd kicks off kube.ProbeContexts for names, tagged with gen,
 // and returns the first cmd in the drain chain (see waitForProbe) — mirrors
 // podlogs/stream.go's waitForStream pattern for turning a result channel
 // into a tea.Cmd stream. nil for an empty names list (no contexts to
-// probe). ctx is the session's *process* context, not its cluster one: a
-// probe run reaches every kubeconfig context, so switching between them is
-// no reason to abandon it — quitting is.
+// probe). The probe run itself starts inside the returned Cmd, never on the
+// caller's goroutine: the caller is the root Update, and every probe builds
+// a client and may run a context's exec credential plugin, which client-go
+// invokes with no deadline of its own (02 H1). ctx is derived from the
+// session's *process* context, not its cluster one: a probe run reaches
+// every kubeconfig context, so switching between them is no reason to
+// abandon it — quitting is, and so is closing the palette (the caller
+// cancels ctx then; see Model.stopContextProbe).
 func probeContextsCmd(ctx context.Context, gen int, names []string) tea.Cmd {
 	if len(names) == 0 {
 		return nil
 	}
-	ch := kube.ProbeContexts(ctx, names)
-	return waitForProbe(gen, ch)
+	return func() tea.Msg {
+		return waitForProbe(gen, probeContexts(ctx, names))()
+	}
 }
 
 // waitForProbe reads one result off ch, tagged with gen so a stale drain

@@ -2,6 +2,7 @@ package kube
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -49,21 +50,68 @@ func probeContextsWith(ctx context.Context, names []string, probe probeFunc) <-c
 	// its own TLS handshake, so an unbounded fan-out meant a 50-context
 	// corporate kubeconfig opened 50 concurrent handshakes the instant the
 	// context palette was opened. SetLimit blocks at g.Go, so the bound is on
-	// goroutines, not just on requests in flight.
-	g := new(errgroup.Group)
-	g.SetLimit(probeConcurrency)
-	for _, name := range names {
-		g.Go(func() error {
-			latency, err := probe(ctx, name)
-			out <- ProbeResult{Name: name, Latency: latency, Err: err}
-			return nil
-		})
-	}
+	// goroutines, not just on requests in flight — which is exactly why the
+	// launch loop runs on its own goroutine rather than the caller's: the
+	// callers sit on the Bubble Tea update loop, and with more than
+	// probeConcurrency names a caller-side loop froze the UI until a whole
+	// wave of probes had finished (unboundedly, behind a hung exec plugin).
 	go func() {
-		_ = g.Wait() // every probe reports through out, never through error
-		close(out)
+		defer close(out) // every probe reports through out, never through error
+		g := new(errgroup.Group)
+		g.SetLimit(probeConcurrency)
+		for _, name := range names {
+			if ctx.Err() != nil {
+				// Cancelled (palette closed, re-probed, or quit): nobody is
+				// waiting for the rest, so don't start them.
+				break
+			}
+			g.Go(func() error {
+				latency, err := probeBounded(ctx, name, probe)
+				out <- ProbeResult{Name: name, Latency: latency, Err: err}
+				return nil
+			})
+		}
+		_ = g.Wait()
 	}()
 	return out
+}
+
+// probeWallTimeout bounds one probe's wall time independently of the probe
+// itself. probeTimeout only reaches the /livez request; an exec credential
+// plugin runs inside client-go's RoundTrip via exec.Command with no context
+// at all, so a plugin waiting on a browser login or an SSO endpoint would
+// otherwise hold its concurrency slot (and its row's verdict) forever. The
+// margin over probeTimeout lets an ordinary slow request report its own
+// error first.
+const probeWallTimeout = probeTimeout + 2*time.Second
+
+// errProbeTimeout is a probe abandoned at probeWallTimeout.
+var errProbeTimeout = fmt.Errorf("probe timed out after %s", probeWallTimeout)
+
+// probeBounded runs probe but stops waiting for it at probeWallTimeout or
+// when ctx is cancelled. An abandoned probe's goroutine lives on until the
+// plugin itself exits — client-go gives no way to kill it — but its result
+// is dropped into a buffered channel nobody reads, so it never blocks.
+func probeBounded(ctx context.Context, name string, probe probeFunc) (time.Duration, error) {
+	type result struct {
+		latency time.Duration
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		latency, err := probe(ctx, name)
+		done <- result{latency, err}
+	}()
+	timer := time.NewTimer(probeWallTimeout)
+	defer timer.Stop()
+	select {
+	case r := <-done:
+		return r.latency, r.err
+	case <-timer.C:
+		return probeWallTimeout, errProbeTimeout
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
 }
 
 func defaultProbe(ctx context.Context, name string) (time.Duration, error) {

@@ -106,6 +106,7 @@ func whoCanResourceDispatch(item palette.Item) tea.Cmd {
 // scoped to ScopeVerb/ScopeResource, seeded from whocan's current query
 // (read via WhoCanScoped before this is called).
 func (m *Model) openVerbPalette(current string) tea.Cmd {
+	m.stopContextProbe()
 	m.palette = &palette.Model{Scope: palette.ScopeVerb, Prompt: "verb ›", Hint: "RBAC verb"}
 	m.palette.Input = palette.NewInput(palette.ScopeVerb)
 	m.palette.Input.SetStyles(TextInputStyles(m.Theme()))
@@ -116,6 +117,7 @@ func (m *Model) openVerbPalette(current string) tea.Cmd {
 }
 
 func (m *Model) openResourcePalette(current string) tea.Cmd {
+	m.stopContextProbe()
 	m.palette = &palette.Model{Scope: palette.ScopeResource, Prompt: "resource ›", Hint: "RBAC resource"}
 	m.palette.Input = palette.NewInput(palette.ScopeResource)
 	m.palette.Input.SetStyles(TextInputStyles(m.Theme()))

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"cmp"
+	"context"
 	"reflect"
 	"slices"
 	"strings"
@@ -338,11 +339,13 @@ type Model struct {
 	// reloadEpoch/metricsEpoch guard) — contextProbeMsg/contextProbesDoneMsg
 	// carry the generation they belong to, so reopening/re-probing while a
 	// previous run is still draining doesn't redirect the stale drain loop
-	// onto the new run. Probing continues in the background even after the
-	// palette closes (docs/design README.md's 4c phrasing: "probing other
-	// kubeconfig contexts in the background").
-	probes   map[string]kube.ProbeResult
-	probeGen int
+	// onto the new run. probeCancel cancels the current run's context: a
+	// re-probe, closing or replacing the palette (stopContextProbe) and
+	// quitting all abandon in-flight probes, since each one may be holding
+	// an exec credential plugin open for a palette nobody is looking at.
+	probes      map[string]kube.ProbeResult
+	probeGen    int
+	probeCancel context.CancelFunc
 
 	// namespaceItemsCache holds the 6a namespace palette's unfiltered item
 	// list (live pod counts, +CPU shares once they land — see
@@ -1024,6 +1027,7 @@ func (m Model) handlePaletteKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.palette = nil
+		m.stopContextProbe()
 		m.mode = ModeBrowse
 	case "enter":
 		if m.palette.Scope == palette.ScopeNamespace && m.palette.Denied {
@@ -1032,6 +1036,7 @@ func (m Model) handlePaletteKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 			// (Model.Denied's doc comment).
 			target := strings.TrimSpace(m.palette.Query())
 			m.palette = nil
+			m.stopContextProbe()
 			m.mode = ModeBrowse
 			if target == "" {
 				return true, m, nil
@@ -1042,6 +1047,7 @@ func (m Model) handlePaletteKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 		item, ok := m.palette.Selected()
 		scope := m.palette.Scope
 		m.palette = nil
+		m.stopContextProbe()
 		m.mode = ModeBrowse
 		if !ok {
 			return true, m, nil
@@ -1293,7 +1299,22 @@ func (m *Model) startContextProbe() tea.Cmd {
 	m.probes = map[string]kube.ProbeResult{}
 	m.probeGen++
 	m.refreshContextPalette()
-	return probeContextsCmd(m.session.Context(), m.probeGen, contextNames())
+	m.stopContextProbe()
+	ctx, cancel := context.WithCancel(m.session.Context())
+	m.probeCancel = cancel
+	return probeContextsCmd(ctx, m.probeGen, contextNames())
+}
+
+// stopContextProbe cancels the in-flight context probe run, if any — called
+// wherever the 7a palette goes away (closed, or replaced by another scope)
+// and before a re-probe starts a new run. Its drain loop still runs to the
+// channel's close, which a cancelled run reaches promptly; its results are
+// already out-gen'd or about to be (startContextProbe bumps probeGen).
+func (m *Model) stopContextProbe() {
+	if m.probeCancel != nil {
+		m.probeCancel()
+		m.probeCancel = nil
+	}
 }
 
 // openUpdatePanel pushes the current task and swaps in 28b (buildUpdate) —
@@ -1460,6 +1481,7 @@ func (m *Model) refreshContextPalette() {
 // probe drain for context). Browse (12a's ranked-chips list) is goto-only —
 // namespace/context are always plain lists.
 func (m *Model) openPalette(scope palette.Scope, prompt, hint string) tea.Cmd {
+	m.stopContextProbe() // a palette replaced by another scope stops probing too
 	m.palette = &palette.Model{Scope: scope, Prompt: prompt, Hint: hint, Browse: scope == palette.ScopeGoto}
 	m.palette.Input = palette.NewInput(scope)
 	m.palette.Input.SetStyles(TextInputStyles(m.Theme()))
