@@ -455,6 +455,47 @@ func TestHandleLaunchResultCopyModeStaysOnScreen(t *testing.T) {
 	}
 }
 
+// TestHandleLaunchResultCopyModeFailureStillOffersCleanUp: kubectl debug
+// --copy-to creates the copy before attaching, so a non-zero exit (attach
+// timeout, ctrl-c during an image pull) can leave it running — when the Pod
+// cache has it, it gets the same CLEAN UP prompt and registration as a clean
+// exit, with the error kept alongside; when it doesn't, just the error.
+func TestHandleLaunchResultCopyModeFailureStillOffersCleanUp(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		pods   []runtime.Object
+		staged bool
+	}{
+		{"copy created", []runtime.Object{nodeDebuggerPod("default", "worker-0-debug", "node-a", time.Now())}, true},
+		{"copy never created", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sess := nonProdSession()
+			sess.DebugCopies = kube.NewDebugCopyRegistry()
+			m := New(Config{Session: sess, Lister: fakePodLister{pods: tc.pods}, Namespace: "default", Name: "worker-0", Containers: podContainers(), Waiting: true})
+
+			updated, cmd := m.handleLaunchResult(launchResultMsg{tgt: targetPod, mode: modeCopy, copyName: "worker-0-debug", err: boomError{}})
+			next := updated.(*Model)
+			if cmd == nil {
+				t.Fatal("expected a Pod cache lookup for the copy")
+			}
+			updated, _ = next.Update(cmd())
+			next = updated.(*Model)
+			if got := next.cleanup != nil && next.cleanup.name == "worker-0-debug"; got != tc.staged {
+				t.Fatalf("cleanup = %+v, want staged=%v", next.cleanup, tc.staged)
+			}
+			if got := sess.DebugCopies.Contains("default", "worker-0-debug"); got != tc.staged {
+				t.Errorf("DebugCopies.Contains = %v, want %v", got, tc.staged)
+			}
+			if want := "debug exited: boom"; next.feedback != want {
+				t.Errorf("feedback = %q, want %q", next.feedback, want)
+			}
+		})
+	}
+}
+
 // TestHandleLaunchResultAttachModePopsBack confirms a clean attach-mode
 // exit pops back, matching execpicker's own contract.
 func TestHandleLaunchResultAttachModePopsBack(t *testing.T) {

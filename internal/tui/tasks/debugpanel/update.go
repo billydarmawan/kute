@@ -1,11 +1,13 @@
 package debugpanel
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"k8s.io/apimachinery/pkg/api/meta"
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/state"
@@ -64,6 +66,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLaunchResult(msg)
 	case nodeDebugPodLookupMsg:
 		return m.handleNodeDebugPodLookup(msg)
+	case copyPodLookupMsg:
+		// The exit error stays on the feedback line alongside the prompt.
+		if msg.found && m.cleanup == nil {
+			m.stageCopyCleanup(msg.name)
+		}
 	case nodeDebugRetryDueMsg:
 		return m, m.findNodeDebugPodCmd(msg.after, msg.attempt)
 	case actions.ResultMsg:
@@ -381,14 +388,14 @@ func (m *Model) handleLaunchResult(msg launchResultMsg) (tea.Model, tea.Cmd) {
 	}
 	if msg.mode == modeCopy {
 		if msg.err != nil {
+			// kubectl debug --copy-to creates the copy before attaching, so a
+			// failed attach, an interrupted image pull or a non-zero shell
+			// exit can still leave it running — look before giving up on it.
 			m.feedback = "debug exited: " + msg.err.Error()
-			return m, nil
-		}
-		if m.session != nil && m.session.DebugCopies != nil {
-			m.session.DebugCopies.Add(m.namespace, msg.copyName)
+			return m, m.findCopyPodCmd(msg.copyName)
 		}
 		m.feedback = ""
-		m.cleanup = &cleanupPrompt{namespace: m.namespace, name: msg.copyName, startedAt: time.Now()}
+		m.stageCopyCleanup(msg.copyName)
 		return m, nil
 	}
 	if msg.err != nil {
@@ -396,6 +403,49 @@ func (m *Model) handleLaunchResult(msg launchResultMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, func() tea.Msg { return tui.BackMsg{} }
+}
+
+// stageCopyCleanup registers a debug copy with Session.DebugCopies (so the
+// pods table tags it for the rest of the session) and shows §41c's CLEAN UP
+// prompt for it.
+func (m *Model) stageCopyCleanup(name string) {
+	if m.session != nil && m.session.DebugCopies != nil {
+		m.session.DebugCopies.Add(m.namespace, name)
+	}
+	m.cleanup = &cleanupPrompt{namespace: m.namespace, name: name, startedAt: time.Now()}
+}
+
+// copyPodLookupMsg is findCopyPodCmd's answer: whether the copy a failed
+// copy-mode launch was creating exists in the Pod cache.
+type copyPodLookupMsg struct {
+	name  string
+	found bool
+}
+
+// findCopyPodCmd checks the eager Pod cache for name in the panel's
+// namespace. A nil lister or a failed read reports not-found, leaving just
+// the exit error — the same fallback findNodeDebugPodCmd takes.
+func (m Model) findCopyPodCmd(name string) tea.Cmd {
+	lister := m.lister
+	namespace := m.namespace
+	if lister == nil {
+		return func() tea.Msg { return copyPodLookupMsg{name: name} }
+	}
+	parent := m.session.ClusterContext()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+		defer cancel()
+		objs, err := lister.ListRaw(ctx, kube.KindPod, namespace)
+		if err != nil {
+			return copyPodLookupMsg{name: name}
+		}
+		for _, obj := range objs {
+			if acc, err := meta.Accessor(obj); err == nil && acc.GetNamespace() == namespace && acc.GetName() == name {
+				return copyPodLookupMsg{name: name, found: true}
+			}
+		}
+		return copyPodLookupMsg{name: name}
+	}
 }
 
 // beginCleanupDelete resolves ctrl-d on the CLEAN UP prompt — an ordinary
