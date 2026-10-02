@@ -894,6 +894,62 @@ func (p *Model) HandleResult(msg actions.ResultMsg) (closed bool) {
 	return false
 }
 
+// Refresh rebuilds the open panel from the cache after the host saw a
+// kube.ResourceChangedMsg for kind — the panel's own kind, or Service (the
+// selector joins). HandleResult's own refetch usually runs before the watch
+// event for the patch it just made has reached the cache, so without this the
+// grid would keep showing the pre-commit value under its "updated k=v" line
+// (and a following ↵ would pre-fill it) until the panel was reopened.
+//
+// Everything the user is in the middle of survives: section, each grid's
+// cursor (by key), the result/error line, an open row buffer (as typed — only
+// its current, and so changed(), moves), and the add row. A no-op while a
+// commit is in flight or its confirm is showing, since that confirm describes
+// the rows as they stand, and when the object can't be read (closing is left
+// to esc and HandleResult).
+func (p *Model) Refresh(kind kube.ResourceKind, ctrl *actions.Controller) {
+	t := p.t
+	if kind != t.kind && kind != kube.KindService {
+		return
+	}
+	if t.pendingCommit != nil || (ctrl != nil && ctrl.Active()) {
+		return
+	}
+	fresh, ok := p.buildTarget(t.kind, t.namespace, t.name)
+	if !ok {
+		return
+	}
+	fresh.section = t.section
+	fresh.message, fresh.lastError = t.message, t.lastError
+	fresh.labelIdx = metaKeepIndex(t.labels, fresh.labels, t.labelIdx)
+	fresh.annotationIdx = metaKeepIndex(t.annotations, fresh.annotations, t.annotationIdx)
+	if t.editing {
+		if old, cur := t.selectedRow(), fresh.selectedRow(); old != nil && cur != nil && old.key == cur.key {
+			cur.input = old.input
+			fresh.editing = true
+		}
+	}
+	fresh.adding, fresh.addOnValue = t.adding, t.addOnValue
+	fresh.addKeyInput, fresh.addValueInput = t.addKeyInput, t.addValueInput
+	p.t = fresh
+}
+
+// metaKeepIndex is Refresh's cursor carry-over: the row with the same key as
+// oldRows[oldIdx] if it's still there, else the same position, clamped.
+func metaKeepIndex(oldRows, newRows []metaRow, oldIdx int) int {
+	if len(newRows) == 0 {
+		return 0
+	}
+	if oldIdx >= 0 && oldIdx < len(oldRows) {
+		for i, r := range newRows {
+			if r.key == oldRows[oldIdx].key {
+				return i
+			}
+		}
+	}
+	return max(min(oldIdx, len(newRows)-1), 0)
+}
+
 // metaFocusIndex picks the refreshed grid's cursor after a commit: the same
 // key's new row when it still exists (an edit or an add), or — once it's
 // gone (a removal) — the nearest remaining row at about the same position.

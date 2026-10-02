@@ -82,3 +82,27 @@ func TestMetaKeyOpensPanelAndEscCloses(t *testing.T) {
 		t.Error("esc should close the panel")
 	}
 }
+
+// The PATCH result usually beats the watch event for it, so the panel's own
+// refetch reads the pre-commit value; browse must hand the event to the panel
+// so it shows what actually landed.
+func TestMetaPanelRefreshesOnItsKindsChangeEvent(t *testing.T) {
+	dep := metaDeployment("default", "nva-worker", map[string]string{"env": "stage"}, nil, nil)
+	mut := &fakeMutator{}
+	m := newMetaModel(t, mut, map[kube.ResourceKind][]runtime.Object{kube.KindDeployment: {dep}})
+	mut.metaObjs = nil // the patch lands server-side, not yet in the cache
+
+	m = step(t, m, tea.KeyPressMsg{Text: "m"})
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = step(t, m, tea.KeyPressMsg{Text: "g"})
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if n := strings.Count(m.Body(120, 36), "stageg"); n != 1 {
+		t.Fatalf("precondition: only the result line should name stageg before the watch event, got %d", n)
+	}
+
+	dep.Labels["env"] = "stageg"
+	m = step(t, m, kube.ResourceChangedMsg{Kind: kube.KindDeployment})
+	if n := strings.Count(m.Body(120, 36), "stageg"); n != 2 {
+		t.Errorf("after the change event the row should read stageg too (want 2 occurrences, got %d):\n%s", n, m.Body(120, 36))
+	}
+}

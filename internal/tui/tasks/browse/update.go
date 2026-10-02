@@ -102,6 +102,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
+		// 26a's open panel re-reads its object (and Service joins) from the
+		// cache this event just updated — see metapanel.Refresh.
+		if m.pendingMeta != nil {
+			m.pendingMeta.Refresh(msg.Kind, &m.actions)
+		}
 		if m.pendingSetImage != nil && m.pendingSetImage.awaitingRefresh != nil &&
 			msg.Kind == m.pendingSetImage.kind && !m.actions.Active() {
 			// The API result can arrive before the informer observes the new

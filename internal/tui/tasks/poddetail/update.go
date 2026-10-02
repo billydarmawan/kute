@@ -46,6 +46,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
+		// 26a's open panel re-reads its object (and Service joins) from the
+		// cache this event just updated — see metapanel.Refresh.
+		if m.meta != nil {
+			m.meta.Refresh(msg.Kind, &m.actions)
+		}
 		// The pod itself, plus the caches its panels are built from without
 		// displaying directly: Events feeds the EVENTS grid; ReplicaSets
 		// resolve the owner hop up to a Deployment for the meta grid and

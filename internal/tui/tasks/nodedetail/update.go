@@ -61,6 +61,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
+		// 26a's open panel re-reads its object (and Service joins) from the
+		// cache this event just updated — see metapanel.Refresh.
+		if m.meta != nil {
+			m.meta.Refresh(msg.Kind, &m.actions)
+		}
 		// Node backs the facts panel, Pod the bottom-pane table — a change to
 		// either changes what this screen shows even though neither is
 		// "the kind on screen" the way browse's own auxKindOf reload guards

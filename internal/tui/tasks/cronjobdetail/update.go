@@ -47,6 +47,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
+		// 26a's open panel re-reads its object (and Service joins) from the
+		// cache this event just updated — see metapanel.Refresh.
+		if m.meta != nil {
+			m.meta.Refresh(msg.Kind, &m.actions)
+		}
 		// CronJob is this screen itself; Job/Pod feed the Jobs table and
 		// failure band without being displayed directly — a kind read but
 		// not listed here goes stale (CLAUDE.md: "a screen reading a kind it

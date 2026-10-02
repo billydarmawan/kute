@@ -402,6 +402,50 @@ func TestEditNonJoinedLabelAppliesImmediately(t *testing.T) {
 	}
 }
 
+// The PATCH result usually beats the watch event for it, so HandleResult's
+// refetch reads the pre-commit value; the panel must catch up when the
+// event lands, without losing the result line or the user's place.
+func TestRefreshPicksUpTheWriteOnceTheCacheSeesIt(t *testing.T) {
+	dep := metaDeployment("default", "nva-worker", map[string]string{"env": "stage", "team": "a"}, nil, nil)
+	mut := &fakeMutator{}
+	h := newHost(t, mut, map[kube.ResourceKind][]runtime.Object{kube.KindDeployment: {dep}})
+	mut.metaObjs = nil // the patch lands server-side, not yet in the cache
+
+	h.step(tea.KeyPressMsg{Code: tea.KeyEnter})
+	h.step(tea.KeyPressMsg{Text: "g"})
+	h.step(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := h.panel.t.labels[0].current; got != "stage" {
+		t.Fatalf("precondition: refetch before the watch event should read the stale %q, got %q", "stage", got)
+	}
+
+	dep.Labels["env"] = "stageg"
+	h.panel.Refresh(kube.KindPod, &h.ctrl) // another kind: no-op
+	if got := h.panel.t.labels[0].current; got != "stage" {
+		t.Fatalf("a change to an unrelated kind refreshed the panel: current = %q", got)
+	}
+	h.panel.Refresh(kube.KindDeployment, &h.ctrl)
+	if got := h.panel.t.labels[0].current; got != "stageg" {
+		t.Errorf("env current after refresh = %q, want stageg", got)
+	}
+	if want := "updated env=stageg"; h.panel.t.message != want {
+		t.Errorf("message = %q, want %q kept across the refresh", h.panel.t.message, want)
+	}
+
+	// A refresh mid-edit keeps the cursor and the typed buffer.
+	h.step(tea.KeyPressMsg{Code: tea.KeyDown})
+	h.step(tea.KeyPressMsg{Code: tea.KeyEnter}) // start editing team
+	h.step(tea.KeyPressMsg{Text: "x"})
+	dep.Labels["team"] = "b"
+	h.panel.Refresh(kube.KindDeployment, &h.ctrl)
+	if h.panel.t.labelIdx != 1 || !h.panel.t.editing {
+		t.Fatalf("refresh lost the cursor or editing state: idx=%d editing=%v", h.panel.t.labelIdx, h.panel.t.editing)
+	}
+	team := h.panel.t.labels[1]
+	if team.current != "b" || team.input.Value() != "ax" {
+		t.Errorf("team row = current %q buffer %q, want current b with the typed buffer ax kept", team.current, team.input.Value())
+	}
+}
+
 // unsyncedServiceLister is a fakeLister whose Service cache hasn't filled —
 // the first read of a lazy kind, which returns an empty list.
 type unsyncedServiceLister struct{ fakeLister }

@@ -47,6 +47,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
+		// 26a's open panel re-reads its object (and Service joins) from the
+		// cache this event just updated — see metapanel.Refresh.
+		if m.meta != nil {
+			m.meta.Refresh(msg.Kind, &m.actions)
+		}
 		// The object itself, plus Event: the EVENTS grid is read from a
 		// cache this screen doesn't list, so it must reload on that kind
 		// too or its rows go stale (CLAUDE.md: a screen reading a kind it
