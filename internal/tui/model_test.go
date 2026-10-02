@@ -783,3 +783,34 @@ func TestCRDsDiscoveredOpensTheHeldLaunchKind(t *testing.T) {
 		t.Fatalf("discovery jumped away from a screen the user opened: %#v", cmd())
 	}
 }
+
+// confirmingTask is a screenTask whose keybar shows an inline y/N confirm
+// (helmhistory's rollback, secretdata's key removal) without implementing
+// InputCapturer.
+type confirmingTask struct {
+	capturingTask
+}
+
+func (t *confirmingTask) CapturingInput() bool { return false }
+func (t *confirmingTask) Keybar() tui.Keybar {
+	return tui.Keybar{Pill: tui.ModeConfirm, PillText: "CONFIRM"}
+}
+
+// An inline confirm advertises n cancel; the shell must not take n (or q)
+// for its own palette/quit confirm and leave the confirm pending behind it.
+func TestRootModelConfirmingTaskGetsNAndQ(t *testing.T) {
+	t.Parallel()
+
+	task := &confirmingTask{capturingTask{screenTask: screenTask{name: "secretdata"}}}
+	model := tui.NewWithSession(task, testSession())
+	for _, key := range []string{"n", "q"} {
+		updated, _ := model.Update(tea.KeyPressMsg{Text: key})
+		model = updated.(tui.Model)
+	}
+	if model.PaletteOpen() || model.QuitConfirmOpen() {
+		t.Fatalf("shell must not intercept n/q while the task's confirm is pending (palette=%v quit=%v)", model.PaletteOpen(), model.QuitConfirmOpen())
+	}
+	if got := task.received; len(got) != 2 || got[0] != "n" || got[1] != "q" {
+		t.Fatalf("expected the confirm to receive n/q, got %v", got)
+	}
+}

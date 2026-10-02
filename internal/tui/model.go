@@ -1604,10 +1604,17 @@ func (m *Model) openPalette(scope palette.Scope, prompt, hint string) tea.Cmd {
 
 // taskCapturingInput reports whether the active task has an open free-text
 // input that wants every keystroke (see InputCapturer) — false for tasks
-// that don't implement the interface at all.
+// that don't implement the interface at all — or has an inline confirm
+// pending. A ModeConfirm keybar is the one signal every confirm-capable
+// screen already sets, so its y/n/q reach the confirm instead of the shell
+// opening the namespace palette or the quit confirm over a still-pending
+// cert renew, Helm rollback or key removal.
 func taskCapturingInput(task Task) bool {
-	c, ok := task.(InputCapturer)
-	return ok && c.CapturingInput()
+	if c, ok := task.(InputCapturer); ok && c.CapturingInput() {
+		return true
+	}
+	s, ok := task.(Screen)
+	return ok && s.Keybar().Pill == ModeConfirm
 }
 
 // transient reports whether the task being swapped out asked to be dropped
