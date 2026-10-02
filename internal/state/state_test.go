@@ -1,6 +1,8 @@
 package state
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -48,6 +50,30 @@ func TestLoadUnknownNewerVersionIsDiscarded(t *testing.T) {
 	}
 	if len(got.RecentKinds) != 0 {
 		t.Fatalf("expected future-version data discarded, got %v", got.RecentKinds)
+	}
+}
+
+// TestSaveLeavesNewerVersionFileUntouched: Load discards a future-version
+// file, so the exit-time Save must not then write this build's snapshot over
+// it — the newer binary's recents and perContext have to survive byte-for-byte.
+func TestSaveLeavesNewerVersionFileUntouched(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "state.json")
+	future := []byte(`{"version": 999, "recentKinds": ["Pod"], "perContext": {"prod": {"namespace": "web"}}}`)
+	if err := os.WriteFile(path, future, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := loadFrom(path)
+	s.RecentKinds = PushRecent(s.RecentKinds, "Service")
+	if err := s.saveTo(path); !errors.Is(err, ErrNewerVersion) {
+		t.Fatalf("saveTo err = %v, want ErrNewerVersion", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, future) {
+		t.Fatalf("newer state file rewritten:\n%s", got)
 	}
 }
 

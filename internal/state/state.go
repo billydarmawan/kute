@@ -8,6 +8,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -173,13 +174,32 @@ func (s State) UpdateSeen(version string) bool {
 	return slices.Contains(s.UpdateCheck.SeenVersions, version)
 }
 
+// ErrNewerVersion is Save's refusal to overwrite a state file stamped with a
+// Version this build doesn't know: Load discarded it rather than misread it,
+// so writing back would replace a newer binary's recents, perContext and
+// update cache with this session's near-empty snapshot (a dev build run
+// beside a release, or a downgrade).
+var ErrNewerVersion = errors.New("state file was written by a newer kute; not overwriting it")
+
 // Save atomically writes s to Path() (temp file + rename, so a crash mid
-// write never corrupts the previous state), stamping Version.
+// write never corrupts the previous state), stamping Version. It refuses
+// with ErrNewerVersion, leaving the file untouched, when the file on disk
+// carries a newer Version.
 func (s State) Save() error {
 	return s.saveTo(Path())
 }
 
 func (s State) saveTo(path string) error {
+	// Checked at write time, not remembered from Load: a newer binary may
+	// have written the file since this session started.
+	if data, err := os.ReadFile(path); err == nil {
+		var onDisk struct {
+			Version int `json:"version"`
+		}
+		if json.Unmarshal(data, &onDisk) == nil && onDisk.Version > CurrentVersion {
+			return ErrNewerVersion
+		}
+	}
 	s.Version = CurrentVersion
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
