@@ -1,6 +1,7 @@
 package browse
 
 import (
+	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -17,8 +18,13 @@ type filterMatch struct {
 }
 
 // applyFilter fuzzy-matches query against each row's Name (sahilm/fuzzy,
-// the same library and behavior as the jump palette), ranked by score. An
-// empty query matches every row with no highlight indexes.
+// the same library and behavior as the jump palette) as a predicate only:
+// survivors keep rows' own order, not fuzzy score order. rows arrive
+// already sorted (unhealthy-first, a 1-9 column sort, namespace runs), and
+// buildDisplayRows' grouping and fold rely on that — a score-ranked list
+// split a namespace into two runs and could fold an unhealthy row into a
+// "healthy" summary. An empty query matches every row with no highlight
+// indexes.
 func applyFilter(rows []resources.Row, query string) []filterMatch {
 	if query == "" {
 		out := make([]filterMatch, len(rows))
@@ -32,6 +38,7 @@ func applyFilter(rows []resources.Row, query string) []filterMatch {
 		names[i] = r.Name
 	}
 	found := fuzzy.Find(query, names)
+	sort.SliceStable(found, func(i, j int) bool { return found[i].Index < found[j].Index })
 	out := make([]filterMatch, 0, len(found))
 	for _, m := range found {
 		out = append(out, filterMatch{row: rows[m.Index], matches: m.MatchedIndexes})
