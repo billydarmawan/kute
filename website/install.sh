@@ -29,8 +29,8 @@ cleanup() {
 # down the same wire as the archive; only the signature says the release is
 # ours. cosign is not a dependency of this script, so a machine without it
 # gets a note and the checksum — a stronger check that nobody can run is not
-# stronger. Same for a release predating signing: don't fail an install that
-# used to work.
+# stronger. Same for a release predating signing (before v0.4.0-beta.1):
+# don't fail an install that used to work — but only those.
 verify_signature() {
 	if ! command -v cosign >/dev/null 2>&1; then
 		printf 'note: cosign not found; verified checksum only.\n'
@@ -40,8 +40,17 @@ verify_signature() {
 
 	bundle="${tmp}/${archive}.sigstore.json"
 	if ! curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "$bundle" "${base_url}/${archive}.sigstore.json" 2>/dev/null; then
-		printf 'note: %s publishes no signature; verified checksum only.\n' "$version"
-		return 0
+		# Only the releases that predate signing may lack a bundle. From
+		# v0.4.0-beta.1 on, a missing one is exactly what someone who
+		# swapped the archive and its checksum manifest would also arrange,
+		# so with cosign present it fails rather than quietly downgrading.
+		case "$version" in
+		v0.1.* | v0.2.* | v0.3.*)
+			printf 'note: %s predates release signing; verified checksum only.\n' "$version"
+			return 0
+			;;
+		esac
+		fail "could not download the signature for ${archive} (every release from v0.4.0-beta.1 is signed) — do not run it; see ${verify_docs}"
 	fi
 
 	# cosign 3 reads the bundle format by default and has no

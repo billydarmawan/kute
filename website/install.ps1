@@ -26,8 +26,8 @@ $ProgressPreference = 'SilentlyContinue'
 # down the same wire as the archive; only the signature says the release is
 # ours. cosign is not a dependency of this script, so a machine without it
 # gets a note and the checksum — a stronger check that nobody can run is not
-# stronger. Same for a release predating signing: don't fail an install that
-# used to work.
+# stronger. Same for a release predating signing (before v0.4.0-beta.1):
+# don't fail an install that used to work — but only those.
 function Confirm-KuteSignature {
     param(
         [string]$BaseUrl,
@@ -47,8 +47,15 @@ function Confirm-KuteSignature {
     try {
         Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/$Archive.sigstore.json" -OutFile $bundlePath
     } catch {
-        Write-Host "note: $Version publishes no signature; verified checksum only."
-        return
+        # Only the releases that predate signing may lack a bundle. From
+        # v0.4.0-beta.1 on, a missing one is exactly what someone who
+        # swapped the archive and its checksum manifest would also arrange,
+        # so with cosign present it fails rather than quietly downgrading.
+        if ($Version -match '^v0\.[123]\.') {
+            Write-Host "note: $Version predates release signing; verified checksum only."
+            return
+        }
+        throw "kute install: could not download the signature for $Archive (every release from v0.4.0-beta.1 is signed) — do not run it; see $VerifyDocs"
     }
 
     # The keyless signing identity is the release workflow itself. Matched by

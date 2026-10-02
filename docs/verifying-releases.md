@@ -113,8 +113,11 @@ default `curl | sh` path on a machine without cosign is checksum-only.
 If you want the strong check on a machine that doesn't have cosign, install cosign first, or
 follow this page by hand.
 
-Releases published before signing landed have no `.sigstore.json`; the installers say so and
-continue. Anything from `v0.4.0-beta.1` onward is signed.
+Releases published before signing landed (`v0.1.*`–`v0.3.*`) have no `.sigstore.json`; the
+installers say so and continue. Anything from `v0.4.0-beta.1` onward is signed, and the
+installers enforce that: with cosign present, a bundle that can't be downloaded for one of those
+releases (deleted, 404, network) stops the install rather than falling back to the checksum —
+removing the bundle is exactly what someone who replaced the archive and `checksums.txt` would do.
 
 ## Reporting a problem
 
