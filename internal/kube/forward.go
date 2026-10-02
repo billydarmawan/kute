@@ -280,6 +280,10 @@ type spdyTunnel struct {
 
 	mu     sync.Mutex
 	stopCh chan struct{}
+	// closed makes Close sticky: ForwardManager publishes a tunnel before
+	// calling Run, so a Stop/Restart/reconcile can Close it first — without
+	// this, Run would then open a listener nobody is left to close.
+	closed bool
 }
 
 // httpstreamDialer is the subset of httpstream.Dialer portforward.New needs
@@ -289,6 +293,10 @@ type httpstreamDialer = httpstream.Dialer
 
 func (t *spdyTunnel) Run(activity func()) error {
 	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return nil
+	}
 	if t.stopCh != nil {
 		t.mu.Unlock()
 		return fmt.Errorf("tunnel already running")
@@ -309,6 +317,7 @@ func (t *spdyTunnel) Run(activity func()) error {
 func (t *spdyTunnel) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.closed = true
 	if t.stopCh == nil {
 		return
 	}
