@@ -175,7 +175,10 @@ type configMapPendingCommit struct {
 	// original is the pre-edit value (isEdit only) — carried through so a
 	// failed edit's restore (handleResult) can rebuild the right edit state
 	// with the real original, not the just-attempted value.
-	original         string
+	original string
+	// overwrite marks an add whose key already exists — escalated to a
+	// confirm, and reported as "updated" rather than "added".
+	overwrite        bool
 	restartConsumers bool
 	consumers        []configMapConsumer
 }

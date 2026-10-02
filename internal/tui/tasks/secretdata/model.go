@@ -125,6 +125,9 @@ type secretPendingCommit struct {
 	// editKeyState with the real original, not the just-attempted value,
 	// keeping its own changed() check meaningful on a retry.
 	original string
+	// overwrite marks an add whose key already exists — escalated to a
+	// confirm, and reported as "updated" rather than "added".
+	overwrite bool
 }
 
 type Model struct {

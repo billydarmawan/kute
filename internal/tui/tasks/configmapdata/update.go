@@ -355,14 +355,22 @@ func (m *Model) moveHalfPage(direction int) {
 // controller's "configmap-data" case (internal/tui/actions/controller.go)
 // chains a RolloutRestart per consumer after a successful patch.
 func (m *Model) beginCommit(key, value string, isEdit bool, original string, restart bool) tea.Cmd {
+	_, exists := indexOfConfigMapKey(m.keys, key)
+	overwrite := exists && !isEdit
 	m.pendingCommit = &configMapPendingCommit{
-		key: key, value: value, isEdit: isEdit, original: original,
+		key: key, value: value, isEdit: isEdit, original: original, overwrite: overwrite,
 		restartConsumers: restart, consumers: m.consumers,
 	}
 	m.message, m.lastError = "", ""
 	tier := verbs.TierForConfigMapData(m.isProd())
 	label := fmt.Sprintf("Add key %s to %s?", key, m.name)
 	id := "add-configmap-key-" + m.namespace + "/" + m.name + "/" + key
+	if overwrite {
+		// 'a' with a key that's already there replaces its value — the
+		// merge patch can't tell an add from an overwrite, so ask first.
+		tier = max(tier, actions.TierInline)
+		label = fmt.Sprintf("Overwrite existing key %s on %s?", key, m.name)
+	}
 	if isEdit {
 		label = fmt.Sprintf("Update key %s on %s?", key, m.name)
 		id = "edit-configmap-key-" + m.namespace + "/" + m.name + "/" + key
@@ -489,7 +497,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	switch {
 	case pc.remove:
 		m.message = "removed " + pc.key
-	case pc.isEdit:
+	case pc.isEdit, pc.overwrite:
 		m.message = "updated " + pc.key
 	default:
 		m.message = "added " + pc.key

@@ -294,6 +294,39 @@ func TestAddKeyNonProdAppliesImmediatelyAndRefreshes(t *testing.T) {
 	}
 }
 
+// 'a' with a key that already exists would replace its value — it must ask,
+// even outside PROD, and say "updated" rather than "added".
+func TestAddExistingKeyAsksBeforeOverwriting(t *testing.T) {
+	cm := cmObj("nva-stage", "nva-config", map[string]string{"MODE": "orig"})
+	mut := &fakeMutator{cm: cm}
+	m := newModel(t, newSession(), cm, mut, nil)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "a"})
+	for _, r := range "MODE" {
+		m = step(t, m, tea.KeyPressMsg{Text: string(r)})
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+	m = step(t, m, tea.KeyPressMsg{Text: "x"})
+	if strip := plain(m.willRunStrip(m.Theme(), 120)); !strings.Contains(strip, "overwrites existing MODE") {
+		t.Fatalf("will-run strip = %q, want the overwrite warning", strip)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+
+	if cm.Data["MODE"] != "orig" {
+		t.Fatalf("an add over an existing key applied without a confirm: %q", cm.Data["MODE"])
+	}
+	if !m.actions.Active() {
+		t.Fatal("expected an add over an existing key to ask y/N")
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if cm.Data["MODE"] != "x" {
+		t.Fatalf("confirmed overwrite not applied: %q", cm.Data["MODE"])
+	}
+	if m.message != "updated MODE" {
+		t.Fatalf("message = %q, want %q", m.message, "updated MODE")
+	}
+}
+
 func TestAddKeyProdRequiresConfirmThenApplies(t *testing.T) {
 	cm := cmObj("nva-stage", "nva-config", nil)
 	mut := &fakeMutator{cm: cm}

@@ -339,6 +339,15 @@ func (m Model) multilineBody(theme tui.Theme, width, height int) string {
 	return components.Pad(strings.Join(lines, "\n"), width)
 }
 
+// overwriteWarning is the add row's "overwrites existing KEY · " prefix when
+// key is already in the ConfigMap — "" otherwise.
+func (m Model) overwriteWarning(theme tui.Theme, key string) string {
+	if _, exists := indexOfConfigMapKey(m.keys, key); !exists {
+		return ""
+	}
+	return lipgloss.NewStyle().Background(theme.BgStrip).Foreground(theme.Warn).Render("overwrites existing " + key + " · ")
+}
+
 // willRunStrip is the screen's own "will run" line(s), styled like
 // secretdata's own metaWillRunStrip-derived band: a BorderSubtle top rule,
 // then a BgStrip-filled band showing the exact command(s) that would run.
@@ -372,10 +381,10 @@ func (m Model) willRunStrip(theme tui.Theme, width int) string {
 		if key == "" {
 			primary = label.Render("will run") + fill.Render(" ") + cmd.Render("type a key to add")
 		} else {
-			primary = label.Render("will run") + fill.Render(" ") + cmd.Render(kube.ConfigMapDataCommandString(m.namespace, m.name, key, m.adding.valueInput.Value(), false))
+			primary = label.Render("will run") + fill.Render(" ") + m.overwriteWarning(theme, key) + cmd.Render(kube.ConfigMapDataCommandString(m.namespace, m.name, key, m.adding.valueInput.Value(), false))
 		}
 	case m.pendingCommit != nil && !m.pendingCommit.remove && !m.pendingCommit.isEdit:
-		primary = label.Render("will run") + fill.Render(" ") + cmd.Render(kube.ConfigMapDataCommandString(m.namespace, m.name, m.pendingCommit.key, m.pendingCommit.value, false))
+		primary = label.Render("will run") + fill.Render(" ") + m.overwriteWarning(theme, m.pendingCommit.key) + cmd.Render(kube.ConfigMapDataCommandString(m.namespace, m.name, m.pendingCommit.key, m.pendingCommit.value, false))
 		restart = m.pendingCommit.restartConsumers
 	case m.editing != nil:
 		if !m.editing.changed() {

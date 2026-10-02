@@ -305,12 +305,21 @@ func (m *Model) commitAdd() tea.Cmd {
 	}
 	value := a.valueInput.Value()
 	m.adding = nil
-	m.pendingCommit = &secretPendingCommit{key: key, value: value}
+	_, overwrite := indexOfSecretKey(m.keys, key)
+	m.pendingCommit = &secretPendingCommit{key: key, value: value, overwrite: overwrite}
 	m.message, m.lastError = "", ""
 	tier := verbs.TierForAddSecretKey(m.isProd())
+	label := fmt.Sprintf("Add key %s to %s?", key, m.name)
+	if overwrite {
+		// 'a' with a key that's already there replaces its value — for a
+		// Secret often the only copy of a credential — and the merge patch
+		// can't tell an add from an overwrite, so ask first.
+		tier = max(tier, actions.TierInline)
+		label = fmt.Sprintf("Overwrite existing key %s on %s?", key, m.name)
+	}
 	return m.actions.Begin(tier, tui.TaskAction{
 		ID:    "add-secret-key-" + m.namespace + "/" + m.name + "/" + key,
-		Label: fmt.Sprintf("Add key %s to %s?", key, m.name),
+		Label: label,
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindSecret), ResourceName: m.name, Namespace: m.namespace,
 			Verb: "secret-data", IsMutating: true,
@@ -411,7 +420,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	switch {
 	case pc.remove:
 		m.message = "removed " + pc.key
-	case pc.isEdit:
+	case pc.isEdit, pc.overwrite:
 		m.message = "updated " + pc.key
 	default:
 		m.message = "added " + pc.key

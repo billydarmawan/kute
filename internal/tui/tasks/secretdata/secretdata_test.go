@@ -241,6 +241,40 @@ func TestAddKeyNonProdAppliesImmediatelyAndRefreshes(t *testing.T) {
 	}
 }
 
+// 'a' with a key that already exists would replace — for a Secret, often
+// destroy the only copy of — its value. It must ask, even outside PROD, and
+// say "updated" rather than "added".
+func TestAddExistingKeyAsksBeforeOverwriting(t *testing.T) {
+	secret := secretObj("nva-stage", "nva-secrets", map[string][]byte{"PASSWORD": []byte("orig")})
+	mut := &fakeMutator{secret: secret}
+	m := newModel(t, newSession(), secret, mut)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "a"})
+	for _, r := range "PASSWORD" {
+		m = step(t, m, tea.KeyPressMsg{Text: string(r)})
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+	m = step(t, m, tea.KeyPressMsg{Text: "x"})
+	if strip := ansi.Strip(m.willRunStrip(m.Theme(), 120)); !strings.Contains(strip, "overwrites existing PASSWORD") {
+		t.Fatalf("will-run strip = %q, want the overwrite warning", strip)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+
+	if string(secret.Data["PASSWORD"]) != "orig" {
+		t.Fatalf("an add over an existing key applied without a confirm: %q", secret.Data["PASSWORD"])
+	}
+	if !m.actions.Active() {
+		t.Fatal("expected an add over an existing key to ask y/N")
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if string(secret.Data["PASSWORD"]) != "x" {
+		t.Fatalf("confirmed overwrite not applied: %q", secret.Data["PASSWORD"])
+	}
+	if m.message != "updated PASSWORD" {
+		t.Fatalf("message = %q, want %q", m.message, "updated PASSWORD")
+	}
+}
+
 func TestAddKeyProdRequiresConfirmThenApplies(t *testing.T) {
 	secret := secretObj("nva-stage", "nva-secrets", nil)
 	mut := &fakeMutator{secret: secret}

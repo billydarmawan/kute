@@ -298,6 +298,15 @@ func (m Model) pendingRemove() (bool, string) {
 	return true, p.Scope.SecretKey
 }
 
+// overwriteWarning is the add row's "overwrites existing KEY · " prefix when
+// key is already in the Secret — "" otherwise.
+func (m Model) overwriteWarning(theme tui.Theme, key string) string {
+	if _, exists := indexOfSecretKey(m.keys, key); !exists {
+		return ""
+	}
+	return lipgloss.NewStyle().Background(theme.BgStrip).Foreground(theme.Warn).Render("overwrites existing " + key + " · ")
+}
+
 // willRunStrip is the screen's own "will run" line, styled like 26a's
 // meta.go metaWillRunStrip: a BorderSubtle top rule, then a BgStrip-filled
 // band showing the exact command that would run (add, edit, or remove), or
@@ -337,13 +346,13 @@ func (m Model) willRunStrip(theme tui.Theme, width int) string {
 		if key == "" {
 			left += cmd.Render("type a key to add")
 		} else {
-			left += cmd.Render(kube.SecretDataCommandString(m.namespace, m.name, key, false))
+			left += m.overwriteWarning(theme, key) + cmd.Render(kube.SecretDataCommandString(m.namespace, m.name, key, false))
 			right = rightNote.Render("value masked here · sent verbatim")
 		}
 	case m.pendingCommit != nil && !m.pendingCommit.remove && !m.pendingCommit.isEdit:
-		// The add row's own PROD confirm in flight — m.adding is already nil
-		// by then (commitAdd clears it before Begin).
-		left += cmd.Render(kube.SecretDataCommandString(m.namespace, m.name, m.pendingCommit.key, false))
+		// The add row's own confirm in flight (PROD, or an overwrite) —
+		// m.adding is already nil by then (commitAdd clears it before Begin).
+		left += m.overwriteWarning(theme, m.pendingCommit.key) + cmd.Render(kube.SecretDataCommandString(m.namespace, m.name, m.pendingCommit.key, false))
 		right = rightNote.Render("value masked here · sent verbatim")
 	case m.editing != nil:
 		if !m.editing.changed() {
