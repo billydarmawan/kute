@@ -155,11 +155,20 @@ type OpenDebugFunc func(namespace, name string, containers []kube.ContainerInfo,
 // columns already carry.
 type OpenNodeDebugFunc func(name string, podCount, width, height int) (tea.Model, tea.Cmd)
 
+// ObjectSiblingRef names one sibling row for OpenObjectDetailFunc's j/k
+// movement — namespace-qualified, same reasoning as PodSiblingRef:
+// all-namespaces mode lists same-named objects side by side.
+type ObjectSiblingRef struct {
+	Namespace string
+	Name      string
+}
+
 // OpenObjectDetailFunc pushes tasks/objectdetail (14d) for a discovered CRD
 // kind's row (resources.Descriptor.Custom) — siblings/index are the current
-// visible list's ordered names + the selected row's position, same shape as
-// OpenPodDetailFunc, so objectdetail's j/k can move without leaving detail.
-type OpenObjectDetailFunc func(kind kube.ResourceKind, namespace, name string, siblings []string, index, width, height int) (tea.Model, tea.Cmd)
+// visible list's ordered namespace-qualified refs + the selected row's
+// position, same shape as OpenPodDetailFunc, so objectdetail's j/k can move
+// without leaving detail.
+type OpenObjectDetailFunc func(kind kube.ResourceKind, namespace, name string, siblings []ObjectSiblingRef, index, width, height int) (tea.Model, tea.Cmd)
 
 // OpenRouteTableFunc pushes tasks/routetable (23a/23b) for an Ingress row or
 // a discovered Gateway API kind's row (HTTPRoute/GRPCRoute/TCPRoute/Gateway)
@@ -187,8 +196,8 @@ type OpenCertChainFunc func(namespace, name string, width, height int) (tea.Mode
 
 // CronJobSiblingRef names one sibling CronJob row for OpenCronJobDetailFunc's
 // `[`/`]` movement (0.8.0 plan §3.6, tasks/cronjobdetail Phase 7) —
-// namespace-qualified, like OpenPodDetailFunc's and unlike
-// OpenObjectDetailFunc's plain name list, because all-namespaces mode can list two different CronJobs
+// namespace-qualified, like OpenPodDetailFunc's and
+// OpenObjectDetailFunc's, because all-namespaces mode can list two different CronJobs
 // sharing a name (Phase 4 test 11: "including all-namespaces mode and
 // duplicate names across namespaces").
 type CronJobSiblingRef struct {

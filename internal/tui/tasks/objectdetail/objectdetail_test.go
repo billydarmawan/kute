@@ -227,7 +227,7 @@ func TestMoveSiblingLoadsNextObject(t *testing.T) {
 	m := New(Config{
 		Session: testSession(), Lister: lister, Events: fakeEvents{},
 		Kind: certificateKind(), Namespace: "default", Name: "a",
-		Siblings: []string{"a", "b"}, SiblingIndex: 0,
+		Siblings: []SiblingRef{{Namespace: "default", Name: "a"}, {Namespace: "default", Name: "b"}}, SiblingIndex: 0,
 	})
 	cmd := m.moveSibling(1)
 	if cmd == nil {

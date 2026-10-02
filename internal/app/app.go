@@ -1046,7 +1046,11 @@ func openPodDetailFunc(sess *tui.Session, active seams, openLogs browse.OpenLogs
 // browse/nodedetail/poddetail.
 func openObjectDetailFunc(sess *tui.Session, active seams, openYAML browse.OpenYAMLFunc) browse.OpenObjectDetailFunc {
 	openObjectEvents := openObjectEventsFunc(sess, active, openYAML)
-	return func(kind kube.ResourceKind, namespace, name string, siblings []string, index, width, height int) (tea.Model, tea.Cmd) {
+	return func(kind kube.ResourceKind, namespace, name string, siblings []browse.ObjectSiblingRef, index, width, height int) (tea.Model, tea.Cmd) {
+		refs := make([]objectdetail.SiblingRef, len(siblings))
+		for i, s := range siblings {
+			refs[i] = objectdetail.SiblingRef{Namespace: s.Namespace, Name: s.Name}
+		}
 		od := objectdetail.New(objectdetail.Config{
 			Session:      sess,
 			Lister:       active,
@@ -1057,7 +1061,7 @@ func openObjectDetailFunc(sess *tui.Session, active seams, openYAML browse.OpenY
 			Kind:         kind,
 			Namespace:    namespace,
 			Name:         name,
-			Siblings:     siblings,
+			Siblings:     refs,
 			SiblingIndex: index,
 		})
 		od.SetSize(width, height)
@@ -1109,13 +1113,17 @@ func openCertChainFunc(sess *tui.Session, active seams, openYAML browse.OpenYAML
 // reusing openFluxDetail so ↵ on a reconciler lands on exactly the §31a
 // screen browse's own ↵ opens.
 func openFluxTreeFunc(sess *tui.Session, active seams, openFluxDetail browse.OpenFluxDetailFunc, openObjectDetail browse.OpenObjectDetailFunc) browse.OpenFluxTreeFunc {
+	// A source opened from the tree has no sibling list to step through.
+	openSource := func(kind kube.ResourceKind, namespace, name string, width, height int) (tea.Model, tea.Cmd) {
+		return openObjectDetail(kind, namespace, name, nil, 0, width, height)
+	}
 	return func(width, height int) (tea.Model, tea.Cmd) {
 		ft := fluxtree.New(fluxtree.Config{
 			Session:          sess,
 			Lister:           active,
 			Mutator:          active,
 			OpenFluxDetail:   fluxtree.OpenFluxDetailFunc(openFluxDetail),
-			OpenObjectDetail: fluxtree.OpenObjectDetailFunc(openObjectDetail),
+			OpenObjectDetail: openSource,
 		})
 		ft.SetSize(width, height)
 		return &ft, ft.Init()

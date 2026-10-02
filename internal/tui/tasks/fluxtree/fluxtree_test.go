@@ -425,7 +425,7 @@ func TestEnterPushesSoEscapeComesBack(t *testing.T) {
 				opened["flux-detail/"+name] = true
 				return &pushedTask{}, nil
 			},
-			OpenObjectDetail: func(_ kube.ResourceKind, _, name string, _ []string, _, _, _ int) (tea.Model, tea.Cmd) {
+			OpenObjectDetail: func(_ kube.ResourceKind, _, name string, _, _ int) (tea.Model, tea.Cmd) {
 				opened["object-detail/"+name] = true
 				return &pushedTask{}, nil
 			},
@@ -527,7 +527,7 @@ func TestEscapeReturnsToTheTreeThroughTheRootShell(t *testing.T) {
 		OpenFluxDetail: func(kube.ResourceKind, string, string, int, int) (tea.Model, tea.Cmd) {
 			return &pushedTask{}, nil
 		},
-		OpenObjectDetail: func(kube.ResourceKind, string, string, []string, int, int, int) (tea.Model, tea.Cmd) {
+		OpenObjectDetail: func(kube.ResourceKind, string, string, int, int) (tea.Model, tea.Cmd) {
 			return &pushedTask{}, nil
 		},
 	})

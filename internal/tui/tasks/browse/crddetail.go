@@ -42,11 +42,11 @@ func (m Model) openSelectedObjectDetail() (tea.Model, tea.Cmd, bool) {
 	if !ok {
 		return nil, nil, false
 	}
-	siblings := make([]string, len(m.visible))
+	siblings := make([]ObjectSiblingRef, len(m.visible))
 	index := 0
 	for i, fm := range m.visible {
-		siblings[i] = fm.row.Name
-		if fm.row.Name == row.Name {
+		siblings[i] = ObjectSiblingRef{Namespace: fm.row.Namespace, Name: fm.row.Name}
+		if fm.row.Namespace == row.Namespace && fm.row.Name == row.Name {
 			index = i
 		}
 	}

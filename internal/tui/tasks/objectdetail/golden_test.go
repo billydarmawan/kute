@@ -107,7 +107,7 @@ func goldenObjectDetailModel(t *testing.T, width, height int) *Model {
 		OpenYAML:   openObjStub,
 		OpenEvents: openObjStub,
 		Kind:       certificateKind(), Namespace: "nva-stage", Name: "api-tls",
-		Siblings: []string{"api-tls", "web-tls"}, SiblingIndex: 0,
+		Siblings: []SiblingRef{{Namespace: "default", Name: "api-tls"}, {Namespace: "default", Name: "web-tls"}}, SiblingIndex: 0,
 	})
 	m.SetSize(width, height)
 	updated, _ := step(t, &m, m.Init()())

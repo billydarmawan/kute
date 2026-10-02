@@ -93,7 +93,7 @@ func TestEnterOnDiscoveredHTTPRouteOpensRouteTableNotObjectDetail(t *testing.T) 
 			openedRouteTable = true
 			return stubTask{}, nil
 		},
-		OpenObjectDetail: func(kube.ResourceKind, string, string, []string, int, int, int) (tea.Model, tea.Cmd) {
+		OpenObjectDetail: func(kube.ResourceKind, string, string, []ObjectSiblingRef, int, int, int) (tea.Model, tea.Cmd) {
 			openedObjectDetail = true
 			return stubTask{}, nil
 		},

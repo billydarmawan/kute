@@ -44,8 +44,9 @@ type OpenFluxDetailFunc func(kind kube.ResourceKind, namespace, name string, wid
 // A source publishes an artifact, not a set of applied objects, so §31a's
 // inventory-shaped screen has no question to answer about one — 14d's
 // generic CRD detail does, and it is what browse's own ↵ would open for the
-// same object. Same shape as browse's OpenObjectDetailFunc.
-type OpenObjectDetailFunc func(kind kube.ResourceKind, namespace, name string, siblings []string, index, width, height int) (tea.Model, tea.Cmd)
+// same object. browse's OpenObjectDetailFunc minus the sibling list: a
+// source opened from the tree has no list of siblings to step through.
+type OpenObjectDetailFunc func(kind kube.ResourceKind, namespace, name string, width, height int) (tea.Model, tea.Cmd)
 
 // Config are fluxtree's dependencies, per repo convention.
 type Config struct {

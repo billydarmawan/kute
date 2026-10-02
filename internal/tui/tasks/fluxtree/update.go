@@ -258,7 +258,7 @@ func (m Model) openSelectedDetail() (tea.Model, tea.Cmd, bool) {
 		if m.openObjectDetail == nil {
 			return nil, nil, false
 		}
-		task, cmd := m.openObjectDetail(row.kind, row.namespace, row.name, nil, 0, m.width, m.height)
+		task, cmd := m.openObjectDetail(row.kind, row.namespace, row.name, m.width, m.height)
 		return task, cmd, task != nil
 	}
 	if m.openFluxDetail == nil {

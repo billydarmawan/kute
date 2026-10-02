@@ -40,8 +40,17 @@ type OpenYAMLFunc func(kind kube.ResourceKind, namespace, name string, width, he
 // object — same shape as poddetail's.
 type OpenEventsFunc func(kind kube.ResourceKind, namespace, name string, width, height int) (tea.Model, tea.Cmd)
 
+// SiblingRef names one sibling object for j/k movement — namespace-
+// qualified, because all-namespaces mode lists same-named objects side by
+// side (mirrors browse.ObjectSiblingRef, duplicated per the repo's
+// package-local-seam convention since task packages can't import one
+// another).
+type SiblingRef struct {
+	Namespace, Name string
+}
+
 // Config are objectdetail's dependencies, per repo convention. Siblings/
-// SiblingIndex are the ordered name list + cursor browse hands over so j/k
+// SiblingIndex are the ordered ref list + cursor browse hands over so j/k
 // can move to the next/prev object without leaving detail, same as
 // poddetail's.
 type Config struct {
@@ -54,7 +63,7 @@ type Config struct {
 	Kind         kube.ResourceKind
 	Namespace    string
 	Name         string
-	Siblings     []string
+	Siblings     []SiblingRef
 	SiblingIndex int
 	LoadTimeout  time.Duration
 }
@@ -82,7 +91,7 @@ type Model struct {
 	kind         kube.ResourceKind
 	namespace    string
 	name         string
-	siblings     []string
+	siblings     []SiblingRef
 	siblingIndex int
 
 	desc resources.Descriptor

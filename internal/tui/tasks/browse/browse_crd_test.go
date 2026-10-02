@@ -92,7 +92,7 @@ func TestEnterOnCustomRowOpensObjectDetail(t *testing.T) {
 	var openedNS, openedName string
 	m := New(Config{
 		Session: session, Lister: lister,
-		OpenObjectDetail: func(kind kube.ResourceKind, ns, name string, siblings []string, index, w, h int) (tea.Model, tea.Cmd) {
+		OpenObjectDetail: func(kind kube.ResourceKind, ns, name string, siblings []ObjectSiblingRef, index, w, h int) (tea.Model, tea.Cmd) {
 			openedKind, openedNS, openedName = kind, ns, name
 			return stubTask{}, nil
 		},
@@ -327,7 +327,7 @@ func TestCRDAndCustomKeybarsOmitGenericOpenHint(t *testing.T) {
 		session.Location.Kind = kube.ResourceKind("Certificate")
 		m := New(Config{
 			Session: session, Lister: lister,
-			OpenObjectDetail: func(kube.ResourceKind, string, string, []string, int, int, int) (tea.Model, tea.Cmd) {
+			OpenObjectDetail: func(kube.ResourceKind, string, string, []ObjectSiblingRef, int, int, int) (tea.Model, tea.Cmd) {
 				return stubTask{}, nil
 			},
 		})
@@ -359,5 +359,48 @@ func TestCRDDeleteAlwaysForcesModalTier(t *testing.T) {
 	}
 	if m.actions.Tier() != actions.TierModal {
 		t.Fatalf("expected TierModal for a CRD delete even outside PROD, got %v", m.actions.Tier())
+	}
+}
+
+// TestObjectDetailSiblingsAreNamespaceQualified: in all-namespaces mode two
+// namespaces can hold same-named objects, so 14d's siblings carry their
+// namespace and the index points at the row actually selected, not the
+// first same-named one.
+func TestObjectDetailSiblingsAreNamespaceQualified(t *testing.T) {
+	reg, _ := resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{discoveredWidgetDK()}, nil)
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.ResourceKind("Widget"): {widgetInstance("w", "aaa"), widgetInstance("w", "bbb")},
+	}}
+	session := newSession()
+	session.Registry = reg
+	session.Location.Kind = kube.ResourceKind("Widget")
+	session.Location.Namespace = ""
+	var gotSiblings []ObjectSiblingRef
+	var gotIndex int
+	var gotNS string
+	m := New(Config{
+		Session: session, Lister: lister,
+		OpenObjectDetail: func(_ kube.ResourceKind, ns, _ string, siblings []ObjectSiblingRef, index, _, _ int) (tea.Model, tea.Cmd) {
+			gotNS, gotSiblings, gotIndex = ns, siblings, index
+			return stubTask{}, nil
+		},
+	})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	// Healthy groups fold to a summary in 6b; expand both to reach a row.
+	m.expandedGroups = map[string]bool{"aaa": true, "bbb": true}
+	m.rebuildDisplay()
+	m.selected = len(m.display) - 1
+	row, ok := m.selectedRow()
+	if !ok {
+		t.Fatal("no selected row")
+	}
+
+	m.Update(tea.KeyPressMsg{Text: "enter"})
+	if gotNS != row.Namespace || len(gotSiblings) != 2 {
+		t.Fatalf("opened ns=%q with %d siblings, want %q with 2", gotNS, len(gotSiblings), row.Namespace)
+	}
+	if s := gotSiblings[gotIndex]; s.Namespace != row.Namespace || s.Name != row.Name {
+		t.Fatalf("siblings[%d] = %+v, want the selected %s/%s", gotIndex, s, row.Namespace, row.Name)
 	}
 }

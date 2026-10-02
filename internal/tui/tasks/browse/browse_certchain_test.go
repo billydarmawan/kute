@@ -41,7 +41,7 @@ func TestEnterOnCertificateRowOpensCertChain(t *testing.T) {
 			openedNS, openedName = ns, name
 			return stubTask{}, nil
 		},
-		OpenObjectDetail: func(kind kube.ResourceKind, ns, name string, siblings []string, index, w, h int) (tea.Model, tea.Cmd) {
+		OpenObjectDetail: func(kind kube.ResourceKind, ns, name string, siblings []ObjectSiblingRef, index, w, h int) (tea.Model, tea.Cmd) {
 			objectDetailCalled = true
 			return stubTask{}, nil
 		},

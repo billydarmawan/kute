@@ -124,6 +124,14 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !msg.found {
+		// "Not in the cache" only means deleted once that cache has filled
+		// for this namespace — a sibling in a namespace this screen hasn't
+		// read yet (scoped mode) or a cache still on its initial LIST would
+		// otherwise read as a false "deleted" banner.
+		if !tui.KindsSynced(m.lister, m.namespace, m.kind) {
+			m.syncRetryGen++
+			return m, tui.ScheduleCacheSyncRetry(m.syncRetryGen)
+		}
 		m.gone = true
 		m.state = tui.TaskStateReady
 		m.feedback = ""
@@ -283,7 +291,8 @@ func (m *Model) moveSibling(delta int) tea.Cmd {
 		return nil
 	}
 	m.siblingIndex = next
-	m.name = m.siblings[next]
+	m.namespace = m.siblings[next].Namespace
+	m.name = m.siblings[next].Name
 	m.gone = false
 	m.found = false
 	m.obj = nil
