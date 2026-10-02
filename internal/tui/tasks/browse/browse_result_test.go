@@ -1,6 +1,7 @@
 package browse
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -82,5 +83,95 @@ func TestSuccessfulDeleteShowsResult(t *testing.T) {
 	m = step(t, m, tea.KeyPressMsg{Text: "y"})
 	if bar := keybarLine(m); !strings.Contains(bar, "✓") || !strings.Contains(bar, "api-0") {
 		t.Fatalf("expected a success line naming api-0, got %q", bar)
+	}
+}
+
+// selectiveDeleteMutator fails DeleteResource for the names in refuse and
+// delegates everything else to fakeMutator.
+type selectiveDeleteMutator struct {
+	*fakeMutator
+	refuse map[string]error
+}
+
+func (f *selectiveDeleteMutator) DeleteResource(ctx context.Context, kind kube.ResourceKind, ns, name string) error {
+	if err, ok := f.refuse[name]; ok {
+		return err
+	}
+	return f.fakeMutator.DeleteResource(ctx, kind, ns, name)
+}
+
+// TestBulkDeletePartialFailureShowsErrorResultLine: a marked-set delete
+// where some targets fail must report through the same red keybar result
+// line a single failed delete uses — not the dim RightNote.
+func TestBulkDeletePartialFailureShowsErrorResultLine(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-0"), pod("default", "api-1"), pod("default", "api-2")},
+	}}
+	mut := &selectiveDeleteMutator{fakeMutator: &fakeMutator{}, refuse: map[string]error{
+		"api-1": errors.New(`pods "api-1" is forbidden`),
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Mutator: mut})
+	m.SetSize(160, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "*"})
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+
+	res := m.ActionResult()
+	if !res.Failed {
+		t.Fatalf("expected a failed result line, got %+v", res)
+	}
+	if !strings.Contains(res.Text, "1 of 3 targets failed") || !strings.Contains(res.Text, "forbidden") {
+		t.Fatalf("expected the count and the first error in the result line, got %q", res.Text)
+	}
+	if note := m.Keybar().RightNote; strings.Contains(note, "forbidden") {
+		t.Fatalf("the failure must not render as the dim note, got RightNote %q", note)
+	}
+	if bar := keybarLine(m); !strings.Contains(bar, "1 of 3 targets failed") {
+		t.Fatalf("expected the failure on the keybar, got %q", bar)
+	}
+}
+
+// TestBulkDeleteTotalFailureShowsErrorResultLine: every target failing is
+// a failed result too.
+func TestBulkDeleteTotalFailureShowsErrorResultLine(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-0"), pod("default", "api-1")},
+	}}
+	mut := &fakeMutator{err: errors.New("connection refused")}
+	m := New(Config{Session: newSession(), Lister: lister, Mutator: mut})
+	m.SetSize(160, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "*"})
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+
+	res := m.ActionResult()
+	if !res.Failed || !strings.Contains(res.Text, "all 2 targets failed") || !strings.Contains(res.Text, "connection refused") {
+		t.Fatalf("expected a failed 'all 2 targets failed' result line, got %+v", res)
+	}
+	if note := m.Keybar().RightNote; strings.Contains(note, "connection refused") {
+		t.Fatalf("the failure must not render as the dim note, got RightNote %q", note)
+	}
+}
+
+// TestBulkDeleteSuccessShowsSuccessResultLine: full success stays the green
+// success line.
+func TestBulkDeleteSuccessShowsSuccessResultLine(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-0"), pod("default", "api-1")},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Mutator: &fakeMutator{}})
+	m.SetSize(160, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "*"})
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+
+	if res := m.ActionResult(); res.Failed || res.Text != "Delete pods (2)" {
+		t.Fatalf("expected the success line 'Delete pods (2)', got %+v", res)
 	}
 }

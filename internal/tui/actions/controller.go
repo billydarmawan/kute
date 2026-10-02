@@ -397,6 +397,30 @@ func summary(label string) string {
 // only the failed rows marked) read msg.Results/msg.Failed() themselves —
 // this only drives the controller's own State()/Message().
 func (c *Controller) HandleBulkResult(msg BulkResultMsg) {
+	message := c.ReportBulkResult(msg)
+	failed := msg.Failed()
+	if c.stale(msg.Seq) {
+		return
+	}
+	c.pending = nil
+	c.tier = TierNone
+	c.typedInput.Blur()
+	c.message = message
+	if len(failed) == 0 {
+		c.state = tui.TaskStateSuccess
+		return
+	}
+	c.state = tui.TaskStateError
+}
+
+// ReportBulkResult sets only the keybar outcome line (Result) for a bulk
+// action's per-target outcomes — green "<label> (N)" when every target
+// succeeded, red "N of M targets failed: <first error>" otherwise — and
+// returns the matching Message() text. It never touches pending/state, so a
+// bulk verb that runs its own confirm outside Begin (browse's 20a marked-set
+// delete) reports through the same line without disturbing the controller.
+// HandleBulkResult calls it for the controller's own bulk actions.
+func (c *Controller) ReportBulkResult(msg BulkResultMsg) string {
 	label := summary(msg.Label)
 	failed := msg.Failed()
 	var message string
@@ -411,18 +435,7 @@ func (c *Controller) HandleBulkResult(msg BulkResultMsg) {
 		message = fmt.Sprintf("%s: %d of %d targets failed: %v", label, len(failed), len(msg.Results), failed[0].Err)
 		c.result = tui.ResultLine{Text: message, Failed: true}
 	}
-	if c.stale(msg.Seq) {
-		return
-	}
-	c.pending = nil
-	c.tier = TierNone
-	c.typedInput.Blur()
-	c.message = message
-	if len(failed) == 0 {
-		c.state = tui.TaskStateSuccess
-		return
-	}
-	c.state = tui.TaskStateError
+	return message
 }
 
 // Prompt is the confirmation question shown while Active.

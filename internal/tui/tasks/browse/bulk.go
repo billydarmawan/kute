@@ -10,7 +10,6 @@ package browse
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -41,12 +40,23 @@ type bulkDeleteTarget struct {
 	typedInput textfield.Model
 }
 
-// bulkDeleteResultMsg carries a bulk delete's outcome — count is how many
-// targets were attempted; err joins every per-row failure (errors.Join),
-// nil when every delete succeeded.
+// bulkDeleteResultMsg carries a bulk delete's per-target outcomes, in
+// marked-row order, under label ("Delete pods") — reported on the keybar's
+// result line via actions.Controller.ReportBulkResult, the same red/green
+// line every single-object mutation uses.
 type bulkDeleteResultMsg struct {
-	count int
-	err   error
+	label   string
+	results []actions.TargetResult
+}
+
+// failed reports whether any target's delete failed.
+func (m bulkDeleteResultMsg) failed() bool {
+	for _, r := range m.results {
+		if r.Err != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // markKey identifies a row for the marked set — namespace+name rather than
@@ -193,21 +203,24 @@ func (m *Model) updateBulkDeleteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // executeBulkDelete runs kube.Mutator.DeleteResource for every marked row,
-// joining per-row failures rather than stopping at the first one — a
-// partial failure still deletes everything it can.
+// recording each row's outcome rather than stopping at the first failure —
+// a partial failure still deletes everything it can.
 func (m *Model) executeBulkDelete() tea.Cmd {
 	t := m.pendingBulkDelete
 	mutator := m.mutator
 	kind := m.kind
 	rows := t.rows
+	label := "Delete " + lowerDisplay(m.desc.Display)
 	return func() tea.Msg {
-		var errs []error
+		results := make([]actions.TargetResult, 0, len(rows))
 		for _, r := range rows {
-			if err := mutator.DeleteResource(context.Background(), kind, r.Namespace, r.Name); err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", r.Name, err))
+			err := mutator.DeleteResource(context.Background(), kind, r.Namespace, r.Name)
+			if err != nil {
+				err = fmt.Errorf("%s: %w", r.Name, err)
 			}
+			results = append(results, actions.TargetResult{Namespace: r.Namespace, ResourceName: r.Name, Err: err})
 		}
-		return bulkDeleteResultMsg{count: len(rows), err: errors.Join(errs...)}
+		return bulkDeleteResultMsg{label: label, results: results}
 	}
 }
 

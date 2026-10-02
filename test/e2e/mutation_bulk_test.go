@@ -136,7 +136,7 @@ func TestBulkDeletePartialFailureKeepsMarks(t *testing.T) {
 
 	// The failure is reported rather than swallowed, and the marked set
 	// survives it so the user can retry the set they chose.
-	a.WaitForWrapped("bulk delete:", Settle)
+	a.WaitForWrapped("1 of 2 targets failed", Settle)
 	a.WaitFor("marked", Settle)
 
 	// And the refused object is still there — both on the server and on the

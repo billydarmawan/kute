@@ -271,9 +271,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case bulkDeleteResultMsg:
 		m.pendingBulkDelete = nil
-		if msg.err != nil {
-			m.execFeedback = "bulk delete: " + msg.err.Error()
-		} else {
+		// The outcome — "Delete pods (N)" or the red "N of M targets
+		// failed: <first error>" — is the controller's keybar result line
+		// (ActionResult), the same surface a single delete's failure uses.
+		m.actions.ReportBulkResult(actions.BulkResultMsg{Label: msg.label, Results: msg.results})
+		if !msg.failed() {
 			m.marks = nil
 		}
 		return m, m.load()
@@ -281,8 +283,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 0.8.0 plan §3 Phase 2 task 11: "let the caller retain only failed
 		// marks" — a marked-set suspend/resume (cronjob_actions.go's
 		// beginCronJobSuspendBulk/commitCronJobResume) is the one bulk verb
-		// routed through actions.Controller's own structured payload rather
-		// than bulkDeleteResultMsg's simpler joined-error shape, so its
+		// routed through actions.Controller's own Begin/execute path rather
+		// than bulk delete's own confirm (bulkDeleteResultMsg), so its
 		// per-target detail is handled here instead.
 		// The outcome itself ("… (N)" / "N of M targets failed") is the
 		// controller's keybar result line (ActionResult).
