@@ -3,6 +3,7 @@ package tui_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,5 +112,21 @@ func TestInformerEventsHeldBackDuringContextSwitch(t *testing.T) {
 	_, _ = updated.(tui.Model).Update(kube.ResourceChangedMsg{Kind: kube.KindPod})
 	if task.changes != 1 {
 		t.Fatalf("task saw %d informer events after the switch settled, want 1", task.changes)
+	}
+}
+
+// The resting browse is rebuilt on a switch too, not just a pushed stack:
+// it captures the context's user and cluster name at build, so keeping it
+// stamped the previous context's identity on the new cluster's run-now Jobs.
+func TestContextSwitchFromRestingBrowseRebuildsIt(t *testing.T) {
+	sess := testSession()
+	sess.Location = tui.Location{Context: "one", Namespace: "old", Kind: kube.KindPod}
+	freshBrowse := &screenTask{name: "fresh-browse"}
+	model := tui.NewWithSession(&screenTask{name: "old-browse"}, sess).
+		WithRootFactories(nil, func() tui.Task { return freshBrowse })
+
+	updated, _ := model.Update(tui.SwitchContextMsg{Context: "two", Namespace: "new", Kind: kube.KindPod})
+	if view := updated.(tui.Model).View().Content; !strings.Contains(view, "fresh-browse") {
+		t.Fatalf("context switch kept the old context's resting browse:\n%s", view)
 	}
 }

@@ -839,15 +839,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.session.Cluster != nil {
 				m.session.Registry, m.session.Groups = resources.BuildDiscoveredRegistry(m.session.Cluster.DiscoveredKinds(), m.session.Cluster)
 			}
-			// A context switch from a pushed task has one explicit contract:
-			// discard the old-context task stack and return to a fresh browse
-			// screen restored for the destination context. Rebuilding an
-			// equivalent detail/log/editor would risk carrying old object
-			// identity or an old stream into the new frame.
-			if len(m.stack) > 0 && m.buildBrowse != nil {
+			// A context switch has one explicit contract: discard the
+			// old-context task stack and return to a fresh browse screen
+			// restored for the destination context. Rebuilding an equivalent
+			// detail/log/editor would risk carrying old object identity or an
+			// old stream into the new frame — and the resting browse is no
+			// exception: it captured the old context's user (stamped on every
+			// run-now's triggered-by annotation) and cluster name at build.
+			// The fresh browse still gets the message, which is what applies
+			// the destination's remembered filter.
+			if m.buildBrowse != nil {
 				m.activateFresh(m.buildBrowse())
 				m.stack = nil
-				return m, m.taskInit()
+				updated, cmd := m.task.Update(msg)
+				if t, ok := updated.(Task); ok {
+					m.task = t
+				}
+				return m, tea.Batch(m.taskInit(), ownCmd(m.taskID, cmd))
 			}
 		}
 	case kube.ResourceChangedMsg:
