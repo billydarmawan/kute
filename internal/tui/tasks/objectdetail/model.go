@@ -112,6 +112,10 @@ type Model struct {
 	// from a genuinely empty result, same reasoning as poddetail's.
 	eventsErr error
 
+	// syncRetryGen is the epoch of the pending tui.CacheSyncRetryMsg, so a
+	// retry scheduled before a newer one can't fire a duplicate reload.
+	syncRetryGen int
+
 	conn kube.ConnState
 
 	state    tui.TaskState

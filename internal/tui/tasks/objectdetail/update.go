@@ -47,7 +47,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
-		if msg.Kind == m.kind && m.lister != nil {
+		// The object itself, plus Event: the EVENTS grid is read from a
+		// cache this screen doesn't list, so it must reload on that kind
+		// too or its rows go stale (CLAUDE.md: a screen reading a kind it
+		// doesn't display must still reload on it).
+		if (msg.Kind == m.kind || msg.Kind == kube.KindEvent) && m.lister != nil {
+			return m, m.load()
+		}
+	case tui.CacheSyncRetryMsg:
+		if msg.Gen == m.syncRetryGen && m.lister != nil {
 			return m, m.load()
 		}
 	case kube.ConnStateMsg:
@@ -120,6 +128,15 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 		m.state = tui.TaskStateReady
 		m.feedback = ""
 		return m, nil
+	}
+	// The Event informer starts lazily on this screen's first read and
+	// answers empty until its initial LIST lands — "no events" (and the
+	// redirect it can trigger) is a claim about the cluster, so it waits
+	// for that cache to fill. The retry covers an object with genuinely no
+	// events, which syncs without ever emitting a change event.
+	if len(msg.events) == 0 && msg.eventsErr == nil && m.events != nil && !tui.KindsSynced(m.lister, m.namespace, kube.KindEvent) {
+		m.syncRetryGen++
+		return m, tui.ScheduleCacheSyncRetry(m.syncRetryGen)
 	}
 	if len(msg.conditions) == 0 && len(msg.events) == 0 && msg.eventsErr == nil && m.openYAML != nil {
 		task, cmd := m.openYAML(m.kind, m.namespace, m.name, m.width, m.height)
