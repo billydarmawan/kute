@@ -15,7 +15,10 @@ func TestDetectInstall(t *testing.T) {
 	}{
 		{"macos homebrew cellar", "/opt/homebrew/Cellar/kute/0.2.0/bin/kute", "darwin", "homebrew", homebrewCommand},
 		{"linux homebrew cellar", "/home/linuxbrew/.linuxbrew/Cellar/kute/0.2.0/bin/kute", "linux", "homebrew", homebrewCommand},
-		{"homebrew opt symlink target", "/usr/local/homebrew/Cellar/kute/0.2.0/bin/kute", "darwin", "homebrew", homebrewCommand},
+		{"intel macos homebrew cellar", "/usr/local/Cellar/kute/0.2.0/bin/kute", "darwin", "homebrew", homebrewCommand},
+		{"apple silicon homebrew cask", "/opt/homebrew/Caskroom/kute/0.9.0/kute", "darwin", "homebrew", homebrewCommand},
+		{"intel macos homebrew cask", "/usr/local/Caskroom/kute/0.9.0/kute", "darwin", "homebrew", homebrewCommand},
+		{"linux homebrew cask", "/home/linuxbrew/.linuxbrew/Caskroom/kute/0.9.0/kute", "linux", "homebrew", homebrewCommand},
 		{"install script default location", "/usr/local/bin/kute", "linux", "curl", curlCommand},
 		{"install script home-local", "/home/user/.local/bin/kute", "linux", "curl", curlCommand},
 		{"go run dev binary", "/tmp/go-build12345/b001/kute", "linux", "curl", curlCommand},

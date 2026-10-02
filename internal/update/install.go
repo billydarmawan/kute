@@ -14,7 +14,9 @@ type InstallInfo struct {
 }
 
 const (
-	homebrewCommand   = "brew install kute-dev/tap/kute"
+	// upgrade, not install: `brew install` on an installed cask stops at
+	// "already installed". --cask because releases ship as a cask.
+	homebrewCommand   = "brew upgrade --cask kute-dev/tap/kute"
 	scoopCommand      = "scoop update kute"
 	curlCommand       = "curl -fsSL https://kute.dev/install.sh | sh"
 	powershellCommand = "irm https://kute.dev/install.ps1 | iex"
@@ -47,9 +49,14 @@ func detectInstall(execPath, goos string) InstallInfo {
 	}
 }
 
+// isHomebrewPath matches the cask kute ships as (/Caskroom/ — on Intel macOS
+// /usr/local/Caskroom/, which contains no "/homebrew/" and was being told to
+// run the install script over Homebrew's own symlink) as well as a formula's
+// /Cellar/ and the Homebrew prefixes themselves.
 func isHomebrewPath(execPath string) bool {
 	p := slashPath(execPath)
-	return strings.Contains(p, "/Cellar/") ||
+	return strings.Contains(p, "/Caskroom/") ||
+		strings.Contains(p, "/Cellar/") ||
 		strings.Contains(p, "/homebrew/") ||
 		strings.Contains(p, "linuxbrew")
 }
