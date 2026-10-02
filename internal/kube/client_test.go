@@ -119,6 +119,10 @@ func TestNewClientForContextHonorsExplicitOverride(t *testing.T) {
 	if client.Context.Namespace != "ns-b" {
 		t.Errorf("Namespace = %q, want %q", client.Context.Namespace, "ns-b")
 	}
+	// user-b has no client cert, so its name is only the kubeconfig entry.
+	if client.Context.UserName != "user-b" || !client.Context.UserFromAuthInfo {
+		t.Errorf("UserName = %q, UserFromAuthInfo = %v; want user-b from the AuthInfo entry", client.Context.UserName, client.Context.UserFromAuthInfo)
+	}
 
 	// The no-override case ("" — NewCluster's own call) must still fall
 	// back to the file's own current-context, unchanged.

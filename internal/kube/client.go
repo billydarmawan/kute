@@ -287,6 +287,7 @@ func newClientForContext(contextName string) (Client, error) {
 				ctx.Namespace = "default"
 			}
 			ctx.UserName = current.AuthInfo
+			ctx.UserFromAuthInfo = true
 			if authInfo, ok := rawConfig.AuthInfos[current.AuthInfo]; ok {
 				if cn, orgs, ok := clientCertIdentity(authInfo); ok {
 					// The client cert's Subject is the identity the API
@@ -296,6 +297,7 @@ func newClientForContext(contextName string) (Client, error) {
 					// the AuthInfo name whenever it's available.
 					ctx.UserName = cn
 					ctx.UserGroups = orgs
+					ctx.UserFromAuthInfo = false
 				}
 			}
 		}

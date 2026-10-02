@@ -188,9 +188,17 @@ func (m Model) renderRow(theme tui.Theme, r whoCanRow) components.Row {
 	}
 	subjectStyle := name
 	if r.pinned {
-		if r.granted {
+		switch {
+		case r.granted:
 			subjectText += " (you)"
-		} else {
+		case r.unknown:
+			// No local way to know who the server authenticates, so no
+			// verdict either way — §22a's red ✕ is a claim about a real
+			// identity.
+			glyph, glyphStyle = "–", nameDim
+			subjectText += " (you)"
+			subjectStyle = secondary
+		default:
 			glyph, glyphStyle = tui.GlyphFailed, bad
 			subjectText += " (you)"
 			subjectStyle = bad

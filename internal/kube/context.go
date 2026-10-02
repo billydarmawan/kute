@@ -28,6 +28,11 @@ type Context struct {
 	// shape for "system:masters"/cluster-admin bindings) can't be resolved
 	// for those without a server round trip.
 	UserGroups []string
+	// UserFromAuthInfo reports that UserName is only the kubeconfig
+	// AuthInfo entry's name (token, exec plugin, OIDC — every managed
+	// cloud), e.g. "arn:aws:eks:…" or "gke_proj_zone_c", which is never a
+	// subject any binding names. 22a then can't claim a denial for it.
+	UserFromAuthInfo bool
 }
 
 // ContextProvider reads the active Kubernetes context.

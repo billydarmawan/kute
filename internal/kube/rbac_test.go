@@ -1,6 +1,7 @@
 package kube
 
 import (
+	"strings"
 	"testing"
 
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -293,5 +294,38 @@ func TestResolveWhoCan_ResourceNamesRuleIsMarkedAndNeverGrantsList(t *testing.T)
 	}
 	if !get.CurrentUserGranted || len(get.CurrentUserOnlyNames) != 1 {
 		t.Fatalf("current user = granted %v only %v, want a name-limited grant", get.CurrentUserGranted, get.CurrentUserOnlyNames)
+	}
+}
+
+func TestResolveWhoCan_EveryAuthenticatedUserHoldsSystemAuthenticated(t *testing.T) {
+	crs := []*rbacv1.ClusterRole{
+		clusterRole("basic", rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"get"}}),
+	}
+	crbs := []*rbacv1.ClusterRoleBinding{
+		clusterRoleBinding("auth", "basic", rbacv1.Subject{Kind: rbacv1.GroupKind, Name: "system:authenticated"}),
+	}
+	result := ResolveWhoCan(WhoCanQuery{Verb: "get", Resource: "secrets"}, "alice", nil, crs, nil, crbs, nil)
+	if !result.CurrentUserGranted {
+		t.Fatalf("alice must be granted through system:authenticated, got via %q", result.CurrentUserVia)
+	}
+	if want := "clusterrole/basic ← clusterrolebinding/auth · via group system:authenticated"; result.CurrentUserVia != want {
+		t.Fatalf("via = %q, want %q", result.CurrentUserVia, want)
+	}
+}
+
+func TestMarkUnknownIdentityNeverDeniesAKubeconfigEntryName(t *testing.T) {
+	denied := WhoCanResult{CurrentUser: "arn:aws:eks:us-east-1:1:cluster/prod", CurrentUserVia: "no bindings grant arn:aws:eks:us-east-1:1:cluster/prod access here"}
+
+	if got := markUnknownIdentity(denied, false); got.CurrentUserUnknown {
+		t.Fatal("a client-cert identity's miss is a real denial")
+	}
+	got := markUnknownIdentity(denied, true)
+	if !got.CurrentUserUnknown || !strings.HasPrefix(got.CurrentUserVia, "identity unknown") {
+		t.Fatalf("got %+v, want an unknown identity instead of a denial", got)
+	}
+	granted := denied
+	granted.CurrentUserGranted = true
+	if got := markUnknownIdentity(granted, true); got.CurrentUserUnknown {
+		t.Fatal("a grant found for the name stays a grant")
 	}
 }

@@ -60,6 +60,9 @@ type whoCanRow struct {
 	subject kube.WhoCanSubject
 	pinned  bool
 	granted bool
+	// unknown marks a pinned row whose identity is only a kubeconfig entry
+	// name (kube.WhoCanResult.CurrentUserUnknown) — neutral, never a ✕.
+	unknown bool
 }
 
 type Model struct {

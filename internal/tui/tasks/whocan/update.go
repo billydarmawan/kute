@@ -208,6 +208,7 @@ func buildRows(result kube.WhoCanResult) []whoCanRow {
 		rows = append(rows, whoCanRow{
 			pinned:  true,
 			granted: result.CurrentUserGranted,
+			unknown: result.CurrentUserUnknown,
 			subject: kube.WhoCanSubject{
 				Name:         result.CurrentUser,
 				Kind:         "User",

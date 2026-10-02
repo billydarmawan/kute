@@ -177,6 +177,28 @@ func TestGroupQualifiedResourceQueriesItsAPIGroup(t *testing.T) {
 	}
 }
 
+func TestUnknownIdentityPinsANeutralRowNotADenial(t *testing.T) {
+	rbac := &fakeRBAC{result: kube.WhoCanResult{
+		CurrentUser:        "gke_proj_zone_c",
+		CurrentUserUnknown: true,
+		CurrentUserVia:     "identity unknown — gke_proj_zone_c is the kubeconfig user entry, not the authenticated user",
+	}}
+	m := New(Config{Session: newSession(), RBAC: rbac, Verb: "list", Resource: "secrets", Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.rows) != 1 || !m.rows[0].unknown {
+		t.Fatalf("rows = %+v, want one unknown pinned row", m.rows)
+	}
+	view := plain(m.Render())
+	if strings.Contains(view, tui.GlyphFailed) {
+		t.Fatalf("an unknown identity must not render a ✕ denial:\n%s", view)
+	}
+	if !strings.Contains(view, "identity unknown") {
+		t.Fatalf("expected the identity-unknown VIA in view:\n%s", view)
+	}
+}
+
 func TestEmptyResultEntersEmptyState(t *testing.T) {
 	rbac := &fakeRBAC{result: kube.WhoCanResult{}}
 	m := New(Config{Session: newSession(), RBAC: rbac, Verb: "delete", Resource: "namespaces", Namespace: "default"})

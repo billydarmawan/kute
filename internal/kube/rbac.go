@@ -120,7 +120,17 @@ type WhoCanResult struct {
 	CurrentUserClusterScope bool
 	// CurrentUserOnlyNames mirrors WhoCanSubject.OnlyNames for that grant.
 	CurrentUserOnlyNames []string
+	// CurrentUserUnknown is set when CurrentUser is only a kubeconfig
+	// AuthInfo entry name (Context.UserFromAuthInfo) and no grant was
+	// found: the real identity is unknown locally, so the pinned row is a
+	// neutral unknown rather than a denial.
+	CurrentUserUnknown bool
 }
+
+// systemAuthenticated is the group the API server adds to every
+// authenticated identity — never in a kubeconfig or a client cert, yet
+// a common subject for cluster-wide read grants.
+const systemAuthenticated = "system:authenticated"
 
 // matchesVerb reports whether rule grants verb ("*" matches anything).
 func matchesVerb(rule rbacv1.PolicyRule, verb string) bool {
@@ -303,6 +313,9 @@ func ResolveWhoCan(
 	if currentUser == "" {
 		return result
 	}
+	if !slices.Contains(currentUserGroups, systemAuthenticated) {
+		currentUserGroups = append(slices.Clone(currentUserGroups), systemAuthenticated)
+	}
 	// Exact User match first; a Group match (the common shape for
 	// cluster-admin/system:masters-style grants) only if no more specific
 	// User row exists — but a blanket grant beats a name-limited one either
@@ -435,5 +448,18 @@ func (c *Cluster) WhoCan(ctx context.Context, query WhoCanQuery) (WhoCanResult, 
 		}
 	}
 
-	return ResolveWhoCan(query, c.Context.UserName, c.Context.UserGroups, clusterRoles, roles, clusterRoleBindings, roleBindings), nil
+	result := ResolveWhoCan(query, c.Context.UserName, c.Context.UserGroups, clusterRoles, roles, clusterRoleBindings, roleBindings)
+	return markUnknownIdentity(result, c.Context.UserFromAuthInfo), nil
+}
+
+// markUnknownIdentity turns an ungranted verdict for a kubeconfig AuthInfo
+// name into an unknown one: that name was never the authenticated
+// identity, so its closest miss explains nothing about the real user.
+func markUnknownIdentity(result WhoCanResult, fromAuthInfo bool) WhoCanResult {
+	if !fromAuthInfo || result.CurrentUser == "" || result.CurrentUserGranted {
+		return result
+	}
+	result.CurrentUserUnknown = true
+	result.CurrentUserVia = "identity unknown — " + result.CurrentUser + " is the kubeconfig user entry, not the authenticated user"
+	return result
 }
