@@ -257,11 +257,32 @@ func namespaceItems(sess *Session) ([]palette.Item, []resources.Row) {
 	ctx := sess.ClusterContext()
 	counts := make([]int, len(rows))
 	healths := make([]resources.HealthCounts, len(rows))
+	// known[i] reports whether row i's count is a real reading. A
+	// namespace is only counted when its cache for countDesc's kind is
+	// already running and filled (KindCached): this is a breadth-first
+	// read, so it may only touch what the session has already paid for.
+	// For most kinds in cluster-wide mode one cache backs every namespace
+	// and every row is counted as before; KindHelmRelease is cached per
+	// namespace even there (docs/lazy-informers.md §5.5), and reading an
+	// un-started namespace would start — and block the Update loop on —
+	// its own release-Secret informer. An un-started or still-filling
+	// cache gets the ghost dash, never a claimed 0.
+	known := make([]bool, len(rows))
+	allKnown := !scoped
 	totalCount := 0
 	var totalHealth resources.HealthCounts
 	if !scoped {
 		for i, row := range rows {
-			countRows, _ := resources.List(ctx, sess.Lister, countDesc, row.Name)
+			if !KindCached(sess.Lister, countDesc.Kind, row.Name) {
+				allKnown = false
+				continue
+			}
+			countRows, err := resources.List(ctx, sess.Lister, countDesc, row.Name)
+			if err != nil {
+				allKnown = false
+				continue
+			}
+			known[i] = true
 			counts[i] = len(countRows)
 			totalCount += len(countRows)
 			healths[i] = countDesc.Health(countRows)
@@ -281,7 +302,7 @@ func namespaceItems(sess *Session) ([]palette.Item, []resources.Row) {
 			Label: row.Name,
 			Data:  namespaceTarget{namespace: row.Name},
 		}
-		if scoped {
+		if !known[i] {
 			item.Cols = namespaceColsUnknown()
 		} else {
 			item.Dim = counts[i] == 0
@@ -311,9 +332,11 @@ func namespaceItems(sess *Session) ([]palette.Item, []resources.Row) {
 			{},
 		},
 	}
-	if scoped {
-		// totalCount/totalHealth were never computed above — the same
-		// unknown ghost dash the per-namespace rows get, not a claimed 0.
+	if !allKnown {
+		// totalCount/totalHealth miss at least one namespace (scoped mode
+		// counts none; otherwise an un-started cache was skipped) — the
+		// same unknown ghost dash the per-namespace rows get, not a
+		// partial sum passed off as the cluster total.
 		allItem.Cols = namespaceColsUnknown()
 	}
 	if sess.Location.Namespace == "" {

@@ -841,3 +841,88 @@ func TestRootModelNDeniedEnterDispatchesTypedNamespace(t *testing.T) {
 		t.Fatalf("dispatched %#v, want SwitchNamespaceMsg{Namespace: \"team-a\"}", msg)
 	}
 }
+
+// perNamespaceReleaseLister models KindHelmRelease's per-namespace release
+// caches (docs/lazy-informers.md §5.5): KindStarted answers true only for a
+// (HelmRelease, namespace) cache already read; every other kind is one
+// cluster-wide cache that is already running.
+type perNamespaceReleaseLister struct {
+	gotoFakeLister
+	started map[gotoListCall]bool
+}
+
+func (l perNamespaceReleaseLister) KindStarted(kind kube.ResourceKind, namespace string) bool {
+	if kind != kube.KindHelmRelease {
+		return true
+	}
+	return l.started[gotoListCall{kind: kind, namespace: namespace}]
+}
+
+func namespaceTestRelease(ns, name string) *kube.HelmReleaseObject {
+	return kube.NewHelmReleaseObject(kube.HelmRelease{
+		Namespace: ns, Name: name, Chart: name, ChartVersion: "1.0.0",
+		AppVersion: "1.0.0", Revision: 1, Status: "deployed",
+	})
+}
+
+// TestRootModelNOnHelmListReadsNoUnstartedReleaseCache is review 13 H5:
+// opening 'n' on the Helm Releases list must not count releases in every
+// namespace — each ListRaw(HelmRelease, ns) starts that namespace's own
+// release-Secret informer, synchronously, on the Update loop. Only caches
+// the session already paid for are counted; the rest show the ghost dash,
+// and so does the "all namespaces" total, which would otherwise be a
+// partial sum.
+func TestRootModelNOnHelmListReadsNoUnstartedReleaseCache(t *testing.T) {
+	t.Parallel()
+	var calls []gotoListCall
+	lister := perNamespaceReleaseLister{
+		gotoFakeLister: gotoFakeLister{
+			calls: &calls,
+			objs: map[kube.ResourceKind][]runtime.Object{
+				kube.KindNamespace: {namespaceObj("default"), namespaceObj("team-a"), namespaceObj("team-b")},
+				kube.KindHelmRelease: {
+					namespaceTestRelease("default", "redis"),
+					namespaceTestRelease("default", "nginx"),
+					namespaceTestRelease("team-a", "pg"),
+					namespaceTestRelease("team-b", "kafka"),
+				},
+			},
+		},
+		// default is the list on screen; team-a and team-b were never read.
+		started: map[gotoListCall]bool{{kind: kube.KindHelmRelease, namespace: "default"}: true},
+	}
+	sess := gotoTestSession(lister)
+	sess.Location.Kind = kube.KindHelmRelease
+
+	model := tui.NewWithSession(&screenTask{name: "browse"}, sess)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "n"})
+	view := ansi.Strip(updated.(tui.Model).View().Content)
+
+	for _, call := range calls {
+		if call.kind == kube.KindHelmRelease && call.namespace != "default" {
+			t.Errorf("namespace palette read %s in %q, starting a release informer for a namespace nothing on screen shows", call.kind, call.namespace)
+		}
+	}
+	lines := strings.Split(view, "\n")
+	lineFor := func(label string) string {
+		for _, l := range lines {
+			if strings.Contains(l, label) {
+				return l
+			}
+		}
+		t.Fatalf("no %q row in the namespace palette:\n%s", label, view)
+		return ""
+	}
+	// The started namespace still gets its real count.
+	if l := lineFor("default"); !regexp.MustCompile(`default\s+current\s+2\b`).MatchString(l) {
+		t.Errorf("default row should count its 2 cached releases: %q", l)
+	}
+	// An un-started namespace is unknown, never a claimed 0.
+	if l := lineFor("team-a"); !strings.Contains(l, "–") || regexp.MustCompile(`team-a\s+0\b`).MatchString(l) {
+		t.Errorf("team-a row should show the ghost dash, not a count: %q", l)
+	}
+	if l := lineFor("all namespaces"); !strings.Contains(l, "–") || regexp.MustCompile(`all namespaces\s+2\b`).MatchString(l) {
+		t.Errorf("all-namespaces total should be unknown, not a partial sum: %q", l)
+	}
+}
