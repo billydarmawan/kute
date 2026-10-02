@@ -360,6 +360,8 @@ func (m Model) willRunStrip(theme tui.Theme, width int) string {
 		primary = label.Render("error") + fill.Render(" ") + fill.Foreground(theme.Bad).Render(m.lastError)
 	case m.message != "":
 		primary = fill.Foreground(theme.Good).Render(m.message)
+	case m.notice != "":
+		primary = fill.Foreground(theme.Warn).Render(m.notice)
 	case removing:
 		primary = label.Render("will run") + fill.Render(" ") + cmd.Render(kube.ConfigMapDataCommandString(m.namespace, m.name, removeKey, "", true))
 	case editConfirming:

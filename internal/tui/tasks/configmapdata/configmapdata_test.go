@@ -567,6 +567,39 @@ func TestEnterOnMultilineRowAlsoOpensBufferEditor(t *testing.T) {
 	}
 }
 
+// A value neither buffer can hold unchanged would open already normalized
+// (tabs expanded, CRLF doubled), so any apply — even of an untouched buffer —
+// would rewrite the whole value. ↵ and e refuse it with a notice instead.
+func TestEditRefusesValuesTheBuffersWouldNormalize(t *testing.T) {
+	for name, value := range map[string]string{
+		"tabbed multi-line": "all:\n\tgo build\n",
+		"crlf":              "a\r\nb\r\n",
+		"tabbed single":     "id\tname",
+		"binary":            "\x00\xff\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cm := cmObj("nva-stage", "nva-config", map[string]string{"VALUE": value})
+			mut := &fakeMutator{cm: cm}
+			m := newModel(t, newSession(), cm, mut, nil)
+			for _, key := range []tea.KeyPressMsg{{Code: tea.KeyEnter}, {Text: "e", Code: 'e'}} {
+				m = step(t, m, key)
+				if m.multiline != nil || m.editing != nil {
+					t.Fatalf("%s opened an editor on a value it can't hold unchanged", key.String())
+				}
+				// e is only offered on a multi-line row, so it's silent elsewhere.
+				if key.Code == tea.KeyEnter || strings.Contains(value, "\n") {
+					if strip := plain(m.willRunStrip(m.Theme(), 120)); !strings.Contains(strip, "VALUE has tabs, CRLF line endings or binary content") {
+						t.Fatalf("after %s will-run strip = %q, want the refusal notice", key.String(), strip)
+					}
+				}
+			}
+			if cm.Data["VALUE"] != value {
+				t.Fatalf("value changed to %q", cm.Data["VALUE"])
+			}
+		})
+	}
+}
+
 func TestMultilineBufferEditorEditsAndAppliesWithCtrlO(t *testing.T) {
 	cm := cmObj("nva-stage", "nva-config", map[string]string{"nginx.conf": "a\nb"})
 	mut := &fakeMutator{cm: cm}

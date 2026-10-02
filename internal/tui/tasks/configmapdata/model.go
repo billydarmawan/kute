@@ -138,6 +138,16 @@ func newMultilineEditState(key, value string, theme tui.Theme) *multilineEditSta
 
 func (m multilineEditState) value() string { return m.textarea.Value() }
 
+// textareaRoundTrips reports whether value survives the buffer editor's
+// textarea.SetValue unchanged. It doesn't for a tab (expanded to spaces),
+// a CRLF line ending (split into two breaks) or binary content — and an
+// edit to one line would then write the whole value back normalized.
+func textareaRoundTrips(value string) bool {
+	ta := textarea.New()
+	ta.SetValue(value)
+	return ta.Value() == value
+}
+
 func (m multilineEditState) changed() bool {
 	return m.value() != m.original
 }
@@ -207,6 +217,9 @@ type Model struct {
 	// cleared the next time a key is pressed in navigation mode.
 	message   string
 	lastError string
+	// notice explains why ↵/e refused to open a value no buffer here can
+	// hold unchanged (tabs, CRLF, binary). Cleared on the next navigation key.
+	notice string
 
 	conn        kube.ConnState
 	reloadEpoch int

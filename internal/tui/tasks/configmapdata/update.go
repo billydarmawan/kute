@@ -171,7 +171,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// A leftover "updated KEY"/error line from the last commit only
 		// answers "what just happened" — stale the moment the user does
 		// anything else, same rule secretdata's own updateKey uses.
-		m.message, m.lastError = "", ""
+		m.message, m.lastError, m.notice = "", "", ""
 	}
 	switch msg.String() {
 	case "ctrl+q", "ctrl+c":
@@ -210,7 +210,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// it's already reachable via '↵'.
 		if m.mutator != nil && m.state == tui.TaskStateReady {
 			if row, ok := m.selectedKeyRow(); ok && row.multiline() {
-				m.multiline = newMultilineEditState(row.key, row.value, m.Theme())
+				m.beginEditRow(row)
 			}
 		}
 	case verbs.RemoveConfigMapKey.Key:
@@ -227,9 +227,16 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // in-place edit for a plain value, or the multi-line buffer editor
 // (docs/design README.md §27a: "Multi-line keys ... e opens the buffer
 // editor") when the value contains a newline — '↵' redirects there too
-// rather than leaving multi-line rows with a dead Enter key.
+// rather than leaving multi-line rows with a dead Enter key. A value
+// neither buffer can hold unchanged (tabs, CRLF, binary) is refused with a
+// notice instead: it would open already normalized, so applying any edit —
+// or none — would rewrite the whole value.
 func (m *Model) beginEditRow(row configMapKeyRow) {
-	if row.multiline() {
+	if !textfield.RoundTrips(row.value) && !textareaRoundTrips(row.value) {
+		m.notice = row.key + " has tabs, CRLF line endings or binary content · can't edit it here — use E on the ConfigMaps list"
+		return
+	}
+	if !textfield.RoundTrips(row.value) {
 		m.multiline = newMultilineEditState(row.key, row.value, m.Theme())
 		return
 	}
