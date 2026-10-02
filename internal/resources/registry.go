@@ -3,6 +3,7 @@ package resources
 import (
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/kute-dev/kute/internal/kube"
 )
@@ -230,4 +231,17 @@ func nodeHealthLabel(class StatusClass) string {
 	default:
 		return "cordoned"
 	}
+}
+
+// RBACResource is desc's kind as RBAC rules and `kubectl auth can-i` name
+// it: the plural resource qualified by its API group ("deployments.apps",
+// bare "secrets" for the core group), so who-can (22a) matches a rule's
+// apiGroups and not just its resource name. A typed kind reads both from
+// the typed table; a discovered kind pairs its lowercased plural Display
+// with its CRD group.
+func RBACResource(desc Descriptor) string {
+	if resource, group, ok := kube.BuiltinRBACResource(desc.Kind); ok {
+		return kube.JoinRBACResource(resource, group)
+	}
+	return kube.JoinRBACResource(strings.ToLower(desc.Display), desc.APIGroup)
 }

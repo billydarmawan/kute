@@ -93,7 +93,7 @@ func TestResolveWhoCan_WildcardVerbAndResourceMatch(t *testing.T) {
 
 func TestResolveWhoCan_DedupesSubjectAcrossBindings(t *testing.T) {
 	crs := []*rbacv1.ClusterRole{
-		clusterRole("view", rbacv1.PolicyRule{Resources: []string{"pods"}, Verbs: []string{"get"}}),
+		clusterRole("view", rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get"}}),
 	}
 	crbs := []*rbacv1.ClusterRoleBinding{
 		clusterRoleBinding("b1", "view", rbacv1.Subject{Kind: rbacv1.UserKind, Name: "carol"}),
@@ -107,7 +107,7 @@ func TestResolveWhoCan_DedupesSubjectAcrossBindings(t *testing.T) {
 
 func TestResolveWhoCan_CurrentUserGrantedIsFlagged(t *testing.T) {
 	crs := []*rbacv1.ClusterRole{
-		clusterRole("view", rbacv1.PolicyRule{Resources: []string{"pods"}, Verbs: []string{"get", "list"}}),
+		clusterRole("view", rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list"}}),
 	}
 	crbs := []*rbacv1.ClusterRoleBinding{
 		clusterRoleBinding("viewers", "view", rbacv1.Subject{Kind: rbacv1.UserKind, Name: "dev-readonly"}),
@@ -167,7 +167,7 @@ func TestResolveWhoCan_UnknownGroupStillMisses(t *testing.T) {
 
 func TestResolveWhoCan_CurrentUserClosestMissExplainsTheGap(t *testing.T) {
 	crs := []*rbacv1.ClusterRole{
-		clusterRole("view", rbacv1.PolicyRule{Resources: []string{"pods"}, Verbs: []string{"get", "list"}}),
+		clusterRole("view", rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list"}}),
 	}
 	crbs := []*rbacv1.ClusterRoleBinding{
 		clusterRoleBinding("viewers", "view", rbacv1.Subject{Kind: rbacv1.UserKind, Name: "dev-readonly"}),
@@ -212,5 +212,47 @@ func TestResolveWhoCan_SameNamedServiceAccountsInDifferentNamespacesStayDistinct
 	}
 	if result.Subjects[1].BindingName != "b" {
 		t.Fatalf("team-b/default's binding = %q, want b", result.Subjects[1].BindingName)
+	}
+}
+
+func TestResolveWhoCan_MatchesTheQueriedAPIGroup(t *testing.T) {
+	crs := []*rbacv1.ClusterRole{
+		clusterRole("metrics", rbacv1.PolicyRule{APIGroups: []string{"metrics.k8s.io"}, Resources: []string{"pods"}, Verbs: []string{"get", "list"}}),
+		clusterRole("deployer", rbacv1.PolicyRule{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"list"}}),
+	}
+	crbs := []*rbacv1.ClusterRoleBinding{
+		clusterRoleBinding("metrics", "metrics", rbacv1.Subject{Kind: rbacv1.UserKind, Name: "metrics-user"}),
+		clusterRoleBinding("deployers", "deployer", rbacv1.Subject{Kind: rbacv1.UserKind, Name: "deployer"}),
+	}
+
+	pods := ResolveWhoCan(WhoCanQuery{Verb: "list", Resource: "pods"}, "", nil, crs, nil, crbs, nil)
+	if len(pods.Subjects) != 0 {
+		t.Fatalf("a metrics.k8s.io pods rule must not grant core pods, got %+v", pods.Subjects)
+	}
+	metrics := ResolveWhoCan(WhoCanQuery{Verb: "list", Resource: "pods", Group: "metrics.k8s.io"}, "", nil, crs, nil, crbs, nil)
+	if len(metrics.Subjects) != 1 || metrics.Subjects[0].Name != "metrics-user" {
+		t.Fatalf("expected metrics-user on metrics.k8s.io pods, got %+v", metrics.Subjects)
+	}
+	deployments := ResolveWhoCan(WhoCanQuery{Verb: "list", Resource: "deployments", Group: "apps"}, "", nil, crs, nil, crbs, nil)
+	if len(deployments.Subjects) != 1 || deployments.Subjects[0].Name != "deployer" {
+		t.Fatalf("expected deployer on deployments.apps, got %+v", deployments.Subjects)
+	}
+}
+
+func TestSplitAndJoinRBACResource(t *testing.T) {
+	for _, tc := range []struct{ in, resource, group string }{
+		{"secrets", "secrets", ""},
+		{"deployments.apps", "deployments", "apps"},
+		{"pods/ephemeralcontainers", "pods/ephemeralcontainers", ""},
+		{"deployments.apps/scale", "deployments/scale", "apps"},
+		{"certificates.cert-manager.io", "certificates", "cert-manager.io"},
+	} {
+		resource, group := SplitRBACResource(tc.in)
+		if resource != tc.resource || group != tc.group {
+			t.Errorf("SplitRBACResource(%q) = %q, %q; want %q, %q", tc.in, resource, group, tc.resource, tc.group)
+		}
+		if got := JoinRBACResource(resource, group); got != tc.in {
+			t.Errorf("JoinRBACResource(%q, %q) = %q, want %q", resource, group, got, tc.in)
+		}
 	}
 }

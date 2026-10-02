@@ -96,7 +96,8 @@ func (m *Model) reload() tea.Cmd {
 func (m Model) load() tea.Cmd {
 	epoch := m.reloadEpoch
 	rbac := m.rbac
-	query := kube.WhoCanQuery{Verb: m.verb, Resource: m.resource, Namespace: m.namespace}
+	resource, group := kube.SplitRBACResource(m.resource)
+	query := kube.WhoCanQuery{Verb: m.verb, Resource: resource, Group: group, Namespace: m.namespace}
 	ctx := m.session.ClusterContext()
 	return func() tea.Msg {
 		result, err := rbac.WhoCan(ctx, query)

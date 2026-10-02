@@ -35,7 +35,9 @@ type OpenYAMLFunc func(kind kube.ResourceKind, namespace, name string, width, he
 
 // Config are whocan's dependencies, per repo convention (package-local
 // Config struct, interface-typed fields, New fills zero values). Verb/
-// Resource/Namespace seed the initial query — browse's 'w' (4b) pre-fills
+// Resource/Namespace seed the initial query — Resource in kubectl's
+// group-qualified spelling ("deployments.apps"; bare for the core group),
+// which is also how the strip and the `auth can-i` line show it — browse's 'w' (4b) pre-fills
 // the denied verb/resource/namespace; the goto corpus's plain `g "who"`
 // entry leaves them at New's defaults.
 type Config struct {

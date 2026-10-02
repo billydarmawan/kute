@@ -161,6 +161,22 @@ func TestServiceAccountSubjectRendersItsNamespace(t *testing.T) {
 	}
 }
 
+func TestGroupQualifiedResourceQueriesItsAPIGroup(t *testing.T) {
+	rbac := &fakeRBAC{result: kube.WhoCanResult{
+		Subjects: []kube.WhoCanSubject{{Name: "deployer", Kind: "User", Via: "clusterrole/deployer ← clusterrolebinding/deployers", ClusterScope: true}},
+	}}
+	m := New(Config{Session: newSession(), RBAC: rbac, Verb: "list", Resource: "deployments.apps", Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(rbac.calls) != 1 || rbac.calls[0].Resource != "deployments" || rbac.calls[0].Group != "apps" {
+		t.Fatalf("WhoCan call(s) = %+v, want resource deployments in group apps", rbac.calls)
+	}
+	if view := plain(m.Render()); !strings.Contains(view, "kubectl auth can-i list deployments.apps") {
+		t.Fatalf("expected the group-qualified can-i line in view:\n%s", view)
+	}
+}
+
 func TestEmptyResultEntersEmptyState(t *testing.T) {
 	rbac := &fakeRBAC{result: kube.WhoCanResult{}}
 	m := New(Config{Session: newSession(), RBAC: rbac, Verb: "delete", Resource: "namespaces", Namespace: "default"})

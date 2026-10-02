@@ -29,6 +29,7 @@ func (c *Cluster) CanI(ctx context.Context, query WhoCanQuery) (AccessReviewResu
 			ResourceAttributes: &authorizationv1.ResourceAttributes{
 				Namespace:   query.Namespace,
 				Verb:        query.Verb,
+				Group:       query.Group,
 				Resource:    resource,
 				Subresource: subresource,
 			},

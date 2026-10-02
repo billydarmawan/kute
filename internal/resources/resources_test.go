@@ -651,3 +651,24 @@ func TestHealthGlyphOverridesRideOnTheDescriptor(t *testing.T) {
 		}
 	}
 }
+
+func TestRBACResourceQualifiesTheAPIGroup(t *testing.T) {
+	reg := DefaultRegistry()
+	for kind, want := range map[kube.ResourceKind]string{
+		kube.KindSecret:     "secrets",
+		kube.KindDeployment: "deployments.apps",
+		kube.KindIngress:    "ingresses.networking.k8s.io",
+	} {
+		desc, ok := reg.Descriptor(kind)
+		if !ok {
+			t.Fatalf("%s not registered", kind)
+		}
+		if got := RBACResource(desc); got != want {
+			t.Errorf("RBACResource(%s) = %q, want %q", kind, got, want)
+		}
+	}
+	crd := Descriptor{Kind: "Certificate", Display: "Certificates", Custom: true, APIGroup: "cert-manager.io"}
+	if got := RBACResource(crd); got != "certificates.cert-manager.io" {
+		t.Errorf("RBACResource(Certificate) = %q", got)
+	}
+}

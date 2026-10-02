@@ -3,11 +3,11 @@ package tui
 import (
 	"cmp"
 	"slices"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kute-dev/kute/internal/kube"
+	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui/components/palette"
 )
 
@@ -49,9 +49,8 @@ func whoCanVerbItems(current string) []palette.Item {
 	return items
 }
 
-// whoCanResourceItems lists every registered kind's plural resource name
-// (Descriptor.Display is already plural — "Secrets", "Ingresses" — so
-// lowercasing it matches how rbacv1.PolicyRule.Resources spells it), built
+// whoCanResourceItems lists every registered kind's group-qualified plural
+// resource name (resources.RBACResource — "deployments.apps", "secrets"), built
 // from sess.Groups the same way goto's own gotoKindItems walks the
 // registry. Forward/CustomResourceDefinition are synthetic built-in kinds
 // (docs/design README.md's own "registry kind, not a Kubernetes API type"
@@ -72,7 +71,7 @@ func whoCanResourceItems(sess *Session, current string) []palette.Item {
 			if !ok {
 				continue
 			}
-			resource := strings.ToLower(desc.Display)
+			resource := resources.RBACResource(desc)
 			item := palette.Item{Label: resource, Detail: desc.Display, Data: whoCanResourceTarget{resource: resource}}
 			if resource == current {
 				item.Tag = "current"

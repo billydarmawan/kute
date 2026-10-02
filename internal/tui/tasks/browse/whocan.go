@@ -1,9 +1,9 @@
 package browse
 
 import (
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/kute-dev/kute/internal/resources"
 )
 
 // pushWhoCan pushes tasks/whocan (22a) pre-filled with verb/resource/
@@ -25,5 +25,5 @@ func (m Model) pushWhoCan(verb, resource, namespace string) (tea.Model, tea.Cmd,
 // verb+resource pre-filled" — a 403 card only ever exists because this
 // same kind/namespace's list load was just denied).
 func (m Model) openWhoCanFromCurrentKind() (tea.Model, tea.Cmd, bool) {
-	return m.pushWhoCan("list", strings.ToLower(m.desc.Display), m.namespace)
+	return m.pushWhoCan("list", resources.RBACResource(m.desc), m.namespace)
 }

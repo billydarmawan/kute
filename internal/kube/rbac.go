@@ -12,11 +12,53 @@ import (
 // WhoCanQuery is 22a's editable question — "who can <Verb> <Resource> [in
 // <Namespace>]" — the strip's v/k/n slots (docs/design README.md §22a).
 // Resource is the plural, lowercase API resource name ("secrets", "pods"),
-// matching how rbacv1.PolicyRule.Resources spells it.
+// matching how rbacv1.PolicyRule.Resources spells it; Group is its API
+// group ("" for core, "apps" for deployments), matched against
+// rbacv1.PolicyRule.APIGroups — without it a metrics.k8s.io "pods" rule
+// reads as a grant on core pods.
 type WhoCanQuery struct {
 	Verb      string
 	Resource  string
+	Group     string
 	Namespace string
+}
+
+// SplitRBACResource splits kubectl's group-qualified resource spelling
+// ("deployments.apps", "pods/ephemeralcontainers", "deployments.apps/scale")
+// into the resource (with any subresource) and its API group — "" when
+// unqualified, i.e. the core group, as `kubectl auth can-i` reads it.
+func SplitRBACResource(s string) (resource, group string) {
+	base, sub, hasSub := strings.Cut(s, "/")
+	resource, group, _ = strings.Cut(base, ".")
+	if hasSub {
+		resource += "/" + sub
+	}
+	return resource, group
+}
+
+// JoinRBACResource is SplitRBACResource's inverse: "deployments" + "apps"
+// → "deployments.apps", a core resource unqualified.
+func JoinRBACResource(resource, group string) string {
+	if group == "" {
+		return resource
+	}
+	base, sub, hasSub := strings.Cut(resource, "/")
+	out := base + "." + group
+	if hasSub {
+		out += "/" + sub
+	}
+	return out
+}
+
+// BuiltinRBACResource is a typed kind's plural resource and API group as
+// RBAC rules name them ("deployments", "apps"); ok is false for any kind
+// outside the typed table.
+func BuiltinRBACResource(kind ResourceKind) (resource, group string, ok bool) {
+	tk, found := typedKinds[kind]
+	if !found {
+		return "", "", false
+	}
+	return tk.gvr.Resource, tk.gvr.Group, true
 }
 
 // WhoCanSubject is one resolved SUBJECT/KIND/VIA/SCOPE row (§22a).
@@ -86,13 +128,19 @@ func matchesResource(rule rbacv1.PolicyRule, resource string) bool {
 	return slices.ContainsFunc(rule.Resources, func(r string) bool { return r == "*" || r == resource })
 }
 
-func ruleMatches(rule rbacv1.PolicyRule, verb, resource string) bool {
-	return matchesVerb(rule, verb) && matchesResource(rule, resource)
+// matchesAPIGroup reports whether rule covers group ("*" matches any; ""
+// is the core group, as RBAC spells it).
+func matchesAPIGroup(rule rbacv1.PolicyRule, group string) bool {
+	return slices.ContainsFunc(rule.APIGroups, func(g string) bool { return g == "*" || g == group })
 }
 
-func anyRuleMatches(rules []rbacv1.PolicyRule, verb, resource string) bool {
+func ruleMatches(rule rbacv1.PolicyRule, query WhoCanQuery) bool {
+	return matchesVerb(rule, query.Verb) && matchesAPIGroup(rule, query.Group) && matchesResource(rule, query.Resource)
+}
+
+func anyRuleMatches(rules []rbacv1.PolicyRule, query WhoCanQuery) bool {
 	return slices.ContainsFunc(rules, func(rule rbacv1.PolicyRule) bool {
-		return ruleMatches(rule, verb, resource)
+		return ruleMatches(rule, query)
 	})
 }
 
@@ -157,7 +205,7 @@ func ResolveWhoCan(
 			continue
 		}
 		cr, ok := crByName[crb.RoleRef.Name]
-		if !ok || !anyRuleMatches(cr.Rules, query.Verb, query.Resource) {
+		if !ok || !anyRuleMatches(cr.Rules, query) {
 			continue
 		}
 		via := "clusterrole/" + cr.Name + " ← clusterrolebinding/" + crb.Name
@@ -189,7 +237,7 @@ func ResolveWhoCan(
 			default:
 				continue
 			}
-			if !anyRuleMatches(rules, query.Verb, query.Resource) {
+			if !anyRuleMatches(rules, query) {
 				continue
 			}
 			via := roleLabel + " ← rolebinding/" + rb.Name
