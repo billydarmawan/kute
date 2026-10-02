@@ -1,4 +1,4 @@
-  kute │ c microk8s-cluster › n argocd › g Applications argoproj.io/v1alpha1    
+  kute │ c microk…uster › n argocd › g Applications argopr…1alpha1 ● connected  
 ────────────────────────────────────────────────────────────────────────────────
   ● 1 healthy   ▲ 1 out of sync   ✕ 1 degraded   ◌ 1 progressing                
 ────────────────────────────────────────────────────────────────────────────────

@@ -87,7 +87,7 @@ func (m Model) Header() tui.HeaderState {
 	crumbs = append(crumbs,
 		tui.Crumb{Text: " › ", Style: ghost},
 		tui.Crumb{Text: verbs.Goto.Key + " ", Style: keyHint},
-		tui.Crumb{Text: m.desc.Display, Style: text},
+		tui.Crumb{Text: m.desc.Display, Style: text, Fixed: true},
 	)
 	if m.desc.Custom && m.desc.APIGroup != "" && m.desc.APIVersion != "" {
 		// docs/design README.md §14a: "Certificates + cert-manager.io/v1" —

@@ -1,4 +1,4 @@
-  kute │ c microk8s-cluster › n default › g Certificates cert-manager.io/v1     
+  kute │ c microk…uster › n default › g Certificates cert-m….io/v1 ● connected  
 ────────────────────────────────────────────────────────────────────────────────
   ● 3 ready   ▲ 1 issuing   ✕ 1 not ready   ◷ 1 <30d                            
 ────────────────────────────────────────────────────────────────────────────────

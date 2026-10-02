@@ -1,4 +1,4 @@
-  kute │ microk8s-cluster › flux-system › Kustomizations › nebula-workers       
+  kute │ microk…uster › flux-system › Kustom…tions › nebula…orkers ● connected  
 ────────────────────────────────────────────────────────────────────────────────
 RECONCILE FAILED · HealthCheckFailed · 4m ago · retry in 3m 12s                 
 health check failed after 2m0s: Deployment/nebula-stage/nebula-worker           

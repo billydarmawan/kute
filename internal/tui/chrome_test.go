@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/kute-dev/kute/internal/kube"
 )
 
@@ -76,5 +78,44 @@ func TestBuildForwardChipColorsByState(t *testing.T) {
 	reconnecting := BuildForwardChip(theme, ForwardSummary{Active: 1, Reconnecting: 1})
 	if reconnecting.Style.GetForeground() != theme.Warn {
 		t.Fatalf("reconnecting chip color = %v, want theme.Warn", reconnecting.Style.GetForeground())
+	}
+}
+
+// TestHeaderKeepsConnBadgeWithLongContext pins M3: an EKS ARN context used
+// to push the whole right side — the connection badge included — off the
+// header. The badge must survive at every width, with the context
+// middle-ellipsized and the kind kept whole.
+func TestHeaderKeepsConnBadgeWithLongContext(t *testing.T) {
+	theme := Dark()
+	h := HeaderState{
+		Crumbs: append(BrandCrumbs(theme),
+			Crumb{Text: " │ "},
+			Crumb{Text: "c "},
+			Crumb{Text: "arn:aws:eks:us-east-1:123456789012:cluster/payments-prod"},
+			Crumb{Text: " › "},
+			Crumb{Text: "n "},
+			Crumb{Text: "default"},
+			Crumb{Text: " › "},
+			Crumb{Text: "g "},
+			Crumb{Text: "CustomResourceDefinitions", Fixed: true},
+		),
+		SyncNote:    "sync 2s",
+		UpdateChip:  ConnBadge{Text: "↑ 0.2.1"},
+		ForwardChip: ConnBadge{Text: "⇄ 2"},
+		Conn:        LiveConnBadge(theme, kube.ConnState{Phase: kube.ConnReconnecting}, "● connected"),
+	}
+	for _, width := range []int{80, 120} {
+		line := renderHeaderV2(h, theme, width)[0]
+		if got := ansi.StringWidth(line); got != width {
+			t.Fatalf("width %d: header is %d cells wide:\n%s", width, got, line)
+		}
+		for _, want := range []string{"◌ disconnected", "CustomResourceDefinitions", "…"} {
+			if !strings.Contains(line, want) {
+				t.Fatalf("width %d: header missing %q:\n%s", width, want, line)
+			}
+		}
+	}
+	if line := renderHeaderV2(h, theme, 120)[0]; !strings.Contains(line, "↑ 0.2.1") || !strings.Contains(line, "⇄ 2") || !strings.Contains(line, "payments-prod") {
+		t.Fatalf("at 120 columns the chips should still fit beside a shrunk context:\n%s", line)
 	}
 }

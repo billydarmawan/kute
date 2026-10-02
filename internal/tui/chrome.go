@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kute-dev/kute/internal/kube"
 )
@@ -36,6 +37,10 @@ func fitBody(content string, width, height int) string {
 type Crumb struct {
 	Text  string
 	Style lipgloss.Style
+	// Fixed keeps the segment's full text when the header is too narrow
+	// for every crumb — a list's kind, which is the screen's identity.
+	// Other segments give up width widest-first (fitCrumbs).
+	Fixed bool
 }
 
 // BrandCrumbs is the header's own wordmark: "kute" in the theme's plain
@@ -357,29 +362,118 @@ func insetChromeLine(left, right string, width int) string {
 
 // renderHeaderV2 returns the header band's frameHeaderLines lines: just the
 // breadcrumb line.
+//
+// The right side is laid out by priority rather than all-or-nothing: the
+// connection badge always shows (it is how 4a announces an outage on
+// screens without a stale strip), then the config, forward and update
+// chips, then the sync note, each kept only while the crumbs can still fit
+// at their shrunk minimum. The crumbs then take whatever is left, giving up
+// width from their widest segment first — in practice the context, which
+// for every EKS user is a full ARN — rather than pushing the badge off.
 func renderHeaderV2(h HeaderState, theme Theme, width int) []string {
-	var left strings.Builder
-	for _, c := range h.Crumbs {
-		left.WriteString(c.Style.Render(c.Text))
-	}
-
-	dim := lipgloss.NewStyle().Foreground(theme.TextDim)
-	var right string
+	var sync ConnBadge
 	if h.SyncNote != "" {
-		right = dim.Render(h.SyncNote) + "  "
+		sync = ConnBadge{Text: h.SyncNote, Style: lipgloss.NewStyle().Foreground(theme.TextDim)}
 	}
-	if h.ConfigChip.Text != "" {
-		right += h.ConfigChip.Style.Render(h.ConfigChip.Text) + "  "
+	// Render order, left to right; priority (which survive) is below.
+	optional := []ConnBadge{sync, h.ConfigChip, h.UpdateChip, h.ForwardChip}
+	keep := make([]bool, len(optional))
+	composeRight := func() string {
+		var right strings.Builder
+		for i, chip := range optional {
+			if keep[i] && chip.Text != "" {
+				right.WriteString(chip.Style.Render(chip.Text) + "  ")
+			}
+		}
+		return right.String() + h.Conn.Style.Render(h.Conn.Text)
 	}
-	if h.UpdateChip.Text != "" {
-		right += h.UpdateChip.Style.Render(h.UpdateChip.Text) + "  "
-	}
-	if h.ForwardChip.Text != "" {
-		right += h.ForwardChip.Style.Render(h.ForwardChip.Text) + "  "
-	}
-	right += h.Conn.Style.Render(h.Conn.Text)
 
-	return []string{insetChromeLine(left.String(), right, width)}
+	inner := max(width-2*FrameInset, 0)
+	minLeft := crumbsMinWidth(h.Crumbs)
+	for _, i := range []int{1, 3, 2, 0} { // config, forward, update, sync
+		keep[i] = true
+		if minLeft+lipgloss.Width(composeRight())+1 > inner {
+			keep[i] = false
+		}
+	}
+	right := composeRight()
+	budget := inner
+	if right != "" {
+		budget = max(inner-lipgloss.Width(right)-1, 0)
+	}
+	return []string{insetChromeLine(fitCrumbs(h.Crumbs, budget), right, width)}
+}
+
+// crumbMinWidth is the narrowest a single header crumb is shrunk to before
+// the next-widest one gives up width instead — wide enough that a middle-
+// ellipsized context still shows its distinctive tail (".../payments-prod").
+const crumbMinWidth = 12
+
+// crumbLastResortWidth is the second-pass floor, used only when every
+// segment at crumbMinWidth still leaves no room for the connection badge.
+const crumbLastResortWidth = 4
+
+// crumbsMinWidth is the narrowest fitCrumbs can render crumbs without
+// cutting the line itself.
+func crumbsMinWidth(crumbs []Crumb) int {
+	total := 0
+	for _, c := range crumbs {
+		if c.Fixed {
+			total += lipgloss.Width(c.Text)
+		} else {
+			total += min(lipgloss.Width(c.Text), crumbMinWidth)
+		}
+	}
+	return total
+}
+
+// fitCrumbs renders crumbs within budget cells: while they overflow, the
+// leftmost non-Fixed segment wider than crumbMinWidth is middle-ellipsized
+// down to it — the context first, then the namespace, and so on toward the
+// screen's own segment — so the short structural ones (the wordmark,
+// separators, key prefixes) and a Fixed kind keep their full text. Only
+// once every segment is at that floor do they shrink further, and only
+// past that is the line itself cut.
+func fitCrumbs(crumbs []Crumb, budget int) string {
+	texts := make([]string, len(crumbs))
+	total := 0
+	for i, c := range crumbs {
+		texts[i] = c.Text
+		total += lipgloss.Width(c.Text)
+	}
+	for _, floor := range []int{crumbMinWidth, crumbLastResortWidth} {
+		for i, t := range texts {
+			w := lipgloss.Width(t)
+			if total <= budget || crumbs[i].Fixed || w <= floor {
+				continue
+			}
+			texts[i] = middleEllipsis(t, max(w-(total-budget), floor))
+			total -= w - lipgloss.Width(texts[i])
+		}
+	}
+	var left strings.Builder
+	for i, c := range crumbs {
+		left.WriteString(c.Style.Render(texts[i]))
+	}
+	if total > budget {
+		return ansi.Truncate(left.String(), budget, "…")
+	}
+	return left.String()
+}
+
+// middleEllipsis shortens plain text s to width cells by replacing its
+// middle with "…", keeping both ends — a context's provider prefix and
+// its cluster name.
+func middleEllipsis(s string, width int) string {
+	if ansi.StringWidth(s) <= width {
+		return s
+	}
+	if width <= 1 {
+		return ansi.Truncate(s, width, "")
+	}
+	head := (width - 1 + 1) / 2
+	tail := width - 1 - head
+	return ansi.Truncate(s, head, "") + "…" + ansi.TruncateLeft(s, ansi.StringWidth(s)-tail, "")
 }
 
 func renderKeybarV2(k Keybar, theme Theme, width int) string {

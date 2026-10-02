@@ -1,4 +1,4 @@
-  kute │ c microk8s-cluster › n flux-system › g Kustomizations kustomize.tool...
+  kute │ c micr…ter › n flux-system › g Kustomizations kusto…io/v1 ● connected  
 ────────────────────────────────────────────────────────────────────────────────
   ● 3 ready   ◌ 1 reconciling   ✕ 1 failed   ‖ 1 suspended    6 kustomizations  
 ────────────────────────────────────────────────────────────────────────────────
