@@ -165,11 +165,28 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !msg.found {
+		// "Pod deleted" is a claim about the cluster. A Pod cache on its
+		// first read of this namespace (--namespace-scoped opening a pod in
+		// another one) answers empty until its LIST lands, and one that
+		// stopped filling says why instead.
+		if err := tui.KindsError(m.lister, m.namespace, kube.KindPod); err != nil {
+			m.state = tui.TaskStateError
+			if kube.IsPermissionError(err) {
+				m.state = tui.TaskStatePermissionDenied
+			}
+			m.feedback = err.Error()
+			return m, nil
+		}
+		if !tui.KindsSynced(m.lister, m.namespace, kube.KindPod) {
+			m.syncRetryGen++
+			return m, tui.ScheduleCacheSyncRetry(m.syncRetryGen)
+		}
 		m.gone = true
 		m.state = tui.TaskStateReady
 		m.feedback = ""
 		return m, nil
 	}
+	m.gone = false
 	m.pod = msg.pod
 	m.status = msg.status
 	m.applyUsage()
