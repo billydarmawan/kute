@@ -87,6 +87,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.stream = StreamEmpty
 		m.feedback = fmt.Sprintf("No logs found for %s.", m.scope())
+		// The stream keeps following past an empty history (streamContainer),
+		// so a first line logged later still arrives.
+		return m, m.nextStreamCmd()
 	case streamErrorMsg:
 		if msg.streamID != 0 && msg.streamID != m.streamID {
 			return m, m.nextStreamCmd()

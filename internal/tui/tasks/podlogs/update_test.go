@@ -18,6 +18,26 @@ func press(model *Model, key string) {
 	_, _ = model.Update(tea.KeyPressMsg{Text: key})
 }
 
+// TestStreamEmptyKeepsReadingTheStream: the empty state is shown while the
+// stream still follows, so the screen must keep reading it and leave the
+// empty state on the first line logged afterwards.
+func TestStreamEmptyKeepsReadingTheStream(t *testing.T) {
+	t.Parallel()
+
+	model := testModel()
+	ch := make(chan tea.Msg, 1)
+	model.streamCh = ch
+	_, cmd := model.Update(streamEmptyMsg{})
+	if model.stream != StreamEmpty || cmd == nil {
+		t.Fatalf("empty state = %s, cmd nil = %v; want empty and a read of the stream", model.stream, cmd == nil)
+	}
+	ch <- logLineMsg{entry: LogEntry{Container: "app", Message: "late"}}
+	_, _ = model.Update(cmd())
+	if model.stream != StreamStreaming || model.feedback != "" || len(model.buffer.Entries) != 1 {
+		t.Fatalf("after a late line: stream=%s feedback=%q entries=%d", model.stream, model.feedback, len(model.buffer.Entries))
+	}
+}
+
 func TestStreamLifecycleMessages(t *testing.T) {
 	t.Parallel()
 

@@ -256,7 +256,13 @@ func (m Model) runStream(ctx context.Context, streamID int, ch chan<- tea.Msg) {
 	}
 
 	count := 0
-	err := m.streamContainer(ctx, container, func(entry LogEntry) bool {
+	onEmpty := func() {
+		select {
+		case <-ctx.Done():
+		case ch <- streamEmptyMsg{streamID: streamID}:
+		}
+	}
+	err := m.streamContainer(ctx, container, onEmpty, func(entry LogEntry) bool {
 		count++
 		select {
 		case <-ctx.Done():
@@ -297,10 +303,17 @@ func (m Model) runStream(ctx context.Context, streamID int, ch chan<- tea.Msg) {
 // a boundary entry (docs/design README.md §5b's "restart boundaries").
 // TailLines/SinceSeconds (the initial history window) only apply to the
 // first connection — a reconnected container is a fresh process, so there
-// is no "since" continuity with what came before.
-func (m Model) streamContainer(ctx context.Context, container string, emit func(LogEntry) bool) error {
+// is no "since" continuity with what came before. onEmpty (may be nil) is
+// called once when the history read finds nothing at all; the follow
+// connection still opens after it, so a container that logs later is shown.
+func (m Model) streamContainer(ctx context.Context, container string, onEmpty func(), emit func(LogEntry) bool) error {
 	first := true
 	fallbackAttempted := false
+	// emptyHistory: the history read came back empty, so the whole log is
+	// (the fallback page has no since-window) — the follow connection then
+	// needs no since-window either, and must not risk one that skips lines
+	// written between the two requests.
+	emptyHistory := false
 	liveStarted := false
 	lastRestarts, tracking := m.containerRestartCount(ctx, container)
 	for {
@@ -322,7 +335,7 @@ func (m Model) streamContainer(ctx context.Context, container string, emit func(
 			// A one-page historical read is the explicit fallback for an empty
 			// since-window. It must not be repeated as a live reconnect request.
 			req.TailLines = m.tailLines
-		} else if !liveStarted {
+		} else if !liveStarted && !emptyHistory {
 			// The history request is finite; follow from just after it so the
 			// viewer does not wait forever for an empty since-window. A one-second
 			// overlap avoids missing lines emitted between the two requests.
@@ -387,7 +400,13 @@ func (m Model) streamContainer(ctx context.Context, container string, emit func(
 		}
 		if historyConnection {
 			if connectionEntries == 0 {
-				return nil
+				// Nothing logged yet: say so now (the empty state can't hang),
+				// but keep following — "follow by default" covers a container
+				// whose first line comes later.
+				emptyHistory = true
+				if onEmpty != nil {
+					onEmpty()
+				}
 			}
 			continue
 		}

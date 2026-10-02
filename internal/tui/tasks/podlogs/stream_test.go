@@ -113,7 +113,7 @@ func TestStreamContainerEmitsLinesThenReconnectsWithBoundary(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	var entries []LogEntry
-	err := model.streamContainer(ctx, "app", func(e LogEntry) bool {
+	err := model.streamContainer(ctx, "app", nil, func(e LogEntry) bool {
 		entries = append(entries, e)
 		if len(entries) == 4 { // first, second, boundary, third
 			cancel()
@@ -163,7 +163,7 @@ func TestStreamContainerFallsBackToRecentHistoryWhenSinceWindowIsEmpty(t *testin
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	var entries []LogEntry
-	err := model.streamContainer(ctx, "app", func(e LogEntry) bool {
+	err := model.streamContainer(ctx, "app", nil, func(e LogEntry) bool {
 		entries = append(entries, e)
 		cancel()
 		return false
@@ -188,17 +188,40 @@ func TestStreamContainerFallsBackToRecentHistoryWhenSinceWindowIsEmpty(t *testin
 	}
 }
 
-func TestStreamContainerStopsAfterEmptyRecentHistoryFallback(t *testing.T) {
+// TestStreamContainerFollowsAfterEmptyHistory: a container with no output
+// yet reports empty once, then still follows — a line it writes later must
+// arrive, from a follow connection with no since-window or tail that could
+// skip it.
+func TestStreamContainerFollowsAfterEmptyHistory(t *testing.T) {
 	t.Parallel()
 
-	streamer := &fakeStreamer{connects: map[string][]string{"app": {"", ""}}}
+	streamer := &fakeStreamer{connects: map[string][]string{"app": {"", "", "later\n"}}}
 	model := testModel()
 	model.streamer = streamer
-	if err := model.streamContainer(t.Context(), "app", func(LogEntry) bool { return true }); err != nil {
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	empties := 0
+	var entries []LogEntry
+	err := model.streamContainer(ctx, "app", func() { empties++ }, func(e LogEntry) bool {
+		if empties != 1 {
+			t.Errorf("line arrived with %d empty reports before it, want 1", empties)
+		}
+		entries = append(entries, e)
+		cancel()
+		return false
+	})
+	if err != nil {
 		t.Fatalf("streamContainer error = %v", err)
 	}
-	if len(streamer.requests) != 2 {
-		t.Fatalf("requests = %+v, want exactly one fallback", streamer.requests)
+	if len(entries) != 1 || entries[0].Message != "later" {
+		t.Fatalf("entries = %+v, want the line logged after the empty history", entries)
+	}
+	if len(streamer.requests) != 3 {
+		t.Fatalf("requests = %+v, want history, fallback, then follow", streamer.requests)
+	}
+	if follow := streamer.requests[2]; !follow.Follow || follow.SinceSeconds != 0 || follow.TailLines != 0 {
+		t.Fatalf("follow request = %+v, want Follow with no since-window or tail", follow)
 	}
 }
 
@@ -224,7 +247,7 @@ func TestStreamContainerWaitsForActualRestartBeforeReconnecting(t *testing.T) {
 	time.AfterFunc(700*time.Millisecond, cancel) // let one reconnectDelay tick pass with no restart
 
 	var entries []LogEntry
-	err := model.streamContainer(ctx, "app", func(e LogEntry) bool {
+	err := model.streamContainer(ctx, "app", nil, func(e LogEntry) bool {
 		entries = append(entries, e)
 		return true
 	})
@@ -255,7 +278,7 @@ func TestStreamContainerReconnectsAfterActualRestartDetected(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	var entries []LogEntry
-	err := model.streamContainer(ctx, "app", func(e LogEntry) bool {
+	err := model.streamContainer(ctx, "app", nil, func(e LogEntry) bool {
 		entries = append(entries, e)
 		if e.Message == "first" {
 			lister.restarts = 4 // the real restart happens now
@@ -289,7 +312,7 @@ func TestStreamContainerEndsWhenPodIsDeleted(t *testing.T) {
 	model.streamer = streamer
 	model.lister = lister
 
-	err := model.streamContainer(t.Context(), "app", func(e LogEntry) bool {
+	err := model.streamContainer(t.Context(), "app", nil, func(e LogEntry) bool {
 		if e.Message == "first" {
 			lister.deleted = true
 		}
@@ -312,7 +335,7 @@ func TestStreamContainerStopsOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	err := model.streamContainer(ctx, "app", func(LogEntry) bool { return true })
+	err := model.streamContainer(ctx, "app", nil, func(LogEntry) bool { return true })
 	if err != nil {
 		t.Fatalf("streamContainer error = %v", err)
 	}
@@ -338,7 +361,7 @@ func TestStreamContainerStopsOnUnretrievableLogsLine(t *testing.T) {
 	model.streamer = streamer
 
 	var entries []LogEntry
-	err := model.streamContainer(t.Context(), "app", func(e LogEntry) bool {
+	err := model.streamContainer(t.Context(), "app", nil, func(e LogEntry) bool {
 		entries = append(entries, e)
 		return true
 	})
@@ -358,7 +381,7 @@ func TestStreamContainerReturnsConnectError(t *testing.T) {
 
 	model := testModel()
 	model.streamer = &fakeStreamer{err: errors.New("boom")}
-	err := model.streamContainer(t.Context(), "app", func(LogEntry) bool { return true })
+	err := model.streamContainer(t.Context(), "app", nil, func(LogEntry) bool { return true })
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err = %v", err)
 	}
