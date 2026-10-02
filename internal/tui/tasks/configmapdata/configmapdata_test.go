@@ -2,6 +2,7 @@ package configmapdata
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,8 @@ type fakeMutator struct {
 	cm              *corev1.ConfigMap
 	err             error
 	rolloutRestarts []string // "kind/namespace/name"
+	// restartErr fails RolloutRestart for the named "kind/namespace/name".
+	restartErr map[string]error
 }
 
 func (f *fakeMutator) DeleteResource(context.Context, kube.ResourceKind, string, string) error {
@@ -46,7 +49,11 @@ func (f *fakeMutator) DeleteResourceForced(context.Context, kube.ResourceKind, s
 	return nil
 }
 func (f *fakeMutator) RolloutRestart(_ context.Context, kind kube.ResourceKind, namespace, name string) error {
-	f.rolloutRestarts = append(f.rolloutRestarts, string(kind)+"/"+namespace+"/"+name)
+	target := string(kind) + "/" + namespace + "/" + name
+	if err := f.restartErr[target]; err != nil {
+		return err
+	}
+	f.rolloutRestarts = append(f.rolloutRestarts, target)
 	return nil
 }
 func (f *fakeMutator) HelmRollback(context.Context, string, string, int) error {
@@ -423,6 +430,39 @@ func TestCtrlRChainsRolloutRestartOfEveryConsumer(t *testing.T) {
 	}
 	if !strings.Contains(m.message, "restarted 2 consumers") {
 		t.Fatalf("message = %q, want it to mention restarting 2 consumers", m.message)
+	}
+}
+
+// When the patch lands but one consumer's restart fails, the screen must say
+// exactly that — not restore the editor as if nothing applied, which would
+// invite a retry that restarts every consumer a second time.
+func TestCtrlRPartialRestartFailureReportsWhatLanded(t *testing.T) {
+	cm := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
+	mut := &fakeMutator{cm: cm, restartErr: map[string]error{
+		"StatefulSet/nva-stage/nva-db": errors.New("forbidden"),
+	}}
+	extra := map[kube.ResourceKind][]runtime.Object{
+		kube.KindDeployment:  {deploymentEnvFrom("nva-stage", "nva-worker", "nva-config")},
+		kube.KindStatefulSet: {statefulSetVolume("nva-stage", "nva-db", "nva-config")},
+	}
+	m := newModel(t, newSession(), cm, mut, extra)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	m = step(t, m, tea.KeyPressMsg{Text: "x"})
+	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+
+	if cm.Data["LOG_LEVEL"] != "infox" {
+		t.Fatalf("expected the edit applied, cm.Data = %+v", cm.Data)
+	}
+	if m.editing != nil || m.multiline != nil {
+		t.Fatal("the editor re-opened as if the patch had failed")
+	}
+	want := "updated LOG_LEVEL · restarted 1/2 consumers · StatefulSet/nva-db failed: forbidden"
+	if m.lastError != want {
+		t.Fatalf("lastError = %q, want %q", m.lastError, want)
+	}
+	if row, ok := m.selectedKeyRow(); !ok || row.value != "infox" {
+		t.Fatalf("expected the grid refreshed to the applied value, got %+v", row)
 	}
 }
 

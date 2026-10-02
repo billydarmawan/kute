@@ -10,7 +10,6 @@ package actions
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -42,6 +41,31 @@ type ResultMsg struct {
 	// key its refresh/undo readiness off this authoritative value rather
 	// than an immediate, possibly-stale informer cache read.
 	CronJobSchedule *kube.CronJobScheduleResult
+}
+
+// RestartsFailedError is a "configmap-data" ctrl-r commit's outcome when the
+// patch itself landed but one or more of the consumer restarts chained after
+// it didn't. It is still an error — the commit didn't fully happen — but a
+// caller must not treat it like a failed patch: the value is applied and the
+// other consumers did restart, so restoring the editor or retrying the whole
+// chain would re-restart workloads that already rolled.
+type RestartsFailedError struct {
+	Total  int // consumers the commit tried to restart
+	Failed []RestartFailure
+}
+
+// RestartFailure is one consumer restart that failed.
+type RestartFailure struct {
+	Ref kube.ConfigMapConsumerRef
+	Err error
+}
+
+func (e *RestartsFailedError) Error() string {
+	parts := make([]string, len(e.Failed))
+	for i, f := range e.Failed {
+		parts[i] = fmt.Sprintf("%s/%s failed: %v", f.Ref.Kind, f.Ref.Name, f.Err)
+	}
+	return fmt.Sprintf("restarted %d/%d consumers · %s", e.Total-len(e.Failed), e.Total, strings.Join(parts, "; "))
 }
 
 // TargetResult is one bulk target's individual outcome — BulkResultMsg's
@@ -629,13 +653,15 @@ func executeScope(mutator kube.Mutator, scope tui.TaskScope) error {
 		err = mutator.PatchConfigMapData(context.Background(),
 			scope.Namespace, scope.ResourceName, scope.ConfigMapKey, scope.ConfigMapValue, scope.ConfigMapRemove)
 		if err == nil && scope.ConfigMapRestartConsumers {
-			var errs []error
+			partial := &RestartsFailedError{Total: len(scope.ConfigMapConsumers)}
 			for _, ref := range scope.ConfigMapConsumers {
 				if rerr := mutator.RolloutRestart(context.Background(), ref.Kind, scope.Namespace, ref.Name); rerr != nil {
-					errs = append(errs, rerr)
+					partial.Failed = append(partial.Failed, RestartFailure{Ref: ref, Err: rerr})
 				}
 			}
-			err = errors.Join(errs...)
+			if len(partial.Failed) > 0 {
+				err = partial
+			}
 		}
 	default:
 		err = fmt.Errorf("unsupported verb %q", scope.Verb)

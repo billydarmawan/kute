@@ -1,6 +1,7 @@
 package configmapdata
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -450,10 +451,25 @@ func (m *Model) beginRemove(row configMapKeyRow) tea.Cmd {
 // established shape). On success the ConfigMap (and its consumer list) is
 // re-fetched and focus follows the touched key. On failure nothing is
 // refetched: a failed add/edit re-opens its own editor with the attempted
-// value intact, and the server's error is surfaced via lastError.
+// value intact, and the server's error is surfaced via lastError. A ctrl-r
+// whose patch landed but some restarts failed (actions.RestartsFailedError)
+// refreshes like a success, with what restarted and what didn't on the
+// error line.
 func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	pc := m.pendingCommit
 	m.pendingCommit = nil
+	var partial *actions.RestartsFailedError
+	if errors.As(msg.Err, &partial) && pc != nil {
+		// The patch landed and only some restarts failed: report exactly
+		// that, on the error line, and refresh like a success — restoring
+		// the editor would offer to re-apply a value that's already there
+		// and re-restart every consumer that already rolled.
+		m.message = ""
+		m.lastError = commitVerb(pc) + " " + pc.key + " · " + partial.Error()
+		m.focusKey = pc.key
+		m.reloadEpoch++
+		return m.load()
+	}
 	if msg.Err != nil {
 		m.lastError = msg.Err.Error()
 		m.message = ""
@@ -494,14 +510,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	if pc == nil {
 		return nil
 	}
-	switch {
-	case pc.remove:
-		m.message = "removed " + pc.key
-	case pc.isEdit, pc.overwrite:
-		m.message = "updated " + pc.key
-	default:
-		m.message = "added " + pc.key
-	}
+	m.message = commitVerb(pc) + " " + pc.key
 	if pc.restartConsumers && len(pc.consumers) > 0 {
 		m.message += fmt.Sprintf(" · restarted %d consumer", len(pc.consumers))
 		if len(pc.consumers) != 1 {
@@ -511,6 +520,18 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	m.focusKey = pc.key
 	m.reloadEpoch++
 	return m.load()
+}
+
+// commitVerb is the result line's past-tense verb for pc.
+func commitVerb(pc *configMapPendingCommit) string {
+	switch {
+	case pc.remove:
+		return "removed"
+	case pc.isEdit, pc.overwrite:
+		return "updated"
+	default:
+		return "added"
+	}
 }
 
 // consumerRefs strips configMapConsumer's display-only refKind down to the
