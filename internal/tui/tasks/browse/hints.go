@@ -133,14 +133,14 @@ func busiestOtherNamespace(ctx context.Context, lister resources.RawLister, reg 
 // than exclude) present in namespace, ordered by count descending, for the
 // "g other kinds — this namespace has 2 configmaps, 1 secret" hint.
 //
-// Only kinds whose caches are already populated are considered. Counting the
+// Only kinds whose caches are already running and populated (tui.KindCached)
+// are considered. Counting the
 // rest would mean starting an informer per kind just to decorate an empty
 // state — the launch stampede, relocated to whenever a namespace happens to
 // be empty. A thinner hint is the right trade: the caller already degrades
 // to a plain, still-truthful line when there's nothing to name.
 func otherKindsIn(ctx context.Context, lister resources.RawLister, reg resources.Registry, exclude kube.ResourceKind, namespace string) []otherKindHint {
 	var found []otherKindHint
-	kindSynced := kindSyncedFunc(lister, namespace)
 	for _, group := range resources.DefaultGroups() {
 		for _, k := range group.Kinds {
 			if k == exclude {
@@ -150,7 +150,7 @@ func otherKindsIn(ctx context.Context, lister resources.RawLister, reg resources
 			if !ok || desc.ClusterScoped {
 				continue
 			}
-			if !kindSynced(k) {
+			if !tui.KindCached(lister, k, namespace) {
 				continue
 			}
 			n, err := resources.Count(ctx, lister, k, namespace)

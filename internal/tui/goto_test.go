@@ -782,6 +782,44 @@ func TestGotoFuzzySearchSkipsUnstartedKinds(t *testing.T) {
 	}
 }
 
+// unstartedCRDLister answers the sync seams the way *kube.Cluster does for a
+// kind whose informer nothing has started: KindSynced says "settled" (the
+// anti-hang rule — there is nothing to wait for), KindStarted says a read
+// would start one. Only the eager set is started.
+type unstartedCRDLister struct{ countOnlyLister }
+
+func (l *unstartedCRDLister) KindSynced(kube.ResourceKind, string) bool { return true }
+
+func (l *unstartedCRDLister) KindStarted(kind kube.ResourceKind, _ string) bool {
+	switch kind {
+	case kube.KindPod, kube.KindNamespace, kube.KindNode:
+		return true
+	}
+	return false
+}
+
+// TestGotoFuzzySearchDoesNotStartTheCRDInformer is review 01 H1: before 14b
+// had been opened, KindSynced vouched for KindCustomResourceDefinition, so
+// the first fuzzy keystroke listed it and started the full-CRD informer.
+// The corpus must ask whether a read is free (KindStarted), not only whether
+// a cache is settled.
+func TestGotoFuzzySearchDoesNotStartTheCRDInformer(t *testing.T) {
+	lister := &unstartedCRDLister{}
+	sess := gotoTestSession(lister)
+
+	task := &screenTask{name: "browse"}
+	model := tui.NewWithSession(task, sess)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "g"})
+	_, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "c"})
+
+	for _, kind := range lister.reads() {
+		if !lister.KindStarted(kind, "") {
+			t.Fatalf("fuzzy search read the %s cache, whose informer has not started", kind)
+		}
+	}
+}
+
 // TestGotoOffersTheFluxTreeOnlyOnAFluxCluster is §30a/§30b's "zero chrome on
 // a non-Flux cluster" applied to the one place §30b is reachable from. The
 // entry has to appear the moment Flux CRDs are discovered and never before —

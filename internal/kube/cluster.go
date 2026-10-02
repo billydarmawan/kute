@@ -686,6 +686,55 @@ func (c *Cluster) KindSynced(kind ResourceKind, namespace string) bool {
 	return c.kindStalled[key] != nil
 }
 
+// KindStarted reports whether reading kind at namespace would start nothing
+// new — an informer already backs that exact cache, or no informer could
+// ever back it (a stopped cluster, a kind nothing serves). It is the
+// question a breadth-first consumer (the goto palette's fuzzy resource
+// corpus, browse's empty-state hints) must ask before it reads a cache it
+// isn't displaying, and it is deliberately not KindSynced: KindSynced
+// answers "settled" for anything that will never arrive so a spinner can't
+// hang, which for a kind whose informer simply hasn't been started yet is
+// the opposite of the answer a breadth-first reader needs. Asking KindSynced
+// alone is how opening goto started the full-CRD informer (the 2.76 MB read
+// docs/lazy-informers.md §5.1 removed from connect): no cache key matched
+// KindCustomResourceDefinition before 14b had been opened, so it fell
+// through to "unknown kind, settled".
+//
+// Mirrors the decisions ListRaw's own ensureKind/ensureDynamicKindFor make,
+// so the two cannot disagree about which reads start an informer. namespace
+// follows the same rule as KindSynced's.
+func (c *Cluster) KindStarted(kind ResourceKind, namespace string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stopCh == nil {
+		// ensureKind/ensureDynamicKind register nothing on a stopped
+		// cluster, so a read here is free.
+		return true
+	}
+	key := c.scopeKeyForLocked(kind, namespace)
+	if kind == KindHelmRelease {
+		return c.helmInformers[key.namespace] != nil
+	}
+	if _, ok := c.kindInformers[key]; ok {
+		return true
+	}
+	if _, ok := c.dynKinds[key]; ok {
+		return true
+	}
+	if _, typed := typedKinds[kind]; typed {
+		return false
+	}
+	if kind == KindCustomResourceDefinition {
+		return false
+	}
+	for _, dk := range c.discovered {
+		if dk.RegistryKind() == kind {
+			return false
+		}
+	}
+	return true
+}
+
 // kindSyncedLockedKey is KindSynced's cache-state half for an already-
 // resolved key, without the stall fallback — the question "has this cache
 // actually filled", which is also what decides whether a watch error is an

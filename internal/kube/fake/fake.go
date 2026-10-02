@@ -225,6 +225,11 @@ func (c *Cluster) KindSynced(kind kube.ResourceKind, namespace string) bool {
 	return !c.notSynced
 }
 
+// KindStarted mirrors *kube.Cluster.KindStarted. The fake has no informers
+// to start — every read is of an already-seeded in-memory map — so every
+// read is free.
+func (c *Cluster) KindStarted(kube.ResourceKind, string) bool { return true }
+
 // ListHelmReleaseSecrets mirrors *kube.Cluster's filtered release cache. The
 // real one is a separate, server-side-filtered Secret informer; the fake has
 // one seeded map, so it filters by type here — same answer, and it keeps the

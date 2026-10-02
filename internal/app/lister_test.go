@@ -396,3 +396,38 @@ var (
 	_ helmhistory.HelmSecretLister = (*recordingCluster)(nil)
 	_ resources.RawLister          = (*narrowlessCluster)(nil)
 )
+
+// startedCluster implements only the KindStarted seam, reporting which kinds
+// it was asked about.
+type startedCluster struct {
+	recordingCluster
+	startedAsked []kube.ResourceKind
+}
+
+func (c *startedCluster) KindStarted(kind kube.ResourceKind, _ string) bool {
+	c.startedAsked = append(c.startedAsked, kind)
+	return false
+}
+
+// TestDecoratorsForwardKindStarted: tui.KindCached type-asserts KindStarted
+// against the fully decorated lister, and an unforwarded seam silently falls
+// back to KindSynced alone — which vouches for kinds nothing has started, so
+// the goto palette's fuzzy corpus would start their informers (review 01 H1).
+// The cluster here has a narrow release cache, so HelmRelease is asked about
+// as itself.
+func TestDecoratorsForwardKindStarted(t *testing.T) {
+	cluster := &startedCluster{}
+	lister := newSessionLister(cluster, kube.NewForwardManager(), nil)
+
+	if lister.KindStarted(kube.KindCustomResourceDefinition, "") {
+		t.Fatal("KindStarted(CRD) = true through the decorators; the cluster said false")
+	}
+	if !lister.KindStarted(kube.KindForward, "") {
+		t.Fatal("KindStarted(Forward) = false; forwards are in-process and free to read")
+	}
+	lister.KindStarted(kube.KindHelmRelease, "default")
+	want := []kube.ResourceKind{kube.KindCustomResourceDefinition, kube.KindHelmRelease}
+	if len(cluster.startedAsked) != len(want) || cluster.startedAsked[0] != want[0] || cluster.startedAsked[1] != want[1] {
+		t.Fatalf("KindStarted asked about %v, want %v", cluster.startedAsked, want)
+	}
+}

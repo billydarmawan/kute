@@ -280,7 +280,10 @@ deployments           33 objects  324.4 KB
   its kinds — meant touching ~85 read sites (72 direct `ListRaw` calls plus 13 through
   `resources.List`/`Count`) where a *missed* one fails silently as an empty list.
   Implicit is correct by construction and needs suppression at exactly two breadth-first
-  consumers (the goto palette, the empty-state hints).
+  consumers (the goto palette, the empty-state hints). Both gate on `tui.KindCached` —
+  `KindStarted` ("would this read start nothing new?"), then `KindSynced` — never on
+  `KindSynced` alone, which by design reports "settled" for a kind no informer backs yet
+  and so once let a goto keystroke start the full-CRD informer.
 - **`ensureKind` holds `c.mu` across `factory.Start`.** The two-phase alternative has a
   real interleave: goroutine B's `Start` runs A's just-registered informer before A wires
   its handler, and `SetWatchErrorHandler` then fails outright on a running informer.

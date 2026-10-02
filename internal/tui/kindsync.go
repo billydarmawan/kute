@@ -21,6 +21,19 @@ type KindSyncChecker interface {
 	KindSynced(kind kube.ResourceKind, namespace string) bool
 }
 
+// KindStartedChecker is implemented by a lister whose informers start on
+// first read (*kube.Cluster). KindStarted reports whether reading kind at
+// namespace would start nothing new — its cache is already running, or
+// nothing could ever back it. namespace follows KindSyncChecker's rule.
+//
+// Distinct from KindSyncChecker on purpose: KindSynced reports "settled" for
+// a kind whose informer doesn't exist yet (so a spinner can never hang),
+// which is exactly the wrong answer for a consumer deciding whether a read
+// is free. See KindCached.
+type KindStartedChecker interface {
+	KindStarted(kind kube.ResourceKind, namespace string) bool
+}
+
 // CacheSyncChecker is the pre-per-kind, cluster-wide form.
 type CacheSyncChecker interface {
 	Synced() bool
@@ -129,6 +142,29 @@ func KindsSynced(lister any, namespace string, kinds ...kube.ResourceKind) bool 
 		return sc.Synced()
 	}
 	return true
+}
+
+// KindCached reports whether kind's cache at namespace is already running
+// and filled — the gate for every breadth-first reader of caches it isn't
+// displaying (the goto palette's fuzzy resource corpus, browse's empty-state
+// hints). Those must only read what this session has already paid for:
+// reading anything else starts an informer per kind on a keystroke, which is
+// the launch stampede relocated (CLAUDE.md, "never read a cache
+// breadth-first").
+//
+// KindsSynced alone is not that gate. It answers "settled" for a kind with no
+// informer yet, so before 14b had been opened it vouched for
+// KindCustomResourceDefinition and goto started the full-CRD informer on
+// the first fuzzy keystroke. True for a lister implementing neither checker
+// (fakes, test doubles), whose reads cost nothing.
+func KindCached(lister any, kind kube.ResourceKind, namespace string) bool {
+	if lister == nil {
+		return true
+	}
+	if ks, ok := lister.(KindStartedChecker); ok && !ks.KindStarted(kind, namespace) {
+		return false
+	}
+	return KindsSynced(lister, namespace, kind)
 }
 
 // CacheSyncRetryInterval is how often a screen re-checks a cache that was

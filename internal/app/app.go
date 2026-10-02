@@ -184,6 +184,21 @@ func (l helmAwareLister) KindSynced(kind kube.ResourceKind, namespace string) bo
 	return kc.KindSynced(kind, namespace)
 }
 
+// KindStarted answers for the same cache KindSynced does — for
+// KindHelmRelease, whichever one the releases actually come from — so a
+// breadth-first reader gated on tui.KindCached asks "is this read free?" of
+// the informer it would actually read.
+func (l helmAwareLister) KindStarted(kind kube.ResourceKind, namespace string) bool {
+	ks, ok := l.RawLister.(tui.KindStartedChecker)
+	if !ok {
+		return true
+	}
+	if kind == kube.KindHelmRelease && !l.hasHelmReleaseCache() {
+		kind = kube.KindSecret
+	}
+	return ks.KindStarted(kind, namespace)
+}
+
 // KindError answers for the same cache KindSynced does — for
 // KindHelmRelease, whichever one the releases actually came from — so a
 // screen told "settled" here is told why by the same informer.
@@ -321,6 +336,22 @@ func (l forwardAwareLister) KindSynced(kind kube.ResourceKind, namespace string)
 	return true
 }
 
+// KindStarted forwards whether a read would start a new informer. It is
+// load-bearing the way CountLive is: unforwarded, tui.KindCached's type
+// assertion misses and falls back to KindSynced alone, which vouches for a
+// kind nothing has started — and the goto palette's fuzzy corpus then reads
+// it, starting that informer on a keystroke. Forwards are in-process state,
+// so reading them never starts anything.
+func (l forwardAwareLister) KindStarted(kind kube.ResourceKind, namespace string) bool {
+	if kind == kube.KindForward {
+		return true
+	}
+	if ks, ok := l.RawLister.(tui.KindStartedChecker); ok {
+		return ks.KindStarted(kind, namespace)
+	}
+	return true
+}
+
 // KindError forwards the reason a kind's cache has nothing to show, and is
 // load-bearing for the same reason KindSynced is — the two are read as a
 // pair. Unforwarded, a screen gets "settled" from the layer below and no
@@ -424,6 +455,7 @@ var (
 	_ nodedetail.NodeDiskReader    = (*kube.Cluster)(nil)
 	_ browse.KindSyncChecker       = (*kube.Cluster)(nil)
 	_ tui.KindErrorReporter        = (*kube.Cluster)(nil)
+	_ tui.KindStartedChecker       = (*kube.Cluster)(nil)
 	_ tui.KindForbiddenReporter    = (*kube.Cluster)(nil)
 	_ tui.ScopedChecker            = (*kube.Cluster)(nil)
 	_ tui.LiveCounter              = (*kube.Cluster)(nil)
@@ -444,6 +476,7 @@ var (
 	_ browse.KindSyncChecker       = forwardAwareLister{}
 	_ browse.CacheSyncChecker      = forwardAwareLister{}
 	_ tui.KindErrorReporter        = forwardAwareLister{}
+	_ tui.KindStartedChecker       = forwardAwareLister{}
 	_ tui.KindForbiddenReporter    = forwardAwareLister{}
 	_ tui.ScopedChecker            = forwardAwareLister{}
 	_ tui.LiveCounter              = forwardAwareLister{}
@@ -451,6 +484,7 @@ var (
 	_ browse.KindSyncChecker       = helmAwareLister{}
 	_ browse.CacheSyncChecker      = helmAwareLister{}
 	_ tui.KindErrorReporter        = helmAwareLister{}
+	_ tui.KindStartedChecker       = helmAwareLister{}
 	_ tui.KindForbiddenReporter    = helmAwareLister{}
 	_ tui.ScopedChecker            = helmAwareLister{}
 	_ tui.LiveCounter              = helmAwareLister{}
@@ -475,6 +509,7 @@ var (
 	_ nodedetail.NodeDiskReader    = (*fake.Cluster)(nil)
 	_ browse.KindSyncChecker       = (*fake.Cluster)(nil)
 	_ tui.KindErrorReporter        = (*fake.Cluster)(nil)
+	_ tui.KindStartedChecker       = (*fake.Cluster)(nil)
 	_ tui.KindForbiddenReporter    = (*fake.Cluster)(nil)
 	_ helmhistory.HelmSecretLister = (*fake.Cluster)(nil)
 	// This block has no tui.ScopedChecker or tui.LiveCounter assertion for

@@ -897,20 +897,6 @@ func (m Model) grouped() bool {
 	return m.namespace == "" && !m.desc.ClusterScoped
 }
 
-// kindSyncedFunc adapts any lister to a per-kind sync predicate scoped to
-// namespace, for callers that ask about kinds other than the one on screen.
-// Everything that opts into neither checker reads as synced, so fakes and
-// test doubles behave as they always did.
-func kindSyncedFunc(lister resources.RawLister, namespace string) func(kube.ResourceKind) bool {
-	if kc, ok := lister.(KindSyncChecker); ok {
-		return func(kind kube.ResourceKind) bool { return kc.KindSynced(kind, namespace) }
-	}
-	if sc, ok := lister.(CacheSyncChecker); ok {
-		return func(kube.ResourceKind) bool { return sc.Synced() }
-	}
-	return func(kube.ResourceKind) bool { return true }
-}
-
 // listerSynced reports whether the cache backing the kind currently on
 // screen is done with its initial fill. Prefers the per-kind answer and
 // falls back to the cluster-wide one, then to "synced" for any lister that

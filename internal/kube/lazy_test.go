@@ -321,3 +321,81 @@ func TestCRDListStartsItsInformerOnDemand(t *testing.T) {
 
 	waitFor(t, "the CRD informer to list", func() bool { return crdListActions(dyn) > 0 })
 }
+
+// TestBreadthFirstReadGatedOnKindStartedStartsNothing is the review 01 H1
+// regression test. The goto palette's fuzzy resource corpus and browse's
+// empty-state hints walk every kind they know and read only the ones whose
+// cache is already running and filled (tui.KindCached: KindStarted, then
+// KindSynced). KindSynced alone vouched for KindCustomResourceDefinition
+// before 14b had ever been opened — no cache key matched it, so it fell
+// through to "unknown kind, settled" — and the first fuzzy keystroke in `g`
+// started the full-CRD informer, the 2.76 MB read §5.1 took out of connect.
+//
+// Walks the same gate over every typed kind plus the CRD list and Helm, at
+// both the cluster-wide and a namespaced scope, and asserts on the fake
+// clients' recorded actions: nothing beyond the eager set is listed, and no
+// CRD object at all.
+func TestBreadthFirstReadGatedOnKindStartedStartsNothing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c, cs := newLazyTestCluster()
+		dyn := c.dynClient.(*dynamicfake.FakeDynamicClient)
+		defer c.Stop()
+
+		if err := c.Start(t.Context()); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		synctest.Wait()
+
+		kinds := []ResourceKind{KindCustomResourceDefinition, KindHelmRelease}
+		for k := range typedKinds {
+			kinds = append(kinds, k)
+		}
+		for _, ns := range []string{"", "default"} {
+			for _, k := range kinds {
+				if c.KindStarted(k, ns) && c.KindSynced(k, ns) {
+					_, _ = c.ListRaw(t.Context(), k, ns)
+				}
+			}
+		}
+		synctest.Wait()
+
+		if n := crdListActions(dyn); n != 0 {
+			t.Fatalf("a breadth-first walk gated on KindStarted issued %d full CRD list(s); the CRD informer must start only when 14b is opened", n)
+		}
+		if got, want := listedResources(cs), []string{"namespaces", "nodes", "pods"}; !slices.Equal(got, want) {
+			t.Fatalf("a breadth-first walk gated on KindStarted listed %v, want only the eager set %v", got, want)
+		}
+	})
+}
+
+// TestKindStartedFlipsOnFirstRead: KindStarted is the "is this read free?"
+// answer, so it must be false for exactly the kinds a read would start —
+// typed, the CRD list, Helm — and true once that read has happened.
+func TestKindStartedFlipsOnFirstRead(t *testing.T) {
+	c, _ := newLazyTestCluster()
+	defer c.Stop()
+	if err := c.Start(t.Context()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if !c.KindStarted(KindPod, "") {
+		t.Fatal("KindStarted(Pod) = false after connect; Pod is in the eager set")
+	}
+	for _, k := range []ResourceKind{KindReplicaSet, KindCustomResourceDefinition} {
+		if c.KindStarted(k, "") {
+			t.Fatalf("KindStarted(%s) = true before anything read it", k)
+		}
+		if _, err := c.ListRaw(t.Context(), k, ""); err != nil {
+			t.Fatalf("ListRaw(%s): %v", k, err)
+		}
+		if !c.KindStarted(k, "") {
+			t.Fatalf("KindStarted(%s) = false after a read started its informer", k)
+		}
+	}
+	if c.KindStarted(KindHelmRelease, "default") {
+		t.Fatal("KindStarted(HelmRelease) = true before any release cache was read")
+	}
+	if !c.KindStarted("NoSuchKind", "") {
+		t.Fatal("KindStarted(unknown kind) = false; nothing could back it, so reading it is free")
+	}
+}
