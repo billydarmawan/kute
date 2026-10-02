@@ -17,7 +17,9 @@ func (c *Cluster) DiscoveredKinds() []kube.DiscoveredKind {
 func (c *Cluster) SeedDiscovered(dk kube.DiscoveredKind) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.discovered = append(c.discovered, dk)
+	// The same collision resolution the real discovery pass applies, so a
+	// test seeding two same-Kind groups gets the keys a cluster would give.
+	c.discovered = kube.AssignRegistryKinds(append(c.discovered, dk))
 }
 
 // CountInstances is the fake counterpart of *kube.Cluster.CountInstances —

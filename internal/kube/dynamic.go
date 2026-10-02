@@ -197,21 +197,31 @@ func customKindsFrom(lists []*metav1.APIResourceList, crdNames map[string]bool) 
 	return dedupeDiscovered(out)
 }
 
-// dedupeDiscovered keeps one entry per Kind. A CRD serving several versions
-// appears once per version in discovery; the preferred version sorts first
-// within a group, so the first sighting wins.
+// dedupeDiscovered keeps one entry per (Group, Kind). A CRD serving several
+// versions appears once per version in discovery; the preferred version
+// sorts first within a group, so the first sighting wins.
+//
+// Deduping by registry key instead silently dropped a whole kind whenever
+// two groups served the same Kind (Istio's and Gateway API's Gateway):
+// whichever discovery listed second was simply never seen. Same-Kind kinds
+// from different groups are kept, and AssignRegistryKinds gives them
+// distinct keys.
 func dedupeDiscovered(in []DiscoveredKind) []DiscoveredKind {
-	seen := make(map[ResourceKind]bool, len(in))
+	type groupKind struct{ group, kind string }
+	seen := make(map[groupKind]bool, len(in))
 	out := make([]DiscoveredKind, 0, len(in))
 	for _, dk := range in {
-		if seen[dk.RegistryKind()] {
+		gk := groupKind{dk.Group, dk.Kind}
+		if seen[gk] {
 			continue
 		}
-		seen[dk.RegistryKind()] = true
+		seen[gk] = true
 		out = append(out, dk)
 	}
-	slices.SortFunc(out, func(a, b DiscoveredKind) int { return cmp.Compare(a.Kind, b.Kind) })
-	return out
+	slices.SortFunc(out, func(a, b DiscoveredKind) int {
+		return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Group, b.Group))
+	})
+	return AssignRegistryKinds(out)
 }
 
 // ensureDynamicKindFor starts the instance informer for a discovered kind by

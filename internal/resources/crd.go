@@ -39,7 +39,7 @@ func CustomDescriptor(dk kube.DiscoveredKind) Descriptor {
 	return Descriptor{
 		Kind:          dk.RegistryKind(),
 		Group:         GroupCustomResources,
-		Display:       capitalizePlural(dk.Plural),
+		Display:       discoveredDisplay(dk),
 		Icon:          "◆",
 		Columns:       columns,
 		Describe:      "custom resource · " + dk.Group,
@@ -62,6 +62,19 @@ func capitalizePlural(plural string) string {
 	r := []rune(plural)
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
+}
+
+// discoveredDisplay names a generic discovered kind for the breadcrumb, the
+// goto palette and the strip: its plural, plus its API group whenever it is
+// registered under a qualified key (kube.QualifiedKind) — exactly the case
+// where the bare plural would read the same as the kind that owns the name
+// ("Services" core vs Knative's "Services (serving.knative.dev)").
+func discoveredDisplay(dk kube.DiscoveredKind) string {
+	name := capitalizePlural(dk.Plural)
+	if strings.Contains(string(dk.RegistryKind()), ".") {
+		return name + " (" + dk.Group + ")"
+	}
+	return name
 }
 
 // projectCustomResource is the one generic projector every discovered kind
@@ -239,6 +252,15 @@ var crdColumns = []string{"Name", "Group", "Versions", "Scope", "Count", "Age"}
 // not a discovered instance kind). counter supplies the live COUNT column;
 // nil renders every row's count as 0 (no live cluster to read).
 func CRDDescriptor(counter InstanceCounter) Descriptor {
+	return crdDescriptor(counter, nil)
+}
+
+// crdDescriptor is CRDDescriptor with the discovery snapshot's registry keys
+// by CRD name, so a row's ↵ and COUNT address the key that kind was actually
+// registered under — which, for a collision only the whole snapshot can
+// resolve (kube.AssignRegistryKinds), a CRD object parsed on its own can't
+// derive.
+func crdDescriptor(counter InstanceCounter, keys map[string]kube.ResourceKind) Descriptor {
 	return Descriptor{
 		Kind:          kube.KindCustomResourceDefinition,
 		Group:         GroupCluster,
@@ -247,7 +269,7 @@ func CRDDescriptor(counter InstanceCounter) Descriptor {
 		Columns:       crdColumns,
 		Describe:      "cluster extension types",
 		ClusterScoped: true,
-		Project:       projectCRD(counter),
+		Project:       projectCRD(counter, keys),
 		HealthLabel:   crdHealthLabel,
 	}
 }
@@ -272,7 +294,7 @@ func crdHealthLabel(class StatusClass) string {
 // field on the CRD itself (metaOf's own Age computation already reads the
 // wall clock the same way, so Project was never perfectly pure to begin
 // with).
-func projectCRD(counter InstanceCounter) func(obj runtime.Object) Row {
+func projectCRD(counter InstanceCounter, keys map[string]kube.ResourceKind) func(obj runtime.Object) Row {
 	return func(obj runtime.Object) Row {
 		u, ok := obj.(*unstructured.Unstructured)
 		if !ok {
@@ -289,9 +311,13 @@ func projectCRD(counter InstanceCounter) func(obj runtime.Object) Row {
 			glyph, class = "●", StatusOK
 		}
 
+		key := dk.RegistryKind()
+		if k, ok := keys[dk.CRDName]; ok {
+			key = k
+		}
 		count := 0
 		if counter != nil {
-			count = counter.CountInstances(dk.RegistryKind())
+			count = counter.CountInstances(key)
 		}
 
 		return Row{
@@ -305,7 +331,7 @@ func projectCRD(counter InstanceCounter) func(obj runtime.Object) Row {
 			// string — browse's ↵ on a CRD row reads it back to build the
 			// GotoKindMsg that jumps into 14a's instance list, the same
 			// opaque-id convention Forward's session ID already uses.
-			Key: string(dk.RegistryKind()),
+			Key: string(key),
 		}
 	}
 }
@@ -353,7 +379,11 @@ type ClusterReader interface {
 // so it's unit-testable on its own.
 func BuildDiscoveredRegistry(discovered []kube.DiscoveredKind, reader ClusterReader) (Registry, []Group) {
 	registry := DefaultRegistry()
-	registry.Register(CRDDescriptor(reader))
+	keys := make(map[string]kube.ResourceKind, len(discovered))
+	for _, dk := range discovered {
+		keys[dk.CRDName] = dk.RegistryKind()
+	}
+	registry.Register(crdDescriptor(reader, keys))
 	// Ingress stays in DefaultRegistry with a nil-safe Project (pre-connect
 	// fallback renders every backend "–"); once a live reader exists, swap in
 	// the closure that actually resolves Service/Pod backend health.
@@ -371,6 +401,15 @@ func BuildDiscoveredRegistry(discovered []kube.DiscoveredKind, reader ClusterRea
 	}
 	var fluxKinds, argoKinds, customKinds []kube.ResourceKind
 	for _, dk := range discovered {
+		// Never let a discovered kind replace an entry already here — a
+		// built-in, or an earlier discovered kind. kube.DiscoveredKind's
+		// RegistryKind already qualifies every key it knows is taken; this
+		// is the backstop for one it doesn't, since Register is
+		// last-write-wins and a replaced built-in fails silently (the
+		// Services list rendering NAME/AGE for Knative's schema).
+		if _, taken := registry.Descriptor(dk.RegistryKind()); taken {
+			continue
+		}
 		switch {
 		case kube.IsFluxGroup(dk.Group):
 			// By API group, never by bare Kind name — Flux's HelmRelease
@@ -385,15 +424,15 @@ func BuildDiscoveredRegistry(discovered []kube.DiscoveredKind, reader ClusterRea
 			// doc comment).
 			registry.Register(argoDescriptor(dk))
 			argoKinds = append(argoKinds, dk.RegistryKind())
-		case dk.Kind == string(kube.KindHTTPRoute):
+		case dk.Group == kube.GatewayAPIGroup && dk.Kind == string(kube.KindHTTPRoute):
 			registry.Register(httpRouteDescriptor(dk))
 			customKinds = append(customKinds, dk.RegistryKind())
-		case dk.Kind == string(kube.KindCertificate):
+		case dk.Group == kube.CertManagerGroup && dk.Kind == string(kube.KindCertificate):
 			// §35b: EXPIRES/RENEWAL only mean anything read off
 			// Certificate's own status, so it gets the same curated
-			// treatment HTTPRoute's ATTACHED column does — bare Kind
-			// match, same precedent (nothing else discovered plausibly
-			// collides with "Certificate" the way Flux's HelmRelease does).
+			// treatment HTTPRoute's ATTACHED column does. Group *and*
+			// Kind, like Flux and Argo: ACK's ACM serves a Certificate
+			// too, with none of these fields.
 			registry.Register(certificateDescriptor(dk))
 			customKinds = append(customKinds, dk.RegistryKind())
 		default:

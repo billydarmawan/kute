@@ -1,6 +1,7 @@
 package kube
 
 import (
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -57,6 +58,12 @@ type DiscoveredKind struct {
 	// CRDName is the CustomResourceDefinition object's own metadata.name
 	// (<plural>.<group>) — 14b's delete target.
 	CRDName string
+	// AssignedKind, when non-empty, overrides RegistryKind's own derivation.
+	// AssignRegistryKinds sets it on the losers of a collision only it can
+	// see — two discovered groups serving the same otherwise-unclaimed Kind
+	// (CAPI and CNPG "Cluster") — since that depends on the whole snapshot,
+	// not on the one kind.
+	AssignedKind ResourceKind
 }
 
 // RegistryKind is the ResourceKind the kind registry addresses dk by:
@@ -66,13 +73,66 @@ type DiscoveredKind struct {
 // Every lookup that resolves a ResourceKind against the discovery snapshot
 // goes through this, so a substituted key still finds the real GVR — only
 // the map key changes, never the coordinates kute watches.
+//
+// A discovered kind never takes a key something else owns: a Kind that is a
+// built-in registry key (IsBuiltinKind — Knative's Service), or a bare Kind
+// kute routes on that belongs to another group (ownedKinds — Istio's
+// Gateway), is registered under QualifiedKind instead. Both sides stay
+// reachable; neither replaces the other.
 func (dk DiscoveredKind) RegistryKind() ResourceKind {
+	if dk.AssignedKind != "" {
+		return dk.AssignedKind
+	}
 	for k, s := range substitutedKinds {
 		if s.group == dk.Group && s.apiKind == dk.Kind {
 			return k
 		}
 	}
+	if IsBuiltinKind(ResourceKind(dk.Kind)) {
+		return QualifiedKind(dk.Kind, dk.Group)
+	}
+	if owner, ok := ownedKinds[dk.Kind]; ok && owner != dk.Group {
+		return QualifiedKind(dk.Kind, dk.Group)
+	}
 	return ResourceKind(dk.Kind)
+}
+
+// AssignRegistryKinds resolves the collisions RegistryKind can't see from one
+// kind alone: two discovered groups whose Kinds would land on the same key.
+// The owning group (ownedKinds) keeps the bare key if it's one of them;
+// otherwise the lexically first group does, so the outcome never depends on
+// discovery order. Every other one gets QualifiedKind. in must already hold
+// one entry per (Group, Kind); the returned slice is a copy.
+func AssignRegistryKinds(in []DiscoveredKind) []DiscoveredKind {
+	out := slices.Clone(in)
+	byKey := make(map[ResourceKind][]int, len(out))
+	for i := range out {
+		out[i].AssignedKind = ""
+		k := out[i].RegistryKind()
+		byKey[k] = append(byKey[k], i)
+	}
+	for _, idx := range byKey {
+		if len(idx) < 2 {
+			continue
+		}
+		winner := idx[0]
+		for _, i := range idx[1:] {
+			if out[i].Group < out[winner].Group {
+				winner = i
+			}
+		}
+		for _, i := range idx {
+			if ownedKinds[out[i].Kind] == out[i].Group {
+				winner = i
+			}
+		}
+		for _, i := range idx {
+			if i != winner {
+				out[i].AssignedKind = QualifiedKind(out[i].Kind, out[i].Group)
+			}
+		}
+	}
+	return out
 }
 
 // ParseDiscoveredKind extracts a DiscoveredKind from one CRD object's

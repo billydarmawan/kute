@@ -22,9 +22,13 @@ type substituted struct {
 	resource string // "<plural>.<group>", the unambiguous kubectl resource arg
 }
 
-// substitutedKinds is the whole substitution table. Deliberately tiny: a
+// substitutedKinds is the hand-kept substitution table. Deliberately tiny: a
 // substitution costs the invariant that a ResourceKind is its API Kind, so
-// it is only worth paying where two kinds genuinely collide.
+// it is only worth paying where a curated kind needs a stable const of its
+// own. Every other collision — a CRD sharing a built-in's Kind, or two
+// groups sharing one — is resolved at discovery with a self-describing
+// QualifiedKind key (DiscoveredKind.RegistryKind, AssignRegistryKinds), no
+// table entry needed.
 var substitutedKinds = map[ResourceKind]substituted{
 	KindFluxHelmRelease: {
 		apiKind:  "HelmRelease",
@@ -87,6 +91,62 @@ func IsArgoGroup(group string) bool {
 	return group == ArgoGroup
 }
 
+// Gateway API's and cert-manager's API groups — the groups that own the
+// bare Kind names kute routes to bespoke screens (KindGateway/KindHTTPRoute
+// → tasks/routetable, KindCertificate → tasks/certchain). See ownedKinds.
+const (
+	GatewayAPIGroup  = "gateway.networking.k8s.io"
+	CertManagerGroup = "cert-manager.io"
+	CertManagerACME  = "acme.cert-manager.io"
+)
+
+// ownedKinds names, for each bare Kind kute itself routes on, the one API
+// group allowed to hold that bare registry key. Istio's networking.istio.io
+// Gateway and ACK ACM's Certificate are real, common CRDs; under their bare
+// Kind they would either hide the kind kute actually means or be routed into
+// a screen that misreads them. Any other group serving one of these Kinds is
+// registered under a qualified key instead (QualifiedKind).
+var ownedKinds = map[string]string{
+	string(KindGateway):            GatewayAPIGroup,
+	string(KindHTTPRoute):          GatewayAPIGroup,
+	string(KindGRPCRoute):          GatewayAPIGroup,
+	string(KindTCPRoute):           GatewayAPIGroup,
+	string(KindCertificate):        CertManagerGroup,
+	string(KindCertificateRequest): CertManagerGroup,
+	string(KindIssuer):             CertManagerGroup,
+	string(KindClusterIssuer):      CertManagerGroup,
+	string(KindOrder):              CertManagerACME,
+	string(KindChallenge):          CertManagerACME,
+	"Application":                  ArgoGroup,
+}
+
+// IsBuiltinKind reports whether k is a registry key kute defines itself —
+// every typed-informer kind plus the synthetic ones (Forward, Helm releases,
+// the CRDs list, the goto carve-outs). A discovered CRD whose Kind is one of
+// these never gets the bare key: resources.Registry is keyed on ResourceKind
+// alone and Register is last-write-wins, so a Knative Service registered as
+// "Service" replaced the core Services list outright.
+func IsBuiltinKind(k ResourceKind) bool {
+	if _, ok := typedKinds[k]; ok {
+		return true
+	}
+	switch k {
+	case KindForward, KindCustomResourceDefinition, KindHelmRelease, KindFluxHelmRelease,
+		KindWhoCan, KindOverview, KindFluxTree:
+		return true
+	}
+	return false
+}
+
+// QualifiedKind is the registry key a discovered kind gets when its bare
+// Kind is already taken: "<Kind>.<group>", e.g. "Service.serving.knative.dev".
+// The key is self-describing, so APIKind and ResourceArg recover the wire
+// Kind and a group-qualified kubectl argument from it with no table lookup —
+// the substitution is data computed at discovery, not a hand-kept list.
+func QualifiedKind(kind, group string) ResourceKind {
+	return ResourceKind(kind + "." + group)
+}
+
 // APIKind is the Kubernetes Kind behind k. Identical to string(k) for every
 // kind but a substituted one.
 //
@@ -98,13 +158,20 @@ func (k ResourceKind) APIKind() string {
 	if s, ok := substitutedKinds[k]; ok {
 		return s.apiKind
 	}
+	// A qualified key (QualifiedKind): a Kind never contains a dot, so the
+	// first one ends it.
+	if i := strings.IndexByte(string(k), '.'); i > 0 {
+		return string(k)[:i]
+	}
 	return string(k)
 }
 
 // ResourceArg renders k as a kubectl resource argument: the lowercased Kind
 // for everything normal, the fully-qualified "<plural>.<group>" for a
 // substituted kind, where the bare name would either fail to resolve or
-// resolve to the wrong resource. Used by every command string kute prints
+// resolve to the wrong resource. A qualified key (QualifiedKind) lowercases
+// to "<kind>.<group>", which kubectl resolves through the discovery mapper's
+// singular name for exactly that group. Used by every command string kute prints
 // as copyable documentation, and by the kubectl edit handoff.
 func (k ResourceKind) ResourceArg() string {
 	if s, ok := substitutedKinds[k]; ok {
