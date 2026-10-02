@@ -163,14 +163,29 @@ func (m Model) suspendedCard(width int) string {
 
 // retryIn renders the countdown to Flux's next attempt. Computed from
 // m.now, which a tick refreshes — never a clock read inside render.
+//
+// Only the first attempt is anchored to a fact (Ready's transition plus the
+// interval). Ready's lastTransitionTime doesn't move while the object keeps
+// failing, so once that attempt has passed the next one is projected onto
+// the same interval grid and marked approximate ("~") — otherwise every
+// failure older than one interval read "retry in now" forever.
 func (m Model) retryIn() string {
 	if m.fail == nil || m.fail.RetryAt.IsZero() {
 		return ""
 	}
 	d := m.fail.RetryAt.Sub(m.now)
+	approx := ""
+	if d <= 0 && m.fail.RetryEvery > 0 {
+		d += (-d/m.fail.RetryEvery + 1) * m.fail.RetryEvery
+		approx = "~"
+	}
 	if d <= 0 {
 		return "now"
 	}
+	return approx + countdown(d)
+}
+
+func countdown(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}

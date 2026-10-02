@@ -432,7 +432,7 @@ func buildFailure(u *unstructured.Unstructured, inv []inventoryItem, now time.Ti
 	if t, err := time.Parse(time.RFC3339, cond.lastTransition); err == nil {
 		f.Since = t
 		if d := retryInterval(u); d > 0 {
-			f.RetryAt = t.Add(d)
+			f.RetryAt, f.RetryEvery = t.Add(d), d
 		}
 	}
 

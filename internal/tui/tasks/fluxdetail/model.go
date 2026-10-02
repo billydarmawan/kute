@@ -89,6 +89,10 @@ type failure struct {
 	Message string // the condition message, verbatim
 	Since   time.Time
 	RetryAt time.Time // zero when no retry interval could be resolved
+	// RetryEvery is the interval Flux keeps retrying on after RetryAt.
+	// Ready's lastTransitionTime doesn't move while it stays False, so past
+	// the first attempt the next one can only be projected from it.
+	RetryEvery time.Duration
 	// Culprit names the inventory object the failure resolved to, and
 	// Detail the real reason found on it ("CrashLoopBackOff — exit 137,
 	// OOMKilled"). Both empty when the join found nothing, in which case

@@ -250,3 +250,22 @@ func TestSuspendedOutranksAFrozenFailure(t *testing.T) {
 		t.Errorf("expected the frozen failure as a muted history line:\n%s", view)
 	}
 }
+
+// TestRetryCountdownProjectsPastTheFirstAttempt is M4: Ready's
+// lastTransitionTime stays put while the object keeps failing, so anchoring
+// the countdown to it read "retry in now" for every failure older than one
+// interval. Past the first attempt it projects onto the interval grid.
+func TestRetryCountdownProjectsPastTheFirstAttempt(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	since := now.Add(-3*time.Hour - 2*time.Minute) // 3h02m into a 10m interval
+	m := Model{now: now, fail: &failure{Since: since, RetryAt: since.Add(10 * time.Minute), RetryEvery: 10 * time.Minute}}
+	if got := m.retryIn(); got != "~8m 00s" {
+		t.Errorf("retryIn = %q, want ~8m 00s", got)
+	}
+	// Within the first interval the anchored countdown is exact.
+	m.fail.Since = now.Add(-4 * time.Minute)
+	m.fail.RetryAt = m.fail.Since.Add(10 * time.Minute)
+	if got := m.retryIn(); got != "6m 00s" {
+		t.Errorf("retryIn = %q, want 6m 00s", got)
+	}
+}
