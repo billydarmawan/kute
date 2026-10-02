@@ -63,8 +63,8 @@ func deleteWillRunLine(scope tui.TaskScope) string {
 }
 
 // beginDelete confirms deleting row — inline y/N in non-prod contexts, the
-// full type-the-name modal in PROD, and always the modal for a Namespace or
-// CustomResourceDefinition (14b), which delete far more than the one row
+// full type-the-name modal in PROD, and always the modal for a Namespace,
+// CustomResourceDefinition (14b) or Node, which delete far more than the one row
 // (verbs.TierForDelete owns that rule). Owner is only known for the Pod kind
 // (via m.pods, the fuller kube.Pod projection Row doesn't carry) — every
 // other kind's modal simply omits the "will be recreated" line.

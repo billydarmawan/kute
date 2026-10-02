@@ -407,7 +407,7 @@ func TestLogsAppliesToCronJob(t *testing.T) {
 }
 
 // TestTierForDelete pins the delete family's whole confirm policy in one
-// table: force delete is always modal, and a Namespace or CRD delete —
+// table: force delete is always modal, and a Namespace, CRD or Node delete —
 // which removes far more than the row — is always modal too, PROD or not.
 func TestTierForDelete(t *testing.T) {
 	t.Parallel()
@@ -425,6 +425,8 @@ func TestTierForDelete(t *testing.T) {
 		{Delete, kube.KindNamespace, true, actions.TierModal},
 		{Delete, kube.KindCustomResourceDefinition, false, actions.TierModal},
 		{Delete, kube.KindCustomResourceDefinition, true, actions.TierModal},
+		{Delete, kube.KindNode, false, actions.TierModal},
+		{Delete, kube.KindNode, true, actions.TierModal},
 		{ForceDelete, kube.KindPod, false, actions.TierModal},
 		{ForceDelete, kube.KindPod, true, actions.TierModal},
 	}

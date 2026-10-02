@@ -267,3 +267,38 @@ func TestMarksClearOnNamespaceSwitch(t *testing.T) {
 		t.Fatalf("expected marks cleared after a namespace switch, got %d", len(m.marks))
 	}
 }
+
+// TestBulkNodeDeleteNonProdOpensTypeCountModal is review 05 M4 for the
+// marked set: `*` `D` on the Nodes list is the type-the-count modal outside
+// PROD, never an inline y/N.
+func TestBulkNodeDeleteNonProdOpensTypeCountModal(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {nodeObj("worker-1", true, false), nodeObj("worker-2", true, false)},
+	}}
+	mut := &fakeMutator{}
+	sess := newSession()
+	sess.Location.Kind = kube.KindNode
+	m := New(Config{Session: sess, Lister: lister, Mutator: mut})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "*"})
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	if m.pendingBulkDelete == nil || m.pendingBulkDelete.tier != actions.TierModal {
+		var tier actions.Tier
+		if m.pendingBulkDelete != nil {
+			tier = m.pendingBulkDelete.tier
+		}
+		t.Fatalf("expected the type-the-count modal, pending=%v tier=%v", m.pendingBulkDelete != nil, tier)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if len(mut.deleted) != 0 {
+		t.Fatalf("expected y/enter to run nothing before the count is typed, got %v", mut.deleted)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "2"})
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if len(mut.deleted) != 2 {
+		t.Fatalf("deleted = %v, want both nodes after typing the count", mut.deleted)
+	}
+}

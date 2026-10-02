@@ -339,3 +339,29 @@ func TestNamespaceDeleteNonProdOpensTypeNameModal(t *testing.T) {
 		t.Fatalf("expected y/enter to run nothing before the name is typed, got %v", mut.deleted)
 	}
 }
+
+// TestNodeDeleteNonProdOpensTypeNameModal is review 05 M4: deleting a Node
+// makes PodGC remove every pod bound to it — more than a drain, which is
+// always modal — so its delete gets the type-the-name modal outside PROD
+// too, never the inline y/N.
+func TestNodeDeleteNonProdOpensTypeNameModal(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {nodeObj("worker-1", true, false), nodeObj("worker-2", true, false)},
+	}}
+	mut := &fakeMutator{}
+	sess := newSession()
+	sess.Location.Kind = kube.KindNode
+	m := New(Config{Session: sess, Lister: lister, Mutator: mut})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	if !m.actions.Active() || m.actions.Tier() != actions.TierModal || !m.typingConfirmName() {
+		t.Fatalf("expected the type-the-name modal for a non-prod Node delete, tier=%v", m.actions.Tier())
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if len(mut.deleted) != 0 {
+		t.Fatalf("expected y/enter to run nothing before the name is typed, got %v", mut.deleted)
+	}
+}

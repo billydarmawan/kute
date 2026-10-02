@@ -36,7 +36,7 @@ kute is built for the first 15 minutes after something breaks: unhealthy workloa
 - **Batch workloads get their own failure trail** — CronJob detail promotes the controller's own failure reason above retained run history; Jobs open an attempt ledger with every retry's exit code, duration, and node kept together.
 - **Routing tables resolve to what's actually answering** — Ingress and Gateway API HTTPRoute show every host and path against the backend that's actually serving it, live endpoint health included.
 - **Every mutating action shows its command first** — exec, port-forward, scale, image/resource changes, label edits, rollout restarts, and Helm rollbacks all print the exact command that's about to run before it runs. Copyable documentation, not a black box.
-- **Deliberate friction on destructive actions** — reversible verbs like cordon execute immediately; delete and rollout-restart are tiered, with inline y/N confirmation normally and a type-the-name modal when the context is explicitly listed as production in your [config file](#configuration), never guessed from a name. Drain always confirms; force delete (`ctrl+k`) and deleting a Namespace or CRD always need the typed name, prod or not.
+- **Deliberate friction on destructive actions** — reversible verbs like cordon execute immediately; delete and rollout-restart are tiered, with inline y/N confirmation normally and a type-the-name modal when the context is explicitly listed as production in your [config file](#configuration), never guessed from a name. Drain always confirms; force delete (`ctrl+k`) and deleting a Namespace, CRD or Node always need the typed name, prod or not.
 - **CRDs, Flux, and Argo CD render with zero configuration** — kinds discovered from the API automatically get columns, status, and detail views (a cert-manager `Certificate → CertificateRequest → Order → Challenge` chain shows the real failure reason at each step); Flux's sources/reconcilers and Argo CD's Applications get their own screens, sync status kept separate from workload health. No plugins, no per-CRD setup.
 - **Alt-tab namespace/context switching** — the same palette that jumps to any resource kind also toggles between your last two namespaces or contexts with no typing, and recalls recent ones by number.
 - **One palette jumps to anything** — a kind's alias letter, a fuzzy kind name, or a specific resource by name all live in the same `g` palette; typing a pod's name jumps straight to it, switching kind and namespace as a side effect.
@@ -238,7 +238,7 @@ update:
 | --- | --- | --- |
 | Delete, rollout restart | inline `y/N` | type the resource's name to confirm |
 | Force delete (`ctrl+k` on a Pod's delete confirm) | turns the inline `y/N` into the type-the-name modal | switches the modal to force delete, keeping what you've typed |
-| Delete a Namespace or CRD | type its name (a marked set: type the count) | type its name (a marked set: type the count) |
+| Delete a Namespace, CRD or Node | type its name (a marked set: type the count) | type its name (a marked set: type the count) |
 | Drain | `y/N` confirm | `y/N` confirm |
 | Edit, set image, set resources | applies on save | inline `y/N` first |
 | Cordon / uncordon | applies immediately | applies immediately |

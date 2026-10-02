@@ -689,10 +689,13 @@ func TierFor(v Verb, isProd bool) actions.Tier {
 
 // cascadeDeleteKinds are the kinds whose delete removes far more than the
 // row: a Namespace takes every object inside it, a CustomResourceDefinition
-// every instance of its kind. Deleting one always gets the modal — the
+// every instance of its kind, and a Node every pod bound to it (PodGC
+// deletes them, DaemonSet pods included, and the node is gone until its
+// kubelet re-registers — strictly more disruptive than Drain, which is
+// already always modal). Deleting one always gets the modal — the
 // type-the-name modal for one row, type-the-count for a marked set —
-// PROD or not (docs/design README.md §8b/§14b/§20a).
-var cascadeDeleteKinds = []kube.ResourceKind{kube.KindNamespace, kube.KindCustomResourceDefinition}
+// PROD or not (docs/design README.md §8b/§11a/§14b/§20a).
+var cascadeDeleteKinds = []kube.ResourceKind{kube.KindNamespace, kube.KindCustomResourceDefinition, kube.KindNode}
 
 // TierForDelete is the one confirm-policy resolver for the delete family
 // (Delete, ForceDelete) — every delete call site (browse single and bulk,
