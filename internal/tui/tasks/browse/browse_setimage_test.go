@@ -1,6 +1,7 @@
 package browse
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -695,5 +696,56 @@ func TestINoOpsWithoutMutator(t *testing.T) {
 	m = step(t, m, tea.KeyPressMsg{Text: "i"})
 	if m.pendingSetImage != nil {
 		t.Fatal("expected 'i' to no-op without a mutator wired")
+	}
+}
+
+// startedKindsLister records every ListRaw and reports only started's
+// (kind, namespace) caches as running — the shape *kube.Cluster gives a
+// breadth-first reader through tui.KindStartedChecker.
+type startedKindsLister struct {
+	fakeLister
+	started map[kube.ResourceKind]string
+	reads   []string
+}
+
+func (l *startedKindsLister) KindStarted(kind kube.ResourceKind, namespace string) bool {
+	ns, ok := l.started[kind]
+	return ok && ns == namespace
+}
+
+func (l *startedKindsLister) ListRaw(ctx context.Context, kind kube.ResourceKind, namespace string) ([]runtime.Object, error) {
+	l.reads = append(l.reads, string(kind)+"@"+namespace)
+	return l.fakeLister.ListRaw(ctx, kind, namespace)
+}
+
+// TestCrossWorkloadHistoryReadsOnlyStartedCaches pins review 06 M5: set
+// image's FROM sightings must never start an informer for a kind the screen
+// isn't showing — editing a Deployment used to list StatefulSets and
+// DaemonSets cluster-wide — and under --namespace-scoped, where only the
+// edited namespace's cache runs, must read that one rather than the
+// cluster-wide cache the mode exists to avoid.
+func TestCrossWorkloadHistoryReadsOnlyStartedCaches(t *testing.T) {
+	other := twoContainerDeployment("nva-stage", "nva-worker-canary", "registry.example/nva-worker:v1.4.0")
+	for _, tc := range []struct {
+		name    string
+		started map[kube.ResourceKind]string
+		want    []string
+	}{
+		{"cluster-wide", map[kube.ResourceKind]string{kube.KindDeployment: ""}, []string{"Deployment@"}},
+		{"namespace-scoped", map[kube.ResourceKind]string{kube.KindDeployment: "nva-stage"}, []string{"Deployment@nva-stage"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lister := &startedKindsLister{
+				fakeLister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindDeployment: {other}}},
+				started:    tc.started,
+			}
+			got := crossWorkloadHistory(t.Context(), lister, kube.KindDeployment, "nva-stage", "nva-worker", "registry.example/nva-worker", "v1.3.0")
+			if len(got) != 1 || got[0].tag != "v1.4.0" {
+				t.Errorf("sightings = %+v, want the started Deployment cache's v1.4.0", got)
+			}
+			if strings.Join(lister.reads, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("reads = %v, want %v — only already-started caches may be read", lister.reads, tc.want)
+			}
+		})
 	}
 }

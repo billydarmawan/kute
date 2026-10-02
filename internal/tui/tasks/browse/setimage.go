@@ -755,6 +755,14 @@ func labelRevisions(revs []revisionCandidate, kind kube.ResourceKind) []imageHis
 // ownRevisionHistory resolves for the workload actually being edited would
 // need one extra ReplicaSet lookup per sighted Deployment; this stays a
 // single pass per kind).
+//
+// It reads only caches this session has already started (tui.KindCached):
+// this is a loop over kinds the panel doesn't display, so reading the rest
+// would start the StatefulSet and DaemonSet informers to edit a Deployment
+// (all three from the CronJob list), and under --namespace-scoped start the
+// cluster-wide caches that mode exists to avoid. When the cluster-wide cache
+// isn't running, the edited workload's own namespace is read instead if
+// that one is — so the edited kind, at least, always contributes.
 func crossWorkloadHistory(ctx context.Context, lister resources.RawLister, kind kube.ResourceKind, namespace, name, repo, currentTag string) []imageHistoryEntry {
 	if lister == nil {
 		return nil
@@ -767,7 +775,14 @@ func crossWorkloadHistory(ctx context.Context, lister resources.RawLister, kind 
 		kinds = append(kinds, kube.KindCronJob)
 	}
 	for _, k := range kinds {
-		objs, err := lister.ListRaw(ctx, k, "")
+		scope := ""
+		if !tui.KindCached(lister, k, "") {
+			if namespace == "" || !tui.KindCached(lister, k, namespace) {
+				continue
+			}
+			scope = namespace
+		}
+		objs, err := lister.ListRaw(ctx, k, scope)
 		if err != nil {
 			continue
 		}
