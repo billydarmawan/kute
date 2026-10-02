@@ -167,3 +167,50 @@ func TestInventoryResolvesGroupAndReadsNarrowly(t *testing.T) {
 	}
 	t.Fatal("the Knative Service row is not visible")
 }
+
+// TestDependsOnReadsRegistryKindInOwnNamespace is M1: a Flux HelmRelease's
+// spec.dependsOn was read through its bare Kind — §18a's synthetic Helm
+// kind, whose objects findObject can never match — and in the object's own
+// namespace even when the entry names another, so a suspended dependency
+// never showed.
+func TestDependsOnReadsRegistryKindInOwnNamespace(t *testing.T) {
+	fluxHR := discovered("HelmRelease", "helmreleases", kube.FluxGroupHelm)
+	reg, groups := resources.BuildDiscoveredRegistry(kube.AssignRegistryKinds([]kube.DiscoveredKind{fluxHR}), nil)
+
+	app := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": kube.FluxGroupHelm + "/v2", "kind": "HelmRelease",
+		"metadata": map[string]any{"name": "app", "namespace": "apps"},
+		"spec": map[string]any{"dependsOn": []any{
+			map[string]any{"name": "db", "namespace": "data"},
+		}},
+	}}
+	db := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": kube.FluxGroupHelm + "/v2", "kind": "HelmRelease",
+		"metadata": map[string]any{"name": "db", "namespace": "data"},
+		"spec":     map[string]any{"suspend": true},
+	}}
+	lister := &recordingLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindFluxHelmRelease: {app, db},
+	}}
+	sess := &tui.Session{Theme: tui.Dark(), Registry: reg, Groups: groups,
+		Location: tui.Location{Context: "c", Namespace: "apps"}}
+	m := New(Config{Session: sess, Lister: lister, Kind: kube.KindFluxHelmRelease, Namespace: "apps", Name: "app"})
+	m.SetSize(120, 30)
+	upd, _ := m.Update(m.load()())
+	got := upd.(*Model)
+
+	if len(got.chn.DependsOn) != 1 {
+		t.Fatalf("dependsOn = %+v, want one entry", got.chn.DependsOn)
+	}
+	if dep := got.chn.DependsOn[0]; dep.Namespace != "data" || !dep.Suspended {
+		t.Errorf("dependency = %+v, want db in data, suspended", dep)
+	}
+	for _, r := range lister.reads {
+		if r == string(kube.KindHelmRelease)+"@apps" || r == string(kube.KindHelmRelease)+"@data" {
+			t.Errorf("read §18a's Helm kind: %v", lister.reads)
+		}
+	}
+	if !slices.Contains(lister.reads, string(kube.KindFluxHelmRelease)+"@data") {
+		t.Errorf("reads = %v, want the dependency read in its own namespace", lister.reads)
+	}
+}

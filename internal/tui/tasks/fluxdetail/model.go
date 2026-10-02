@@ -76,7 +76,11 @@ type chain struct {
 // reconcile'".
 type dependency struct {
 	Name      string
-	Suspended bool
+	Namespace string // the entry's own namespace, else the object's
+	// CrossNamespace marks an entry naming a namespace other than the
+	// object's, so the chain says where it lives.
+	CrossNamespace bool
+	Suspended      bool
 }
 
 // failure is §31a's top band, populated only when the object is not ready.

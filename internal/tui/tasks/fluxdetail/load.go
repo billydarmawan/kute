@@ -52,7 +52,7 @@ func (m Model) load() tea.Cmd {
 			row = desc.Project(obj)
 		}
 
-		chn := buildChain(ctx, lister, obj, namespace)
+		chn := buildChain(ctx, lister, kind, obj, namespace)
 		inv := buildInventory(ctx, lister, reg, obj, &chn)
 		fail := buildFailure(obj, inv, time.Now())
 
@@ -78,7 +78,7 @@ func findObject(objs []runtime.Object, name string) (*unstructured.Unstructured,
 // buildChain resolves §31a's middle band. The source's own artifact
 // revision is read from the source object so "applied vs available" is a
 // real comparison rather than a restatement of one field.
-func buildChain(ctx context.Context, lister resources.RawLister, u *unstructured.Unstructured, namespace string) chain {
+func buildChain(ctx context.Context, lister resources.RawLister, kind kube.ResourceKind, u *unstructured.Unstructured, namespace string) chain {
 	c := chain{
 		Path:            nested(u, "spec", "path"),
 		Interval:        nested(u, "spec", "interval"),
@@ -131,7 +131,16 @@ func buildChain(ctx context.Context, lister resources.RawLister, u *unstructured
 		if dn == "" {
 			continue
 		}
-		c.DependsOn = append(c.DependsOn, dependency{Name: dn, Suspended: dependencySuspended(ctx, lister, u, namespace, dn)})
+		// Flux allows a cross-namespace dependency; an entry without a
+		// namespace of its own defaults to the object's, as a sourceRef does.
+		dns, _, _ := unstructured.NestedString(dm, "namespace")
+		if dns == "" {
+			dns = namespace
+		}
+		c.DependsOn = append(c.DependsOn, dependency{
+			Name: dn, Namespace: dns, CrossNamespace: dns != namespace,
+			Suspended: dependencySuspended(ctx, lister, kind, dns, dn),
+		})
 	}
 	return c
 }
@@ -139,8 +148,12 @@ func buildChain(ctx context.Context, lister resources.RawLister, u *unstructured
 // dependencySuspended reports whether a spec.dependsOn entry is itself
 // suspended — §31a surfaces it because a suspended dependency is a common
 // and otherwise invisible reason a reconciler never runs.
-func dependencySuspended(ctx context.Context, lister resources.RawLister, u *unstructured.Unstructured, namespace, name string) bool {
-	objs, err := lister.ListRaw(ctx, kube.ResourceKind(u.GetKind()), namespace)
+//
+// kind is the object's own registry kind, never its bare API Kind: a Flux
+// HelmRelease's Kind names §18a's synthetic Helm kind, whose read starts a
+// release-Secret informer and returns objects findObject can never match.
+func dependencySuspended(ctx context.Context, lister resources.RawLister, kind kube.ResourceKind, namespace, name string) bool {
+	objs, err := lister.ListRaw(ctx, kind, namespace)
 	if err != nil {
 		return false
 	}

@@ -228,7 +228,11 @@ func (m Model) chainGrid(width int) string {
 		if i > 0 {
 			label = ""
 		}
-		text := val.Render(dep.Name)
+		name := dep.Name
+		if dep.CrossNamespace {
+			name += " in " + dep.Namespace
+		}
+		text := val.Render(name)
 		if dep.Suspended {
 			text += warn.Render(" · suspended")
 		}
