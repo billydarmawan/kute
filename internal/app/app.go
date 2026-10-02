@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -1833,20 +1834,91 @@ type eventSource interface {
 // storm cannot accumulate timers either.
 const resourceEventDebounce = 250 * time.Millisecond
 
+// resourceEventMaxWait caps how long a kind's first unflushed event may wait,
+// however continuously that kind keeps changing. A trailing-edge debounce on
+// its own never fires for a kind whose events arrive less than
+// resourceEventDebounce apart — routine for Pods on a cluster of a few
+// thousand (kubelet status, probes, controller churn) — so the screen froze
+// on a stale snapshot under a green "connected" badge. One second keeps a
+// storm coalesced (at most one turn per kind per second, i.e. at least four
+// debounce windows' worth of events folded into each) while bounding how
+// stale a churning list can get to about what a person reads as live. It is
+// also comfortably longer than the screens' own 250 ms reload debounce, so a
+// delivered turn's reload lands before the next one arrives.
+const resourceEventMaxWait = time.Second
+
+// eventCoalescer is forwardEvents' per-kind pending state, kept free of
+// timers and the clock so its schedule is testable with synthetic times. It
+// is owned by the single bridge goroutine and needs no locking.
+type eventCoalescer struct {
+	pending map[kube.ResourceKind]pendingEvent
+}
+
+type pendingEvent struct {
+	first time.Time // when the oldest unflushed event arrived
+	last  time.Time // when the newest one arrived
+}
+
+func newEventCoalescer() *eventCoalescer {
+	return &eventCoalescer{pending: map[kube.ResourceKind]pendingEvent{}}
+}
+
+// observe records one event for kind at now.
+func (c *eventCoalescer) observe(kind kube.ResourceKind, now time.Time) {
+	p, ok := c.pending[kind]
+	if !ok {
+		p.first = now
+	}
+	p.last = now
+	c.pending[kind] = p
+}
+
+// due is when kind flushes: the trailing edge of its quiet window, or its
+// max-wait bound, whichever comes first.
+func (p pendingEvent) due() time.Time {
+	quiet := p.last.Add(resourceEventDebounce)
+	if bound := p.first.Add(resourceEventMaxWait); bound.Before(quiet) {
+		return bound
+	}
+	return quiet
+}
+
+// next is the earliest due time across every pending kind, or zero when
+// nothing is pending.
+func (c *eventCoalescer) next() time.Time {
+	var next time.Time
+	for _, p := range c.pending {
+		if due := p.due(); next.IsZero() || due.Before(next) {
+			next = due
+		}
+	}
+	return next
+}
+
+// flush removes and returns every kind due at or before now, in a stable
+// order. A kind that keeps changing afterwards starts a fresh window.
+func (c *eventCoalescer) flush(now time.Time) []kube.ResourceKind {
+	var kinds []kube.ResourceKind
+	for kind, p := range c.pending {
+		if p.due().After(now) {
+			continue
+		}
+		delete(c.pending, kind)
+		kinds = append(kinds, kind)
+	}
+	slices.Sort(kinds)
+	return kinds
+}
+
 func forwardEvents(ctx context.Context, src eventSource, program *tea.Program, forwards *kube.ForwardManager) {
 	events := src.Events()
 	conn := src.ConnEvents()
-	pending := map[kube.ResourceKind]time.Time{}
+	pending := newEventCoalescer()
 	var eventTimer *time.Timer
 	var eventTimerC <-chan time.Time
 
 	resetEventTimer := func(now time.Time) {
-		var next time.Time
-		for _, due := range pending {
-			if next.IsZero() || due.Before(next) {
-				next = due
-			}
-		}
+		next := pending.next()
 		if next.IsZero() {
 			if eventTimer != nil && !eventTimer.Stop() {
 				select {
@@ -1873,11 +1945,7 @@ func forwardEvents(ctx context.Context, src eventSource, program *tea.Program, f
 	}
 
 	flushDue := func(now time.Time) {
-		for kind, due := range pending {
-			if due.After(now) {
-				continue
-			}
-			delete(pending, kind)
+		for _, kind := range pending.flush(now) {
 			program.Send(kube.ResourceChangedMsg{Kind: kind})
 			if kind == kube.KindPod && forwards != nil {
 				forwards.ReconcilePodTargets()
@@ -1905,7 +1973,7 @@ func forwardEvents(ctx context.Context, src eventSource, program *tea.Program, f
 				continue
 			}
 			now := time.Now()
-			pending[ev.Kind] = now.Add(resourceEventDebounce)
+			pending.observe(ev.Kind, now)
 			resetEventTimer(now)
 		case now := <-eventTimerC:
 			flushDue(now)

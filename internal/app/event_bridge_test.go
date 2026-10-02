@@ -101,3 +101,72 @@ func TestForwardEventsCoalescesStormByKindAndDeliversTheFinalTurn(t *testing.T) 
 		t.Fatal("Bubble Tea program did not stop")
 	}
 }
+
+// TestEventCoalescerFlushesAContinuouslyChangingKindWithinMaxWait drives the
+// bridge's schedule with synthetic times: one Pod event every 200 ms — faster
+// than the 250 ms debounce — must still flush within resourceEventMaxWait,
+// and keep flushing for as long as the stream lasts. A pure trailing-edge
+// debounce pushes the deadline forward on every event and never delivers.
+func TestEventCoalescerFlushesAContinuouslyChangingKindWithinMaxWait(t *testing.T) {
+	c := newEventCoalescer()
+	start := time.Unix(0, 0)
+	step := 200 * time.Millisecond
+	var flushes []time.Time
+	for i := range 30 { // 6 s of steady churn
+		now := start.Add(time.Duration(i) * step)
+		// The bridge's timer fires at next() if that comes before this event.
+		if next := c.next(); !next.IsZero() && !next.After(now) {
+			if kinds := c.flush(next); len(kinds) == 1 && kinds[0] == kube.KindPod {
+				flushes = append(flushes, next)
+			}
+		}
+		c.observe(kube.KindPod, now)
+	}
+	if len(flushes) == 0 {
+		t.Fatal("a kind changing every 200ms was never flushed")
+	}
+	if first := flushes[0].Sub(start); first > resourceEventMaxWait {
+		t.Fatalf("first flush after %v, want within %v", first, resourceEventMaxWait)
+	}
+	for i := 1; i < len(flushes); i++ {
+		if gap := flushes[i].Sub(flushes[i-1]); gap > resourceEventMaxWait+step {
+			t.Fatalf("flush gap %v exceeds max-wait", gap)
+		}
+		if gap := flushes[i].Sub(flushes[i-1]); gap < resourceEventDebounce {
+			t.Fatalf("flush gap %v: a steady stream must still coalesce", gap)
+		}
+	}
+}
+
+// TestEventCoalescerKeepsTrailingEdgeForAShortBurst pins that the max-wait
+// only bounds a long stream: a burst that goes quiet still flushes once, on
+// its trailing edge, and kinds are scheduled independently.
+func TestEventCoalescerKeepsTrailingEdgeForAShortBurst(t *testing.T) {
+	c := newEventCoalescer()
+	start := time.Unix(0, 0)
+	for i := range 5 {
+		c.observe(kube.KindPod, start.Add(time.Duration(i)*10*time.Millisecond))
+	}
+	c.observe(kube.KindEvent, start.Add(100*time.Millisecond))
+
+	podDue := start.Add(40*time.Millisecond + resourceEventDebounce)
+	if got := c.next(); !got.Equal(podDue) {
+		t.Fatalf("next = %v, want the Pod burst's trailing edge %v", got.Sub(start), podDue.Sub(start))
+	}
+	if kinds := c.flush(podDue.Add(-time.Millisecond)); len(kinds) != 0 {
+		t.Fatalf("flushed %v before the trailing edge", kinds)
+	}
+	if kinds := c.flush(podDue); len(kinds) != 1 || kinds[0] != kube.KindPod {
+		t.Fatalf("flush at Pod due = %v, want [Pod] only", kinds)
+	}
+	eventDue := start.Add(100*time.Millisecond + resourceEventDebounce)
+	if got := c.next(); !got.Equal(eventDue) {
+		t.Fatalf("next = %v, want Event's own trailing edge %v", got.Sub(start), eventDue.Sub(start))
+	}
+	if kinds := c.flush(eventDue); len(kinds) != 1 || kinds[0] != kube.KindEvent {
+		t.Fatalf("flush at Event due = %v, want [Event]", kinds)
+	}
+	if got := c.next(); !got.IsZero() {
+		t.Fatalf("next = %v after draining, want zero", got)
+	}
+}
