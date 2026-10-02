@@ -277,6 +277,40 @@ func TestFluxSourceVerbJumpsToTheSource(t *testing.T) {
 	}
 }
 
+// TestFluxSourceVerbFollowsTheRefsOwnNamespace is M5: 'o' re-parsed the
+// SOURCE cell, which never carried sourceRef.namespace, and so jumped to
+// the source in the row's own namespace — an empty list in the common
+// layout where the source lives in flux-system.
+func TestFluxSourceVerbFollowsTheRefsOwnNamespace(t *testing.T) {
+	ks := kustomization("app", false, "True", "ok")
+	ks.SetNamespace("apps")
+	ks.Object["spec"].(map[string]any)["sourceRef"] = map[string]any{
+		"kind": "GitRepository", "name": "fleet", "namespace": "flux-system",
+	}
+	reg, groups := resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{kustomizationDK()}, nil)
+	session := newSession()
+	session.Registry, session.Groups = reg, groups
+	session.Location.Kind = kube.ResourceKind("Kustomization")
+	session.Location.Namespace = "apps"
+	m := New(Config{Session: session, Mutator: &fakeMutator{}, Lister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.ResourceKind("Kustomization"): {ks},
+	}}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if view := plain(m.Render()); !strings.Contains(view, "git/fleet in flux-system") {
+		t.Errorf("SOURCE should name the source's namespace when it differs:\n%s", view)
+	}
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "o"})
+	if cmd == nil {
+		t.Fatal("expected a goto cmd from 'o'")
+	}
+	msg, ok := cmd().(tui.GotoResourceMsg)
+	if !ok || msg.Kind != "GitRepository" || msg.Namespace != "flux-system" || msg.Name != "fleet" {
+		t.Errorf("expected a jump to GitRepository flux-system/fleet, got %#v", cmd())
+	}
+}
+
 // TestFluxVerbsAreInertWithoutAMutator guards the read-only case: no write
 // seam wired means the keys do nothing rather than panic.
 func TestFluxVerbsAreInertWithoutAMutator(t *testing.T) {

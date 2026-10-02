@@ -83,6 +83,13 @@ type Row struct {
 	// Unset (false) for every other kind.
 	Active bool
 
+	// FluxSource is a §30a Flux row's resolved sourceRef — kind, the ref's
+	// own namespace (else the row's, Flux's own default) and name. It rides
+	// outside Cells because the SOURCE cell is a display abbreviation that
+	// can't be read back into a namespace, and §30a's 'o' jumps to it. Zero
+	// for a source kind's own row and for every other kind.
+	FluxSource FluxSourceRef
+
 	// StatusText is a projection's own one-word summary of the row's health
 	// ("ready", "reconciling", "suspended"), for a detail view's title chip.
 	// Empty for every kind with nothing to say beyond its primary condition

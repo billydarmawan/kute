@@ -142,6 +142,7 @@ func projectFluxResource(obj runtime.Object) Row {
 
 	suspended := fluxSuspended(u)
 	glyph, class, ready := fluxStatus(u, suspended)
+	src := fluxSource(u, ns)
 
 	row := Row{
 		Namespace: ns,
@@ -150,7 +151,7 @@ func projectFluxResource(obj runtime.Object) Row {
 			name,
 			ready,
 			fluxRevision(u),
-			fluxSource(u),
+			fluxSourceCell(src, ns),
 			fluxReconciled(u),
 			shortAge(age),
 		},
@@ -160,6 +161,7 @@ func projectFluxResource(obj runtime.Object) Row {
 		Suspended:  suspended,
 		StatusText: fluxStatusText(class, suspended),
 		SubLine:    fluxSubLine(u, suspended),
+		FluxSource: src,
 	}
 	return row
 }
@@ -326,10 +328,19 @@ func shortRevision(rev string) string {
 	return ref + "@" + digest
 }
 
-// fluxSource names what this object reconciles from. The source kinds
-// themselves read "–": they are the source, and their declared URL column
-// carries the identity.
-func fluxSource(u *unstructured.Unstructured) string {
+// FluxSourceRef is the object a Flux reconciler reconciles from.
+type FluxSourceRef struct {
+	Kind      kube.ResourceKind
+	Namespace string
+	Name      string
+}
+
+// fluxSource resolves what this object reconciles from. A ref with no
+// namespace of its own defaults to the object's — Flux's own rule; a
+// HelmRelease in an app namespace pointing at a HelmRepository in
+// flux-system is the common layout, not the exception. Zero for the source
+// kinds themselves, which have no sourceRef.
+func fluxSource(u *unstructured.Unstructured, namespace string) FluxSourceRef {
 	for _, base := range [][]string{
 		{"spec", "sourceRef"},
 		{"spec", "chart", "spec", "sourceRef"}, // HelmRelease
@@ -340,12 +351,30 @@ func fluxSource(u *unstructured.Unstructured) string {
 		if name == "" {
 			continue
 		}
-		if kind == "" {
-			return name
+		ns, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, base...), "namespace")...)
+		if ns == "" {
+			ns = namespace
 		}
-		return shortSourceKind(kind) + "/" + name
+		return FluxSourceRef{Kind: kube.ResourceKind(kind), Namespace: ns, Name: name}
 	}
-	return "–"
+	return FluxSourceRef{}
+}
+
+// fluxSourceCell renders the SOURCE cell. The source kinds themselves read
+// "–": they are the source, and their declared URL column carries the
+// identity. A source in another namespace says so, as §31a's chain does.
+func fluxSourceCell(src FluxSourceRef, namespace string) string {
+	if src.Name == "" {
+		return "–"
+	}
+	cell := src.Name
+	if src.Kind != "" {
+		cell = shortSourceKind(string(src.Kind)) + "/" + src.Name
+	}
+	if src.Namespace != namespace {
+		cell += " in " + src.Namespace
+	}
+	return cell
 }
 
 // shortSourceKind abbreviates a sourceRef kind to the design's compact form

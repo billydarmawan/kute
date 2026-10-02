@@ -10,7 +10,6 @@ package browse
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -81,48 +80,30 @@ func (m *Model) beginFluxReconcile(row resources.Row) tea.Cmd {
 }
 
 // openSelectedFluxSource jumps to the object row reconciles from — §30a's
-// 'o'. The SOURCE cell already holds the answer in the compact "git/name"
-// form the table renders, so this re-expands it rather than re-reading the
-// object.
+// 'o'. The row carries the resolved ref, including the ref's own
+// namespace; the SOURCE cell is only its display abbreviation, and
+// re-parsing that landed a HelmRelease pointing at flux-system's
+// HelmRepository on an empty list in the HelmRelease's own namespace.
 func (m Model) openSelectedFluxSource() (tea.Cmd, bool) {
 	row, ok := m.selectedRow()
 	if !ok {
 		return nil, false
 	}
-	kind, name, ok := fluxSourceRef(row)
+	src, ok := fluxSourceRef(row)
 	if !ok {
 		return nil, false
 	}
 	return func() tea.Msg {
-		return tui.GotoResourceMsg{Kind: kind, Namespace: row.Namespace, Name: name}
+		return tui.GotoResourceMsg{Kind: src.Kind, Namespace: src.Namespace, Name: src.Name}
 	}, true
 }
 
-// fluxSourceRef re-expands a projected SOURCE cell ("git/nebula-config") into
-// the kind and name it abbreviates. Returns false for a source kind's own
-// row, whose cell is "–" because it *is* the source.
-func fluxSourceRef(row resources.Row) (kube.ResourceKind, string, bool) {
-	if len(row.Cells) < 4 {
-		return "", "", false
-	}
-	short, name, found := strings.Cut(row.Cells[3], "/")
-	if !found || name == "" {
-		return "", "", false
-	}
-	kind, ok := fluxSourceKinds[short]
-	if !ok {
-		return "", "", false
-	}
-	return kind, name, true
-}
-
-// fluxSourceKinds inverts resources' own sourceRef-kind abbreviation.
-var fluxSourceKinds = map[string]kube.ResourceKind{
-	"git":    "GitRepository",
-	"oci":    "OCIRepository",
-	"helm":   "HelmRepository",
-	"chart":  "HelmChart",
-	"bucket": "Bucket",
+// fluxSourceRef is row's resolved source. Returns false for a source kind's
+// own row, which has none because it *is* the source, and for a ref whose
+// kind isn't declared.
+func fluxSourceRef(row resources.Row) (resources.FluxSourceRef, bool) {
+	src := row.FluxSource
+	return src, src.Kind != "" && src.Name != ""
 }
 
 // fluxKeybarGroup is §30a's keybar block. The suspend hint's *label* flips
@@ -137,7 +118,7 @@ func (m Model) fluxKeybarGroup() []tui.KeyHint {
 		{Key: verbs.FluxReconcile.Key, Label: verbs.FluxReconcile.Label},
 		{Key: suspend.Key, Label: suspend.Label},
 	}
-	if _, _, ok := fluxSourceRefForSelection(m); ok {
+	if _, ok := fluxSourceRefForSelection(m); ok {
 		hints = append(hints, tui.KeyHint{Key: verbs.FluxSource.Key, Label: verbs.FluxSource.Label})
 	}
 	return hints
@@ -146,10 +127,10 @@ func (m Model) fluxKeybarGroup() []tui.KeyHint {
 // fluxSourceRefForSelection is fluxSourceRef against the cursor row, so the
 // keybar can omit 'o' on a source kind's own list rather than advertising a
 // key that does nothing.
-func fluxSourceRefForSelection(m Model) (kube.ResourceKind, string, bool) {
+func fluxSourceRefForSelection(m Model) (resources.FluxSourceRef, bool) {
 	row, ok := m.selectedRow()
 	if !ok {
-		return "", "", false
+		return resources.FluxSourceRef{}, false
 	}
 	return fluxSourceRef(row)
 }
