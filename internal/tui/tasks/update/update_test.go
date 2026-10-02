@@ -173,7 +173,7 @@ func TestRNoopWhenDisabled(t *testing.T) {
 	if cmd != nil || calls != 0 {
 		t.Fatal("expected 'r' to be a no-op when checks are disabled")
 	}
-	if updated.(Model).checking {
+	if updated.(*Model).checking {
 		t.Fatal("expected checking to stay false when 'r' no-ops")
 	}
 }
@@ -191,7 +191,7 @@ func TestRRechecksAfterFailedAmbientCheck(t *testing.T) {
 	if cmd == nil || calls != 1 {
 		t.Fatalf("expected 'r' to call Recheck after a failed ambient check, calls=%d", calls)
 	}
-	m2 := updated.(Model)
+	m2 := updated.(*Model)
 	if !m2.checking {
 		t.Fatal("expected checking=true after 'r'")
 	}
@@ -214,7 +214,7 @@ func TestYCopiesInstallCommand(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected a Cmd (tea.SetClipboard) from 'y'")
 	}
-	m2 := updated.(Model)
+	m2 := updated.(*Model)
 	if !strings.Contains(m2.feedback, "copied") {
 		t.Fatalf("feedback = %q, want it to mention copied", m2.feedback)
 	}
@@ -231,7 +231,7 @@ func TestYNoopInEmptyState(t *testing.T) {
 func TestXMarksSeenAndSetsFeedback(t *testing.T) {
 	m := availableModel()
 	updated, _ := m.Update(tea.KeyPressMsg{Text: "x"})
-	m2 := updated.(Model)
+	m2 := updated.(*Model)
 	if !m2.session.State.UpdateSeen("0.2.1") {
 		t.Fatal("expected 0.2.1 marked seen after 'x'")
 	}
@@ -258,8 +258,8 @@ func TestOOpensBrowserAndSetsFeedback(t *testing.T) {
 	}
 	// Drive the Cmd's result back through Update, same as the real runtime
 	// would.
-	updated, _ = updated.(Model).Update(cmd())
-	m2 := updated.(Model)
+	updated, _ = updated.(*Model).Update(cmd())
+	m2 := updated.(*Model)
 
 	if gotURL != "https://github.com/kute-dev/kute/releases/tag/v0.2.1" {
 		t.Fatalf("OpenBrowser called with %q, want the release's HTMLURL", gotURL)
@@ -279,8 +279,8 @@ func TestOSetsFeedbackOnOpenBrowserError(t *testing.T) {
 	m.SetSize(120, 36)
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Text: "o"})
-	updated, _ = updated.(Model).Update(cmd())
-	m2 := updated.(Model)
+	updated, _ = updated.(*Model).Update(cmd())
+	m2 := updated.(*Model)
 	if m2.feedback != "couldn't open a browser" {
 		t.Fatalf("feedback = %q, want the failure note", m2.feedback)
 	}
@@ -297,14 +297,14 @@ func TestROnlyRechecksInEmptyState(t *testing.T) {
 	if cmd == nil || calls != 1 {
 		t.Fatalf("expected 'r' to call Recheck in the empty state, calls=%d", calls)
 	}
-	m2 := updated.(Model)
+	m2 := updated.(*Model)
 	if !m2.checking {
 		t.Fatal("expected checking=true after 'r'")
 	}
 
 	// UpdateCheckedMsg clears checking regardless of outcome.
 	updated, _ = m2.Update(tui.UpdateCheckedMsg{})
-	m3 := updated.(Model)
+	m3 := updated.(*Model)
 	if m3.checking {
 		t.Fatal("expected checking cleared after UpdateCheckedMsg")
 	}
@@ -344,4 +344,24 @@ func containsKey(groups [][]tui.KeyHint, key string) bool {
 		}
 	}
 	return false
+}
+
+// TestStateSurvivesRootRouting drives 28b through the real root shell the
+// way app's factory installs it (a *Model): the root keeps whatever Update
+// returns only if it's a tui.Task, so a value-receiver Update silently
+// dropped every feedback line and the checking flag.
+func TestStateSurvivesRootRouting(t *testing.T) {
+	m := availableModel()
+	root := tui.NewWithSession(&m, m.session)
+	updated, _ := root.Update(tea.KeyPressMsg{Text: "y"})
+	if got := updated.(tui.Model).View().Content; !strings.Contains(got, "command copied") {
+		t.Fatalf("expected the root-routed 'y' to show command copied, got:\n%s", got)
+	}
+
+	f := checkFailedModel()
+	root = tui.NewWithSession(&f, f.session)
+	updated, _ = root.Update(tui.UpdateCheckedMsg{Err: errBoom})
+	if got := updated.(tui.Model).View().Content; !strings.Contains(got, "check failed") {
+		t.Fatalf("expected the root-routed failed check to show check failed, got:\n%s", got)
+	}
 }
