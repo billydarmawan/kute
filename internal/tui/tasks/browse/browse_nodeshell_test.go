@@ -89,7 +89,7 @@ func keybarKeys(kb tui.Keybar) []string {
 	return out
 }
 
-// docs/managed-clusters.md §3: node debug can't work on GKE Autopilot or EKS
+// kube.NodeShellUnavailable: node debug can't work on GKE Autopilot or EKS
 // Fargate, and the honest handling is an error naming the reason rather than
 // a key that quietly does nothing (or worse, hands kubectl a command the
 // platform will refuse after the panel has already opened).

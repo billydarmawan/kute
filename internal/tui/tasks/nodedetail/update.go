@@ -356,8 +356,8 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.node != nil {
 			// Same contract as browse's Nodes list: the key is never hidden,
 			// so a platform that can't host a node shell says so instead of
-			// handing kubectl a command that will be refused (docs/
-			// managed-clusters.md §3).
+			// handing kubectl a command that will be refused
+			// (kube.NodeShellUnavailable).
 			if reason := kube.NodeShellUnavailable(m.nodeName, m.node.Labels); reason != "" {
 				m.execFeedback = reason
 				return m, nil

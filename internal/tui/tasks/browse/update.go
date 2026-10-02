@@ -1422,7 +1422,7 @@ func execCmd(target kube.CommandTarget, namespace, pod, container string, demo b
 // pushes tasks/debugpanel via openNodeDebug. ok is false when nothing
 // applies (not the Nodes kind, no row selected, not wired) or the row can't
 // host a node shell — in the latter case browse sets execFeedback to the
-// reason instead of pushing (docs/managed-clusters.md §3: the key stays on
+// reason instead of pushing (kube.NodeShellUnavailable: the key stays on
 // the keybar and explains itself, rather than a hidden key).
 func (m *Model) openSelectedNodeDebug() (tea.Model, tea.Cmd, bool) {
 	if m.openNodeDebug == nil || m.kind != kube.KindNode || m.state != tui.TaskStateReady {

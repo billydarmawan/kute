@@ -166,8 +166,8 @@ func TestNodeDebugKeyPushesPanel(t *testing.T) {
 	}
 }
 
-// The 11b twin of browse's TestNodeDebugExplainsItselfOnFargate (docs/
-// managed-clusters.md §3): on GKE Autopilot the privileged host-namespace
+// The 11b twin of browse's TestNodeDebugExplainsItselfOnFargate
+// (kube.NodeShellUnavailable): on GKE Autopilot the privileged host-namespace
 // container kubectl debug needs is rejected by admission, so 's' says why
 // instead of pushing a panel for a command that can't work.
 func TestNodeDebugExplainsItselfOnAutopilot(t *testing.T) {

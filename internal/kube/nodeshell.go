@@ -49,8 +49,8 @@ const (
 // rejection instead of ours, while a false positive would hide a working
 // verb, so the name check only applies to nodes already known to be GKE's.
 //
-// This is a message, not a gate: docs/managed-clusters.md §3 asks for "a
-// clear error naming the reason, not a hidden key", so 'x' stays on a
+// This is a message, not a gate: the decided handling is a clear error
+// naming the reason, not a hidden key, so 'x' stays on a
 // Node's keybar and explains itself when pressed (the debug panel it opens
 // — tasks/debugpanel, §41d — never launches).
 func NodeShellUnavailable(name string, labels map[string]string) string {

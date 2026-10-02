@@ -148,7 +148,7 @@ func TestCredentialPluginTokenReachesTheAPIServer(t *testing.T) {
 	}
 }
 
-// The stdin-reading plugin — the §1 fixture. Reading stdin is what a plugin
+// The stdin-reading plugin fixture. Reading stdin is what a plugin
 // that prompts does, and with the real terminal attached it would block
 // forever behind Bubble Tea's own reader. Non-interactive, client-go leaves
 // cmd.Stdin nil, the read hits EOF, and the plugin finishes.
@@ -157,8 +157,11 @@ func TestCredentialPluginTokenReachesTheAPIServer(t *testing.T) {
 // terminal, so client-go's IfAvailable check comes out non-interactive here
 // whether or not StdinUnavailable is set. The fix's input is asserted
 // directly by TestExecProviderIsToldStdinIsUnavailable; the tty-attached case
-// is the one manual step docs/managed-clusters.md's Verification section
-// keeps.
+// stays a manual check: install this stdin-reading plugin against a kind
+// cluster, launch kute, navigate past the token's lifetime, and confirm the
+// frame is never corrupted and no keystroke is lost (README.md's
+// Authentication section states the user-facing guarantee: a credential
+// plugin can never prompt).
 func TestCredentialPluginReadingStdinDoesNotHang(t *testing.T) {
 	rec := &authRecorder{}
 	plugin := execPlugin(t, "read line\n"+tokenScript("tok-stdin"))
