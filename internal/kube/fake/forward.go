@@ -16,6 +16,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/kute-dev/kute/internal/kube"
 )
@@ -54,6 +55,22 @@ func (r podResolver) ResolveForwardPod(ctx context.Context, target kube.ForwardT
 	default:
 		return "", fmt.Errorf("port-forward is not supported for kind %s", target.Kind)
 	}
+}
+
+// ResolveForwardPort maps a Service targetPort onto the seeded pod's
+// container ports with the same kube.PodTargetPort lookup the real resolver
+// runs against a live Pod.
+func (r podResolver) ResolveForwardPort(ctx context.Context, namespace, pod string, target intstr.IntOrString, protocol string) (int32, error) {
+	if target.Type == intstr.Int {
+		return kube.PodTargetPort(nil, target, protocol)
+	}
+	objs, _ := r.cluster.ListRaw(ctx, kube.KindPod, namespace)
+	for _, obj := range objs {
+		if p, ok := obj.(*corev1.Pod); ok && p.Name == pod {
+			return kube.PodTargetPort(p, target, protocol)
+		}
+	}
+	return 0, fmt.Errorf("pod %q not found", pod)
 }
 
 func (r podResolver) firstMatchingPod(ctx context.Context, namespace string, selector map[string]string) (string, error) {

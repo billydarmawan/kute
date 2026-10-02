@@ -46,6 +46,9 @@ func (m *Model) applyPortsLoaded(msg portsLoadedMsg) {
 	for i, p := range msg.ports {
 		chosen, busyFrom := pickLocalPort(preferredLocalPort(p.Port))
 		m.rows[i] = portRow{PortOption: p, localPort: chosen, busyFrom: busyFrom}
+		if i < len(msg.podPorts) {
+			m.rows[i].podPort = msg.podPorts[i]
+		}
 	}
 	if len(m.rows) == 0 {
 		m.state = tui.TaskStateEmpty
@@ -192,6 +195,9 @@ func (m *Model) startSelected() tea.Cmd {
 		m.commitEdit()
 		row = m.rows[m.selected]
 	}
-	m.manager.Start(m.dialer, m.resolver, m.target, m.resolvedPod, row.localPort, row.Port, row.Name)
+	// The whole PortOption goes through, not just Port: for a Service the
+	// manager dials the targetPort resolved against the backing pod, never
+	// the Service port itself.
+	m.manager.StartPort(m.dialer, m.resolver, m.target, m.resolvedPod, row.localPort, row.PortOption)
 	return func() tea.Msg { return tui.BackMsg{} }
 }

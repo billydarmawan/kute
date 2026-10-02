@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/kute-dev/kute/internal/helmrepo"
 	"github.com/kute-dev/kute/internal/kube"
@@ -1591,7 +1592,11 @@ func demoService(name, ns string, selector map[string]string, created metav1.Tim
 			Type:      corev1.ServiceTypeClusterIP,
 			ClusterIP: "10.0.0.10",
 			Selector:  selector,
-			Ports:     []corev1.ServicePort{{Port: 80}},
+			// Port 80 routes to every demo pod's named "http" container
+			// port (8080) — the common shape, and the one 13a's forward
+			// picker must translate (Service port → targetPort) rather
+			// than dial the pod on 80.
+			Ports: []corev1.ServicePort{{Port: 80, TargetPort: intstr.FromString("http")}},
 		},
 	}
 }

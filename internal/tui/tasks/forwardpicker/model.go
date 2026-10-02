@@ -44,7 +44,12 @@ type portRow struct {
 	// busyFrom is the originally pre-filled port when it turned out to be
 	// bound already and localPort got bumped past it (docs/design
 	// README.md §13a: "8080 busy → 18080") — 0 when no bump was needed.
-	busyFrom  int
+	busyFrom int
+	// podPort is the backing pod's container port the forward will dial:
+	// Port itself for a Pod/Deployment option, the Service targetPort
+	// resolved against resolvedPod for a Service — 0 when that couldn't be
+	// resolved (no backing pod, or a named port the pod doesn't declare).
+	podPort   int32
 	editing   bool
 	editInput textfield.Model
 }
@@ -94,6 +99,7 @@ func (m *Model) SetSize(width, height int) {
 // target's resolvedPod is always just its own name).
 type portsLoadedMsg struct {
 	ports       []kube.PortOption
+	podPorts    []int32 // parallel to ports; see portRow.podPort
 	resolvedPod string
 	err         error
 }
@@ -128,7 +134,20 @@ func (m Model) Init() tea.Cmd {
 					}
 				}
 			}
-			return portsLoadedMsg{ports: ports, resolvedPod: resolvedPod}
+			podPorts := make([]int32, len(ports))
+			for i, p := range ports {
+				podPorts[i] = p.Port
+				if target.Kind != kube.KindService {
+					continue
+				}
+				podPorts[i] = 0
+				if resolvedPod != "" && resolver != nil {
+					if n, rerr := resolver.ResolveForwardPort(ctx, target.Namespace, resolvedPod, p.TargetPort, p.Protocol); rerr == nil {
+						podPorts[i] = n
+					}
+				}
+			}
+			return portsLoadedMsg{ports: ports, podPorts: podPorts, resolvedPod: resolvedPod}
 		}
 		return portsLoadedMsg{err: fmt.Errorf("%s %q not found", target.Kind, target.Name)}
 	}

@@ -2,8 +2,11 @@ package forwardpicker
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -34,6 +38,10 @@ func (r stubResolver) ResolveForwardPod(context.Context, kube.ForwardTarget) (st
 		return "", context.DeadlineExceeded
 	}
 	return r.pod, nil
+}
+
+func (r stubResolver) ResolveForwardPort(_ context.Context, _, _ string, target intstr.IntOrString, protocol string) (int32, error) {
+	return kube.PodTargetPort(nil, target, protocol)
 }
 
 func podWithPort(ns, name string, port int32) *corev1.Pod {
@@ -230,5 +238,78 @@ func TestViewRendersPortsAndWillRunLine(t *testing.T) {
 	}
 	if !strings.Contains(out, "kubectl port-forward") {
 		t.Fatalf("expected the 'will run' kubectl command in the rendered view, got:\n%s", out)
+	}
+}
+
+type recordingDialer struct {
+	mu    sync.Mutex
+	dials []int32
+}
+
+func (d *recordingDialer) Dial(_, _ string, _ int, remotePort int32) (kube.Tunnel, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.dials = append(d.dials, remotePort)
+	return nil, errors.New("recorded")
+}
+
+func (d *recordingDialer) first() int32 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.dials) == 0 {
+		return 0
+	}
+	return d.dials[0]
+}
+
+// TestServiceForwardTargetsPodContainerPort pins review finding H1 end to
+// end through the picker against the fake provider: Service web (port 80 →
+// targetPort "http") backed by api-0 (http = 8080) offers 80, documents
+// `pod/api-0 8080:8080` (pre-filled local 8080 → the pod's 8080, never 80),
+// and the manager dials the pod on 8080.
+func TestServiceForwardTargetsPodContainerPort(t *testing.T) {
+	t.Parallel()
+	cluster := fake.New("shop", "test")
+	cluster.Seed(kube.KindService, &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "shop"},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "api"},
+			Ports:    []corev1.ServicePort{{Name: "web", Port: 80, TargetPort: intstr.FromString("http")}},
+		},
+	})
+	pod := podWithPort("shop", "api-0", 8080)
+	pod.Labels = map[string]string{"app": "api"}
+	cluster.Seed(kube.KindPod, pod)
+
+	mgr := kube.NewForwardManager()
+	dialer := &recordingDialer{}
+	m := New(Config{
+		Session:  &tui.Session{Theme: tui.Dark()},
+		Lister:   cluster,
+		Resolver: fake.NewPodResolver(cluster),
+		Dialer:   dialer,
+		Manager:  mgr,
+		Target:   kube.ForwardTarget{Kind: kube.KindService, Namespace: "shop", Name: "web"},
+	})
+	m.SetSize(120, 36)
+	m = loadPorts(t, m)
+	if len(m.rows) != 1 || m.rows[0].Port != 80 {
+		t.Fatalf("rows = %+v, want the one Service port 80", m.rows)
+	}
+	local := m.rows[0].localPort
+	out := plain(m.Render())
+	want := fmt.Sprintf("kubectl port-forward pod/api-0 %d:8080 -n shop", local)
+	if !strings.Contains(out, want) {
+		t.Fatalf("will-run line missing %q, got:\n%s", want, out)
+	}
+
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	defer mgr.StopAll()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && dialer.first() == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := dialer.first(); got != 8080 {
+		t.Fatalf("dialed pod port %d, want 8080 (targetPort http), not service port 80", got)
 	}
 }

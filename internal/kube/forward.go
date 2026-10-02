@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	// client-go's portforward.New/spdy.NewDialer (the pair this file uses) still
 	// take apimachinery's httpstream.Dialer, not the k8s.io/streaming replacement
 	// — that's only wired through the parallel NewForStreaming/NewDialerForStreaming
@@ -63,6 +64,13 @@ type PortOption struct {
 	Name      string
 	Protocol  string
 	Container string // empty for Service ports, which aren't container-scoped
+	// TargetPort is a Service port's spec.ports[].targetPort — the backing
+	// pod's port the Service routes Port to, a number or a container port
+	// name. A pod-subresource port-forward needs that container port, never
+	// the Service's own Port (kubectl's `port-forward svc/x` does the same
+	// translation). Zero for Pod/Deployment options, whose Port already is
+	// the container port; see ForwardSession.TargetPort.
+	TargetPort intstr.IntOrString
 }
 
 // ForwardablePorts lists obj's candidate ports for the 13a picker: a Pod or
@@ -75,7 +83,14 @@ func ForwardablePorts(obj runtime.Object) []PortOption {
 	case *corev1.Service:
 		out := make([]PortOption, 0, len(o.Spec.Ports))
 		for _, p := range o.Spec.Ports {
-			out = append(out, PortOption{Port: p.Port, Name: p.Name, Protocol: string(p.Protocol)})
+			target := p.TargetPort
+			// The API server defaults an unset targetPort to port; an object
+			// that never went through defaulting (a fixture, a dry-run
+			// manifest) still means the same thing.
+			if target.Type == intstr.Int && target.IntVal == 0 {
+				target = intstr.FromInt32(p.Port)
+			}
+			out = append(out, PortOption{Port: p.Port, Name: p.Name, Protocol: string(p.Protocol), TargetPort: target})
 		}
 		return out
 	case *appsv1.Deployment:
@@ -95,6 +110,66 @@ func containerPortOptions(containers []corev1.Container) []PortOption {
 	return out
 }
 
+// PodTargetPort resolves a Service targetPort against pod: a number is used
+// as-is, and a name maps to the container port carrying that name (and
+// protocol, when one is given) — the same lookup the endpoints controller
+// does, so a named port can legitimately resolve to different numbers on
+// different backing pods.
+func PodTargetPort(pod *corev1.Pod, target intstr.IntOrString, protocol string) (int32, error) {
+	if target.Type == intstr.Int {
+		if target.IntVal <= 0 {
+			return 0, fmt.Errorf("invalid target port %d", target.IntVal)
+		}
+		return target.IntVal, nil
+	}
+	if pod == nil {
+		return 0, fmt.Errorf("no pod to resolve named port %q against", target.StrVal)
+	}
+	if protocol == "" {
+		protocol = string(corev1.ProtocolTCP)
+	}
+	match := func(containers []corev1.Container, sidecarsOnly bool) (int32, bool) {
+		for _, c := range containers {
+			if sidecarsOnly && (c.RestartPolicy == nil || *c.RestartPolicy != corev1.ContainerRestartPolicyAlways) {
+				continue
+			}
+			for _, p := range c.Ports {
+				proto := string(p.Protocol)
+				if proto == "" {
+					proto = string(corev1.ProtocolTCP)
+				}
+				if p.Name == target.StrVal && proto == protocol {
+					return p.ContainerPort, true
+				}
+			}
+		}
+		return 0, false
+	}
+	if port, ok := match(pod.Spec.Containers, false); ok {
+		return port, nil
+	}
+	if port, ok := match(pod.Spec.InitContainers, true); ok {
+		return port, nil
+	}
+	return 0, fmt.Errorf("pod %q has no container port named %q", pod.Name, target.StrVal)
+}
+
+// forwardDialPort is the pod port a session dials: its own RemotePort for a
+// Pod/Deployment option (zero TargetPort), else the Service targetPort
+// resolved against the session's current backing pod.
+func forwardDialPort(ctx context.Context, resolver PodResolver, namespace, pod string, remotePort int32, target intstr.IntOrString, protocol string) (int32, error) {
+	if target.Type == intstr.Int && target.IntVal == 0 {
+		return remotePort, nil
+	}
+	if target.Type == intstr.Int {
+		return PodTargetPort(nil, target, protocol)
+	}
+	if resolver == nil {
+		return 0, fmt.Errorf("no pod resolver to resolve named port %q", target.StrVal)
+	}
+	return resolver.ResolveForwardPort(ctx, namespace, pod, target, protocol)
+}
+
 // ForwardSession is one live/attempted port-forward, the row 13c's Forwards
 // list renders.
 type ForwardSession struct {
@@ -104,6 +179,13 @@ type ForwardSession struct {
 	LocalPort      int
 	RemotePort     int32
 	RemotePortName string
+	// TargetPort/Protocol carry a Service option's targetPort through to
+	// every (re)dial; PodPort is the container port the current tunnel
+	// actually dialed (RemotePort itself for Pod/Deployment targets, the
+	// resolved targetPort for a Service — 0 until a dial resolves it).
+	TargetPort     intstr.IntOrString
+	Protocol       string
+	PodPort        int32
 	State          ForwardState
 	Err            string
 	Attempt        int
@@ -136,6 +218,10 @@ type ForwardDialer interface {
 // itself for a Pod target, or a matching backing pod for Service/Deployment.
 type PodResolver interface {
 	ResolveForwardPod(ctx context.Context, target ForwardTarget) (string, error)
+	// ResolveForwardPort maps a Service targetPort onto pod's container
+	// port (see PodTargetPort). Re-run against every newly resolved pod,
+	// since a named port may map to different numbers on different pods.
+	ResolveForwardPort(ctx context.Context, namespace, pod string, target intstr.IntOrString, protocol string) (int32, error)
 }
 
 // ForwardPodChecker is the optional watch-reconciliation seam implemented by
@@ -298,6 +384,17 @@ func (r clientsetPodResolver) ResolveForwardPod(ctx context.Context, target Forw
 	}
 }
 
+func (r clientsetPodResolver) ResolveForwardPort(ctx context.Context, namespace, pod string, target intstr.IntOrString, protocol string) (int32, error) {
+	if target.Type == intstr.Int {
+		return PodTargetPort(nil, target, protocol)
+	}
+	got, err := r.clientset.CoreV1().Pods(namespace).Get(ctx, pod, metav1.GetOptions{})
+	if err != nil {
+		return 0, err
+	}
+	return PodTargetPort(got, target, protocol)
+}
+
 func (r clientsetPodResolver) firstRunningPod(ctx context.Context, namespace string, sel labels.Selector) (string, error) {
 	pods, err := r.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel.String()})
 	if err != nil {
@@ -320,6 +417,13 @@ func (r clientsetPodResolver) firstRunningPod(ctx context.Context, namespace str
 // command is exact (same pod, same ports).
 func PortForwardCommandString(namespace, pod string, localPort int, remotePort int32) string {
 	return fmt.Sprintf("kubectl port-forward pod/%s %d:%d -n %s", pod, localPort, remotePort, namespace)
+}
+
+// ServicePortForwardCommandString is PortForwardCommandString's Service
+// form: kubectl itself translates servicePort to the backing pod's
+// targetPort, so it stays exact when kute couldn't resolve that port.
+func ServicePortForwardCommandString(namespace, service string, localPort int, servicePort int32) string {
+	return fmt.Sprintf("kubectl port-forward svc/%s %d:%d -n %s", service, localPort, servicePort, namespace)
 }
 
 // --- ForwardManager ---
@@ -408,13 +512,21 @@ func (m *ForwardManager) ListRaw() []runtime.Object {
 // (NewSpdyForwardDialer/NewClientsetPodResolver for a real cluster, or
 // kube/fake's equivalents in --demo).
 func (m *ForwardManager) Start(dialer ForwardDialer, resolver PodResolver, target ForwardTarget, resolvedPod string, localPort int, remotePort int32, remotePortName string) ForwardSession {
+	return m.StartPort(dialer, resolver, target, resolvedPod, localPort, PortOption{Port: remotePort, Name: remotePortName})
+}
+
+// StartPort is Start for a picked PortOption: a Service option's TargetPort
+// rides along so every (re)dial reaches the backing pod's container port
+// rather than the Service port the user picked.
+func (m *ForwardManager) StartPort(dialer ForwardDialer, resolver PodResolver, target ForwardTarget, resolvedPod string, localPort int, port PortOption) ForwardSession {
 	m.mu.Lock()
 	m.nextID++
 	id := fmt.Sprintf("fwd-%d", m.nextID)
 	now := time.Now()
 	session := ForwardSession{
 		ID: id, Target: target, ResolvedPod: resolvedPod,
-		LocalPort: localPort, RemotePort: remotePort, RemotePortName: remotePortName,
+		LocalPort: localPort, RemotePort: port.Port, RemotePortName: port.Name,
+		TargetPort: port.TargetPort, Protocol: port.Protocol,
 		State: ForwardActive, StartedAt: now, LastActivityAt: now,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -443,15 +555,25 @@ func (m *ForwardManager) run(ctx context.Context, id, initialPod string) {
 			m.mu.Unlock()
 			return
 		}
-		dialer, target, localPort, remotePort := entry.dialer, entry.session.Target, entry.session.LocalPort, entry.session.RemotePort
+		dialer, resolver, target, localPort := entry.dialer, entry.resolver, entry.session.Target, entry.session.LocalPort
+		remotePort, targetPort, protocol := entry.session.RemotePort, entry.session.TargetPort, entry.session.Protocol
 		m.mu.Unlock()
 
 		var tunnel Tunnel
 		var err error
+		var podPort int32
 		if dialer == nil {
 			err = fmt.Errorf("no forward dialer configured")
 		} else {
-			tunnel, err = dialer.Dial(target.Namespace, pod, localPort, remotePort)
+			// Resolved per dial, against this attempt's pod: after a
+			// reconnect re-resolution a named targetPort can map to a
+			// different number on the replacement pod.
+			pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			podPort, err = forwardDialPort(pctx, resolver, target.Namespace, pod, remotePort, targetPort, protocol)
+			cancel()
+			if err == nil {
+				tunnel, err = dialer.Dial(target.Namespace, pod, localPort, podPort)
+			}
 		}
 		if err == nil {
 			m.mu.Lock()
@@ -471,6 +593,7 @@ func (m *ForwardManager) run(ctx context.Context, id, initialPod string) {
 				e.tunnel = tunnel
 				e.session.State = ForwardActive
 				e.session.ResolvedPod = pod
+				e.session.PodPort = podPort
 				e.session.Err = ""
 				e.session.Attempt = 0
 				e.session.LastActivityAt = time.Now()
@@ -510,7 +633,7 @@ func (m *ForwardManager) run(ctx context.Context, id, initialPod string) {
 			m.mu.Unlock()
 			return
 		}
-		resolver, target := entry.resolver, entry.session.Target
+		resolver, target = entry.resolver, entry.session.Target
 		m.mu.Unlock()
 		if target.Kind != KindPod && resolver != nil {
 			rctx, cancel := context.WithTimeout(ctx, 10*time.Second)

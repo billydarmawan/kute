@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +12,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func TestForwardablePortsPod(t *testing.T) {
@@ -112,6 +115,9 @@ func (r *blockingResolver) ResolveForwardPod(ctx context.Context, _ ForwardTarge
 	close(r.resolveDone)
 	return "", ctx.Err()
 }
+func (r *blockingResolver) ResolveForwardPort(_ context.Context, _, _ string, target intstr.IntOrString, protocol string) (int32, error) {
+	return PodTargetPort(nil, target, protocol)
+}
 func (r *blockingResolver) ForwardPodAvailable(ctx context.Context, _, _ string) (bool, error) {
 	r.checkOnce.Do(func() { close(r.checkStarted) })
 	<-ctx.Done()
@@ -178,6 +184,10 @@ func (r stubResolver) ResolveForwardPod(_ context.Context, _ ForwardTarget) (str
 	return r.pod, nil
 }
 
+func (r stubResolver) ResolveForwardPort(_ context.Context, _, _ string, target intstr.IntOrString, protocol string) (int32, error) {
+	return PodTargetPort(nil, target, protocol)
+}
+
 type checkingResolver struct {
 	pod       string
 	available bool
@@ -185,6 +195,10 @@ type checkingResolver struct {
 
 func (r checkingResolver) ResolveForwardPod(_ context.Context, _ ForwardTarget) (string, error) {
 	return r.pod, nil
+}
+
+func (r checkingResolver) ResolveForwardPort(_ context.Context, _, _ string, target intstr.IntOrString, protocol string) (int32, error) {
+	return PodTargetPort(nil, target, protocol)
 }
 
 func (r checkingResolver) ForwardPodAvailable(_ context.Context, _, _ string) (bool, error) {
@@ -542,4 +556,109 @@ func TestForwardManagerRestartDoesNotOrphanTheReplacedTunnel(t *testing.T) {
 	}
 
 	mgr.Stop(session.ID)
+}
+
+// recordingDialer records every (pod, remotePort) it is asked to dial; each
+// tunnel ends immediately so the manager re-resolves and redials.
+type recordingDialer struct {
+	mu    sync.Mutex
+	dials []string
+}
+
+func (d *recordingDialer) Dial(_ string, pod string, _ int, remotePort int32) (Tunnel, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.dials = append(d.dials, fmt.Sprintf("%s:%d", pod, remotePort))
+	return immediateTunnel{}, nil
+}
+
+func (d *recordingDialer) Dials() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.dials)
+}
+
+// podsResolver resolves a Service target to pods in order (sticking on the
+// last) and named ports against those pods' own container ports.
+type podsResolver struct {
+	mu    sync.Mutex
+	order []string
+	pods  map[string]*corev1.Pod
+}
+
+func (r *podsResolver) ResolveForwardPod(context.Context, ForwardTarget) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	name := r.order[0]
+	if len(r.order) > 1 {
+		r.order = r.order[1:]
+	}
+	return name, nil
+}
+
+func (r *podsResolver) ResolveForwardPort(_ context.Context, _, pod string, target intstr.IntOrString, protocol string) (int32, error) {
+	return PodTargetPort(r.pods[pod], target, protocol)
+}
+
+func namedPortPod(name string, port int32) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{
+			{Name: "app", Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: port}}},
+		}},
+	}
+}
+
+// TestServiceForwardDialsTargetPortNotServicePort pins review finding H1: a
+// Service forward is a pod-subresource port-forward, so it must dial the
+// backing pod's container port (the Service's targetPort), never the
+// Service port the user picked — and a named targetPort is re-resolved
+// against each newly resolved pod after a reconnect.
+func TestServiceForwardDialsTargetPortNotServicePort(t *testing.T) {
+	t.Parallel()
+	svc := &corev1.Service{Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{
+		{Name: "web", Port: 80, TargetPort: intstr.FromString("http")},
+	}}}
+	opts := ForwardablePorts(svc)
+	if len(opts) != 1 || opts[0].Port != 80 {
+		t.Fatalf("ForwardablePorts(service) = %+v", opts)
+	}
+
+	mgr := NewForwardManager()
+	dialer := &recordingDialer{}
+	resolver := &podsResolver{
+		order: []string{"api-1"},
+		pods:  map[string]*corev1.Pod{"api-0": namedPortPod("api-0", 8080), "api-1": namedPortPod("api-1", 9090)},
+	}
+	target := ForwardTarget{Kind: KindService, Namespace: "default", Name: "web"}
+	s := mgr.StartPort(dialer, resolver, target, "api-0", 18080, opts[0])
+	defer mgr.Stop(s.ID)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(dialer.Dials()) < 2 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	dials := dialer.Dials()
+	if len(dials) < 2 || dials[0] != "api-0:8080" || dials[1] != "api-1:9090" {
+		t.Fatalf("dials = %v, want [api-0:8080 api-1:9090 ...] (the pods' named http port, never service port 80)", dials)
+	}
+}
+
+func TestForwardablePortsServiceTargetPortDefaults(t *testing.T) {
+	t.Parallel()
+	svc := &corev1.Service{Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{
+		{Port: 80},
+		{Port: 443, TargetPort: intstr.FromInt32(8443)},
+	}}}
+	opts := ForwardablePorts(svc)
+	pod := namedPortPod("api-0", 8080)
+	for i, want := range []int32{80, 8443} {
+		got, err := PodTargetPort(pod, opts[i].TargetPort, opts[i].Protocol)
+		if err != nil || got != want {
+			t.Errorf("port %d: PodTargetPort = %d, %v, want %d", opts[i].Port, got, err, want)
+		}
+	}
+	if _, err := PodTargetPort(pod, intstr.FromString("metrics"), ""); err == nil {
+		t.Error("PodTargetPort(undeclared name) succeeded, want an error")
+	}
 }

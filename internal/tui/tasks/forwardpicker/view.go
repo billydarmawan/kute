@@ -177,7 +177,15 @@ func (m Model) willRunLine(theme tui.Theme) string {
 		return label + lipgloss.NewStyle().Foreground(theme.Bad).Render("could not resolve a backing pod")
 	}
 	row := m.rows[m.selected]
-	cmdText := kube.PortForwardCommandString(m.target.Namespace, m.resolvedPod, row.localPort, row.Port)
+	var cmdText string
+	if row.podPort > 0 {
+		cmdText = kube.PortForwardCommandString(m.target.Namespace, m.resolvedPod, row.localPort, row.podPort)
+	} else {
+		// A Service targetPort that couldn't be resolved against the pod:
+		// name the Service instead, which kubectl translates itself, rather
+		// than printing the Service port as if it were the pod's.
+		cmdText = kube.ServicePortForwardCommandString(m.target.Namespace, m.target.Name, row.localPort, row.Port)
+	}
 	cmdStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
 	indent := strings.Repeat(" ", lipgloss.Width(labelText))
 	wrapped := components.Wrap(cmdText, panelWidth-lipgloss.Width(labelText))
