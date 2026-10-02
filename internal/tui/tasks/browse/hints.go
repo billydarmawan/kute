@@ -29,7 +29,23 @@ type emptyHints struct {
 	altCount     int
 	allCount     int
 	otherKinds   []otherKindHint
+	// namespace is what the Namespace cache says about the namespace found
+	// empty — the 10c explainer only claims "the namespace exists" once
+	// it's been checked, since a namespace restored from state may since
+	// have been deleted.
+	namespace namespaceExistence
 }
+
+// namespaceExistence is emptyHints' verdict on the current namespace. The
+// zero value, unknown, is what renders before the hints land or when the
+// Namespace cache can't vouch either way (unsynced, unreadable, empty).
+type namespaceExistence int
+
+const (
+	namespaceUnknown namespaceExistence = iota
+	namespaceExists
+	namespaceMissing
+)
 
 // loadEmptyHints computes the three 10c ways-out against the informer
 // cache: the busiest other namespace for this kind, the all-namespaces
@@ -58,13 +74,47 @@ func (m Model) loadEmptyHints() tea.Cmd {
 		hints := emptyHints{
 			otherKinds: otherKindsIn(ctx, lister, reg, kind, namespace),
 		}
-		hints.altNamespace, hints.altCount = busiestOtherNamespace(ctx, lister, reg, kind, namespace)
-		if n, ok := allNamespacesCount(ctx, lister, kind); ok {
-			hints.allCount = n
+		if namespace != "" {
+			hints.namespace = namespaceStatus(ctx, lister, reg, namespace)
+			hints.altNamespace, hints.altCount = busiestOtherNamespace(ctx, lister, reg, kind, namespace)
+			if n, ok := allNamespacesCount(ctx, lister, kind); ok {
+				hints.allCount = n
+			}
 		}
 
 		return emptyHintsMsg{epoch: epoch, namespace: namespace, kind: kind, hints: hints}
 	}
+}
+
+// namespaceStatus checks namespace against the Namespace cache, which is
+// eager (started at connect), so this is a plain cache read — and gated on
+// tui.KindCached all the same, so it can never be the read that starts it.
+// It only answers missing from a cache it can believe: filled, readable and
+// non-empty — every real cluster has at least default and kube-system, so
+// an empty list is a cache that can't see them, not proof of absence.
+// Skipped under --namespace-scoped, like busiestOtherNamespace: a session
+// scoped to its namespaces is often one that can't list the rest.
+func namespaceStatus(ctx context.Context, lister resources.RawLister, reg resources.Registry, namespace string) namespaceExistence {
+	if sc, ok := lister.(tui.ScopedChecker); ok && sc.Scoped() {
+		return namespaceUnknown
+	}
+	if !tui.KindCached(lister, kube.KindNamespace, "") || tui.KindsError(lister, "", kube.KindNamespace) != nil {
+		return namespaceUnknown
+	}
+	nsDesc, ok := reg.Descriptor(kube.KindNamespace)
+	if !ok {
+		return namespaceUnknown
+	}
+	rows, err := resources.List(ctx, lister, nsDesc, "")
+	if err != nil || len(rows) == 0 {
+		return namespaceUnknown
+	}
+	for _, row := range rows {
+		if row.Name == namespace {
+			return namespaceExists
+		}
+	}
+	return namespaceMissing
 }
 
 // allNamespacesCount answers the "N cluster-wide" hint detail. It reads

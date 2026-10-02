@@ -877,10 +877,25 @@ func (m Model) emptyBody(width, height int) string {
 			dim.Render("the cluster is reachable — there's just nothing here yet"),
 			"",
 		}
+	} else if m.grouped() {
+		// 6b's all-namespaces scope: there is no one namespace to name, and
+		// no other namespace or wider scope to send the user to.
+		lines = []string{
+			text.Render("no " + kind + " in any namespace"),
+			dim.Render("the cluster is reachable and you can read them — there's just nothing here"),
+			"",
+		}
 	} else {
+		explainer := "you can read it — there's just nothing here"
+		switch m.hints.namespace {
+		case namespaceExists:
+			explainer = "the namespace exists and you can read it — there's just nothing here"
+		case namespaceMissing:
+			explainer = "the namespace no longer exists"
+		}
 		lines = []string{
 			text.Render("no "+kind+" in ") + ns.Render(m.namespace),
-			dim.Render("the namespace exists and you can read it — there's just nothing here"),
+			dim.Render(explainer),
 			"",
 		}
 	}
@@ -892,11 +907,13 @@ func (m Model) emptyBody(width, height int) string {
 		}
 		lines = append(lines, nsLine)
 
-		allLine := key.Render("a") + " " + dim.Render("all namespaces")
-		if m.hints.allCount > 0 {
-			allLine += " " + detail.Render(fmt.Sprintf("— %d %s cluster-wide", m.hints.allCount, kind))
+		if !m.grouped() {
+			allLine := key.Render("a") + " " + dim.Render("all namespaces")
+			if m.hints.allCount > 0 {
+				allLine += " " + detail.Render(fmt.Sprintf("— %d %s cluster-wide", m.hints.allCount, kind))
+			}
+			lines = append(lines, allLine)
 		}
-		lines = append(lines, allLine)
 
 		gotoLine := key.Render("g") + " " + dim.Render("other kinds")
 		if len(m.hints.otherKinds) > 0 {
@@ -904,7 +921,11 @@ func (m Model) emptyBody(width, height int) string {
 			for i, h := range m.hints.otherKinds {
 				parts[i] = h.label
 			}
-			gotoLine += " " + detail.Render("— this namespace has "+strings.Join(parts, ", "))
+			scope := "this namespace has "
+			if m.grouped() {
+				scope = "the cluster has "
+			}
+			gotoLine += " " + detail.Render("— "+scope+strings.Join(parts, ", "))
 		}
 		lines = append(lines, gotoLine)
 	}
