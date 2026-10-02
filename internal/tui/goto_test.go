@@ -1083,3 +1083,93 @@ func TestRouteGotoInitsTheFreshTaskAfterConnReplay(t *testing.T) {
 		t.Fatalf("fresh task saw %v, want %v (Init after the conn replay, before the jump)", fresh.updates, want)
 	}
 }
+
+// typeGotoQuery opens the jump palette and types query one key at a time,
+// returning the model after the last keystroke.
+func typeGotoQuery(t *testing.T, sess *tui.Session, query string) tui.Model {
+	t.Helper()
+	model := tui.NewWithSession(&screenTask{name: "browse"}, sess)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "g"})
+	for _, r := range query {
+		updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: string(r)})
+	}
+	return updated.(tui.Model)
+}
+
+// TestGotoFuzzySearchFindsObjectsPastTheResultCap is review 13 H4: the
+// 50-result cap was applied to the corpus before filtering, so only the first
+// 50 cached objects were searchable and typing the 61st pod's name answered
+// "no matches" — a false claim that it doesn't exist.
+func TestGotoFuzzySearchFindsObjectsPastTheResultCap(t *testing.T) {
+	t.Parallel()
+	pods := make([]runtime.Object, 0, 61)
+	for i := range 60 {
+		pods = append(pods, gotoTestPod("default", fmt.Sprintf("app-%02d", i)))
+	}
+	pods = append(pods, gotoTestPod("default", "zzz-target"))
+	sess := gotoTestSession(gotoFakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindPod: pods}})
+
+	view := ansi.Strip(typeGotoQuery(t, sess, "zzz-target").View().Content)
+	if !strings.Contains(view, "zzz-target") {
+		t.Fatalf("expected pod #61 to be found by its exact name:\n%s", view)
+	}
+	if strings.Contains(view, "no matches") {
+		t.Fatalf("the palette claimed no matches for a cached pod:\n%s", view)
+	}
+}
+
+// TestGotoFuzzySearchReadsEachCacheOncePerPalette: the name corpus is a
+// snapshot taken on the first fuzzy keystroke, so further typing filters it
+// rather than re-listing every started cache per key.
+func TestGotoFuzzySearchReadsEachCacheOncePerPalette(t *testing.T) {
+	t.Parallel()
+	var calls []gotoListCall
+	lister := countLiveGotoLister{gotoFakeLister{
+		objs:  map[kube.ResourceKind][]runtime.Object{kube.KindPod: {gotoTestPod("default", "api-1")}},
+		calls: &calls,
+	}}
+	sess := gotoTestSession(lister)
+
+	view := ansi.Strip(typeGotoQuery(t, sess, "api-1").View().Content)
+	if !strings.Contains(view, "api-1") {
+		t.Fatalf("expected the pod in fuzzy results:\n%s", view)
+	}
+	pods := 0
+	for _, c := range calls {
+		if c.kind == kube.KindPod {
+			pods++
+		}
+	}
+	if pods != 1 {
+		t.Fatalf("five keystrokes listed the Pod cache %d times; want 1 (one snapshot per palette)", pods)
+	}
+}
+
+// countLiveGotoLister counts server-side, as the real seam stack does, so
+// the per-kind counts never fall back to reading a cache and every recorded
+// ListRaw is the fuzzy corpus's own.
+type countLiveGotoLister struct{ gotoFakeLister }
+
+func (countLiveGotoLister) CountLive(context.Context, kube.ResourceKind, string) (int, error) {
+	return 1, nil
+}
+
+// TestGotoFuzzySearchSeesObjectsThatArriveWhileOpen: a watch event while the
+// palette is open invalidates the snapshot, so the next keystroke searches
+// the cache as it is now rather than as it was when typing began.
+func TestGotoFuzzySearchSeesObjectsThatArriveWhileOpen(t *testing.T) {
+	t.Parallel()
+	objs := map[kube.ResourceKind][]runtime.Object{kube.KindPod: {gotoTestPod("default", "api-1")}}
+	sess := gotoTestSession(gotoFakeLister{objs: objs})
+
+	model := typeGotoQuery(t, sess, "late")
+	objs[kube.KindPod] = append(objs[kube.KindPod], gotoTestPod("default", "late-arrival"))
+	updated, _ := model.Update(kube.ResourceChangedMsg{Kind: kube.KindPod})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "-"})
+
+	view := ansi.Strip(updated.(tui.Model).View().Content)
+	if !strings.Contains(view, "late-arrival") {
+		t.Fatalf("expected a pod added while the palette was open to be searchable:\n%s", view)
+	}
+}

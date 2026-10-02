@@ -371,6 +371,12 @@ type Model struct {
 	// a since-closed/reopened namespace palette) landing after a newer one
 	// already replaced namespaceItemsCache — mirrors probeGen.
 	namespaceGen int
+	// gotoCorpus is the open jump palette's resource-name snapshot (see
+	// gotoResourceCorpus). nil means "build it on the next fuzzy refresh":
+	// it's reset when the palette opens, when the kind registry changes, and
+	// on any watch event, so typing filters a snapshot instead of re-reading
+	// every started cache per keystroke, yet never searches a stale one.
+	gotoCorpus *gotoResourceCorpus
 	// gotoGen guards gotoCountsMsg against a stale count fetch (from a
 	// since-closed/reopened jump palette) landing after a newer one —
 	// mirrors namespaceGen.
@@ -827,6 +833,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// latch, a fast post-start outage could be mistaken for an unreachable
 		// launch and replace a useful cached browse/log screen with setup.
 		m.neverConnected = false
+		// Any object may have come or gone: the jump palette's name snapshot
+		// is rebuilt on its next refresh rather than here, so an event storm
+		// costs nothing while nobody is typing.
+		m.gotoCorpus = nil
 		// A CRD change means the kind registry itself may be stale — most
 		// often because a custom kind's printer columns have just arrived
 		// (they're fetched per-kind on first read, not at connect). Rebuild
@@ -1413,6 +1423,7 @@ func (m *Model) refreshPalette() {
 // match. Same shape as gotoCountsMsg's refresh — late data, re-rank in
 // place — and a no-op unless the jump palette is the one on screen.
 func (m *Model) refreshGotoPaletteCorpus() {
+	m.gotoCorpus = nil
 	if m.palette == nil || m.palette.Scope != palette.ScopeGoto {
 		return
 	}
@@ -1432,7 +1443,10 @@ func (m *Model) refreshGotoPalette() {
 		m.palette.Footer = gotoAliasFooter()
 		return
 	}
-	m.palette.Items = gotoFuzzyItems(m.session, m.palette.Query())
+	if m.gotoCorpus == nil {
+		m.gotoCorpus = buildGotoResourceCorpus(m.session)
+	}
+	m.palette.Items = gotoFuzzyItems(m.session, m.palette.Query(), m.gotoCorpus)
 	m.palette.Recent = gotoRecentKindLabels(m.session)
 	m.palette.Sel = 0
 	m.palette.Footer = gotoAliasMatchFooter(m.session, m.palette.Query())
@@ -1522,6 +1536,7 @@ func (m *Model) openPalette(scope palette.Scope, prompt, hint string) tea.Cmd {
 	}
 	switch scope {
 	case palette.ScopeGoto:
+		m.gotoCorpus = nil
 		m.refreshGotoPalette()
 		// The list renders immediately from whatever counts are still
 		// fresh; the rest fill in behind it (see fetchGotoCountsCmd).

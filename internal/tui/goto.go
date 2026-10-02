@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
@@ -44,9 +46,9 @@ type gotoTarget struct {
 	name      string
 }
 
-// maxGotoResults caps the fuzzy corpus's resource-name items (mvp-plan.md
-// Phase 2: "cap results at ~50"). Reads back the informer cache, so this is
-// about corpus size, not request cost.
+// maxGotoResults caps the resource-name *results* shown for a query
+// (mvp-plan.md Phase 2: "cap results at ~50") — applied after filtering and
+// ranking, never to the corpus being searched (see gotoResourceCorpus).
 const maxGotoResults = 50
 
 func gotoNamespace(sess *Session) string {
@@ -293,15 +295,18 @@ func gotoAliasMatchFooter(sess *Session, query string) []palette.FooterSpan {
 // highlighted and excluded from the corpus below it, so it isn't listed
 // twice; every other
 // fuzzy match for that character (DaemonSets, pod names, …) still ranks
-// normally beneath it. All reads are against the informer cache, so this
-// runs synchronously on every keystroke (no loading state needed).
-func gotoFuzzyItems(sess *Session, query string) []palette.Item {
+// normally beneath it. The resource names come from resourceCorpus, the
+// per-palette-session snapshot, so a keystroke reads no object cache; the
+// whole corpus is filtered and only then are resource results capped.
+func gotoFuzzyItems(sess *Session, query string, resourceCorpus *gotoResourceCorpus) []palette.Item {
 	if sess == nil {
 		return nil
 	}
 	var corpus []palette.Item
 	corpus = append(corpus, gotoKindItems(sess)...)
-	corpus = append(corpus, gotoResourceItems(sess)...)
+	if resourceCorpus != nil {
+		corpus = append(corpus, resourceCorpus.items...)
+	}
 	corpus = append(corpus, gotoNamespaceItems(sess)...)
 	corpus = append(corpus, gotoWhoCanItem())
 	corpus = append(corpus, gotoOverviewItem())
@@ -326,7 +331,7 @@ func gotoFuzzyItems(sess *Session, query string) []palette.Item {
 	}
 
 	items := append(pinned, palette.Filter(corpus, query)...)
-	return items
+	return gotoCapResources(items, resourceCorpus)
 }
 
 // gotoExcludeKind drops kind's own kind-switch row from items (used to
@@ -443,14 +448,38 @@ func gotoKindItems(sess *Session) []palette.Item {
 	return items
 }
 
-// gotoResourceItems lists resource names for the fuzzy corpus: the current
-// kind's rows first, then every other kind's cached rows, capped at
-// maxGotoResults total.
-func gotoResourceItems(sess *Session) []palette.Item {
-	if sess.Lister == nil {
-		return nil
+// gotoResourceCorpus is the fuzzy corpus's resource-name half: one item per
+// cached object of every already-started kind, names only. It is built once
+// per palette session — lazily, on the first fuzzy keystroke, since merely
+// opening the palette must read no cache at all — and again only after a
+// watch event or a registry change marks it stale, so a keystroke pays for a
+// fuzzy match over the names and nothing else.
+//
+// It is deliberately uncapped. The cap (maxGotoResults) is a *display* cap,
+// applied after filtering in gotoCapResources; capping the corpus instead
+// made only the first 50 objects in cache order searchable, and the palette
+// answered "no matches" for everything else (review 13 H4).
+type gotoResourceCorpus struct {
+	items []palette.Item
+	// objs carries each item's object and descriptor, so status is projected
+	// only for the few results that survive the filter and the cap.
+	objs map[gotoTarget]gotoCorpusObject
+}
+
+type gotoCorpusObject struct {
+	desc resources.Descriptor
+	obj  runtime.Object
+}
+
+// buildGotoResourceCorpus snapshots resource names for the fuzzy corpus: the
+// current kind's objects first, then every other started kind's, each kind
+// in the same (namespace, name) order the list screens use — the order ties
+// in fuzzy score fall back to.
+func buildGotoResourceCorpus(sess *Session) *gotoResourceCorpus {
+	corpus := &gotoResourceCorpus{objs: map[gotoTarget]gotoCorpusObject{}}
+	if sess == nil || sess.Lister == nil {
+		return corpus
 	}
-	var items []palette.Item
 	for _, kind := range gotoResourceKindOrder(sess) {
 		desc, ok := sess.Registry.Descriptor(kind)
 		if !ok {
@@ -471,29 +500,82 @@ func gotoResourceItems(sess *Session) []palette.Item {
 		if !KindCached(sess.Lister, kind, ns) {
 			continue
 		}
-		rows, err := resources.List(sess.ClusterContext(), sess.Lister, desc, ns)
+		objs, err := sess.Lister.ListRaw(sess.ClusterContext(), kind, ns)
 		if err != nil {
 			continue
 		}
-		for _, row := range rows {
-			scope := row.Namespace
+		entries := make([]gotoCorpusEntry, 0, len(objs))
+		for _, obj := range objs {
+			namespace, name := gotoObjectName(desc, obj)
+			entries = append(entries, gotoCorpusEntry{namespace: namespace, name: name, sortName: strings.ToLower(name), obj: obj})
+		}
+		slices.SortStableFunc(entries, func(a, b gotoCorpusEntry) int {
+			if c := strings.Compare(a.namespace, b.namespace); c != 0 {
+				return c
+			}
+			return strings.Compare(a.sortName, b.sortName)
+		})
+		kindLabel := strings.ToLower(string(kind))
+		for _, e := range entries {
+			scope := e.namespace
 			if desc.ClusterScoped {
 				scope = "cluster"
 			}
-			glyph, tone := gotoRowStatus(row)
-			items = append(items, palette.Item{
-				Label:     row.Name,
-				Detail:    strings.ToLower(string(kind)) + " · " + scope,
-				Right:     glyph,
-				RightTone: tone,
-				Data:      gotoTarget{action: gotoOpenResource, kind: kind, namespace: row.Namespace, name: row.Name},
+			target := gotoTarget{action: gotoOpenResource, kind: kind, namespace: e.namespace, name: e.name}
+			corpus.items = append(corpus.items, palette.Item{
+				Label:  e.name,
+				Detail: kindLabel + " · " + scope,
+				Data:   target,
 			})
-			if len(items) >= maxGotoResults {
-				return items
-			}
+			corpus.objs[target] = gotoCorpusObject{desc: desc, obj: e.obj}
 		}
 	}
-	return items
+	return corpus
+}
+
+type gotoCorpusEntry struct {
+	namespace, name, sortName string
+	obj                       runtime.Object
+}
+
+// gotoObjectName reads an object's namespace/name straight from its
+// metadata — no projection, which for 5k pods is the difference between a
+// corpus build that costs a name read per object and one that derives every
+// column of every row. The one kind without ObjectMeta (Forwards, whose row
+// name is synthesized from the session) falls back to its projection.
+func gotoObjectName(desc resources.Descriptor, obj runtime.Object) (namespace, name string) {
+	if acc, ok := obj.(metav1.Object); ok {
+		return acc.GetNamespace(), acc.GetName()
+	}
+	row := desc.Project(obj)
+	return row.Namespace, row.Name
+}
+
+// gotoCapResources keeps at most maxGotoResults resource-name results from
+// an already filtered and ranked item list — kinds, namespaces and the
+// synthetic entries are never dropped — and projects the status glyph for
+// just the survivors.
+func gotoCapResources(items []palette.Item, corpus *gotoResourceCorpus) []palette.Item {
+	out := items[:0]
+	resourcesKept := 0
+	for _, it := range items {
+		target, ok := it.Data.(gotoTarget)
+		if !ok || target.action != gotoOpenResource {
+			out = append(out, it)
+			continue
+		}
+		if resourcesKept >= maxGotoResults {
+			continue
+		}
+		resourcesKept++
+		if corpus != nil {
+			if src, ok := corpus.objs[target]; ok && src.desc.Project != nil {
+				it.Right, it.RightTone = gotoRowStatus(src.desc.Project(src.obj))
+			}
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // gotoRowStatus maps a projected row's health to the right-aligned status
