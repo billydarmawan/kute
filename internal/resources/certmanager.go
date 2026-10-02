@@ -166,26 +166,39 @@ func projectCertificate(obj runtime.Object) Row {
 	}
 }
 
+// CertExpiry buckets a certificate's notAfter against now — the one copy of
+// the day thresholds both this list's EXPIRES cell and routetable's Ingress/
+// Gateway TLS cell (docs/design README.md §23a: "yellow <30d, red expired")
+// use. expired is true from the instant notAfter passes, and days is the
+// floored whole days remaining (or, once expired, elapsed): truncating a
+// negative duration toward zero used to read a cert that expired hours ago
+// as "0d" left, in yellow.
+func CertExpiry(notAfter, now time.Time) (days int, expired bool, class StatusClass) {
+	if !now.Before(notAfter) {
+		return int(now.Sub(notAfter).Hours() / 24), true, StatusFail
+	}
+	days = int(notAfter.Sub(now).Hours() / 24)
+	if days < 30 {
+		return days, false, StatusWarn
+	}
+	return days, false, StatusOK
+}
+
 // certExpiryCell renders the EXPIRES cell: "–"/Neutral when notAfter is
 // unknown (not yet issued), "expired"/Fail once past, "Nd"/Warn inside 30
-// days, "Nd"/OK inside a year, "Ny"/OK beyond — the same day-bucketing
-// thresholds routetable's resolveCertExpiry uses for Ingress TLS (docs/
-// design README.md §23a), reimplemented here since notAfter is already a
-// timestamp rather than an x509 cert to parse.
+// days, "Nd"/OK inside a year, "Ny"/OK beyond, bucketed by CertExpiry.
 func certExpiryCell(notAfter, now time.Time) (text string, class StatusClass) {
 	if notAfter.IsZero() {
 		return "–", StatusNeutral // "–"
 	}
-	days := int(notAfter.Sub(now).Hours() / 24)
+	days, expired, class := CertExpiry(notAfter, now)
 	switch {
-	case days < 0:
-		return "expired", StatusFail
-	case days < 30:
-		return fmt.Sprintf("%dd", days), StatusWarn
+	case expired:
+		return "expired", class
 	case days < 365:
-		return fmt.Sprintf("%dd", days), StatusOK
+		return fmt.Sprintf("%dd", days), class
 	default:
-		return fmt.Sprintf("%dy", days/365), StatusOK
+		return fmt.Sprintf("%dy", days/365), class
 	}
 }
 

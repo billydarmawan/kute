@@ -85,6 +85,7 @@ func TestProjectCertificateExpiryBuckets(t *testing.T) {
 	}{
 		{"unknown", time.Time{}, "–", StatusNeutral, StatusOK, "●"},
 		{"expired", now.Add(-24 * time.Hour), "expired", StatusFail, StatusOK, "●"},
+		{"expired hours ago", now.Add(-12 * time.Hour), "expired", StatusFail, StatusOK, "●"},
 		{"expiring soon", now.Add(22*24*time.Hour + time.Hour), "22d", StatusWarn, StatusOK, "◷"},
 		{"comfortable", now.Add(61*24*time.Hour + time.Hour), "61d", StatusOK, StatusOK, "●"},
 		{"long-dated", now.Add(8*365*24*time.Hour + time.Hour), "8y", StatusOK, StatusOK, "●"},
@@ -113,6 +114,33 @@ func TestProjectCertificateExpiryBuckets(t *testing.T) {
 	// "expired" is a real StatusFail EXPIRES class, but it deliberately
 	// doesn't drag the whole row's Status down — Ready=True is Ready=True;
 	// EXPIRES carries the "past notAfter" fact on its own cell/class.
+}
+
+// TestCertExpiryBoundaries pins the bucketing both the EXPIRES cell and
+// routetable's TLS cell share: a cert is expired from the instant notAfter
+// passes, not 24h later, and day counts floor in both directions.
+func TestCertExpiryBoundaries(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 1, 10, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name        string
+		notAfter    time.Time
+		wantDays    int
+		wantExpired bool
+		wantClass   StatusClass
+	}{
+		{"an hour left", now.Add(time.Hour), 0, false, StatusWarn},
+		{"exactly now", now, 0, true, StatusFail},
+		{"an hour ago", now.Add(-time.Hour), 0, true, StatusFail},
+		{"25h ago", now.Add(-25 * time.Hour), 1, true, StatusFail},
+		{"30d left", now.Add(30*24*time.Hour + time.Hour), 30, false, StatusOK},
+	}
+	for _, c := range cases {
+		days, expired, class := CertExpiry(c.notAfter, now)
+		if days != c.wantDays || expired != c.wantExpired || class != c.wantClass {
+			t.Errorf("%s: CertExpiry = (%d, %v, %s), want (%d, %v, %s)", c.name, days, expired, class, c.wantDays, c.wantExpired, c.wantClass)
+		}
+	}
 }
 
 // TestProjectCertificateExpiresAtDrivesTiebreak confirms ExpiresAt is

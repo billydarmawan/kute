@@ -213,14 +213,14 @@ func resolveCertExpiry(ctx context.Context, lister resources.RawLister, ns, secr
 		if err != nil {
 			return "invalid cert", resources.StatusWarn
 		}
-		days := int(time.Until(cert.NotAfter).Hours() / 24)
+		days, expired, class := resources.CertExpiry(cert.NotAfter, time.Now())
 		switch {
-		case days < 0:
-			return fmt.Sprintf("expired %dd ago", -days), resources.StatusFail
-		case days < 30:
-			return fmt.Sprintf("expires in %dd", days), resources.StatusWarn
+		case expired && days == 0:
+			return "expired <1d ago", class
+		case expired:
+			return fmt.Sprintf("expired %dd ago", days), class
 		default:
-			return fmt.Sprintf("expires in %dd", days), resources.StatusOK
+			return fmt.Sprintf("expires in %dd", days), class
 		}
 	}
 	return "secret not found", resources.StatusFail
