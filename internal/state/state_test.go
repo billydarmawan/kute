@@ -5,8 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/kute-dev/kute/internal/testutil/testenv"
 )
@@ -74,6 +76,62 @@ func TestSaveLeavesNewerVersionFileUntouched(t *testing.T) {
 	}
 	if !bytes.Equal(got, future) {
 		t.Fatalf("newer state file rewritten:\n%s", got)
+	}
+}
+
+// TestSaveMergesConcurrentInstances: two windows load the same file; the
+// one that exits last must keep the other's per-context entry, recents and
+// seen versions rather than writing back the snapshot it started from.
+func TestSaveMergesConcurrentInstances(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "state.json")
+	s0 := State{
+		RecentKinds: []string{"Pod"},
+		PerContext:  map[string]PerContext{"shared": {Namespace: "default"}},
+	}
+	if err := s0.saveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	a, b := loadFrom(path), loadFrom(path)
+
+	a.PerContext["prod"] = PerContext{Namespace: "web", Kind: "Deployment"}
+	a.RecentKinds = PushRecent(a.RecentKinds, "Deployment")
+	a.MarkUpdateSeen("0.9.0")
+	a.UpdateCheck.LastChecked = time.Unix(2000, 0)
+	a.UpdateCheck.LatestVersion = "0.9.0"
+	if err := a.saveTo(path); err != nil {
+		t.Fatal(err)
+	}
+
+	b.PerContext["staging"] = PerContext{Namespace: "api"}
+	b.RecentContexts = PushRecent(b.RecentContexts, "staging")
+	if err := b.saveTo(path); err != nil {
+		t.Fatal(err)
+	}
+
+	got := loadFrom(path)
+	if got.PerContext["prod"].Namespace != "web" || got.PerContext["staging"].Namespace != "api" ||
+		got.PerContext["shared"].Namespace != "default" {
+		t.Fatalf("PerContext = %+v, want prod, staging and shared all kept", got.PerContext)
+	}
+	if !slices.Equal(got.RecentKinds, []string{"Deployment", "Pod"}) {
+		t.Fatalf("RecentKinds = %v, want window A's push kept", got.RecentKinds)
+	}
+	if !slices.Equal(got.RecentContexts, []string{"staging"}) {
+		t.Fatalf("RecentContexts = %v", got.RecentContexts)
+	}
+	if !got.UpdateSeen("0.9.0") || got.UpdateCheck.LatestVersion != "0.9.0" || !got.UpdateCheck.LastChecked.Equal(time.Unix(2000, 0)) {
+		t.Fatalf("UpdateCheck = %+v, want window A's check and seen version kept", got.UpdateCheck)
+	}
+
+	// A change this session made to a shared entry still wins.
+	c := loadFrom(path)
+	c.PerContext["shared"] = PerContext{Namespace: "kube-system"}
+	if err := c.saveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadFrom(path).PerContext["shared"].Namespace; got != "kube-system" {
+		t.Fatalf("PerContext[shared].Namespace = %q, want this session's change", got)
 	}
 }
 

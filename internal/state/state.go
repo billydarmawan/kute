@@ -70,6 +70,12 @@ type State struct {
 	// README.md's State Management section: "cached in the state dir,
 	// drives the 28a chip and 28b's per-version dismissal") — schema v2.
 	UpdateCheck UpdateCheckState `json:"updateCheck,omitzero"`
+
+	// base is the document as Load read it, deep-copied and never mutated,
+	// so Save can tell this session's own changes from a concurrent
+	// instance's (see merge). Nil for a State Load didn't produce, which
+	// Save writes as-is.
+	base *State
 }
 
 // UpdateCheckState is the persisted trio 28a's ambient chip needs even in a
@@ -115,16 +121,37 @@ func loadFrom(path string) State {
 	}
 	switch {
 	case s.Version == CurrentVersion:
-		return normalize(s)
+		return withBase(normalize(s))
 	case s.Version < CurrentVersion:
-		return normalize(migrate(s))
+		return withBase(normalize(migrate(s)))
 	default:
 		return zero()
 	}
 }
 
 func zero() State {
-	return State{Version: CurrentVersion, PerContext: map[string]PerContext{}}
+	return withBase(State{Version: CurrentVersion, PerContext: map[string]PerContext{}})
+}
+
+func withBase(s State) State {
+	b := s.clone()
+	s.base = &b
+	return s
+}
+
+func (s State) clone() State {
+	out := s
+	out.base = nil
+	out.RecentKinds = slices.Clone(s.RecentKinds)
+	out.RecentContexts = slices.Clone(s.RecentContexts)
+	out.UpdateCheck.SeenVersions = slices.Clone(s.UpdateCheck.SeenVersions)
+	out.PerContext = make(map[string]PerContext, len(s.PerContext))
+	for k, pc := range s.PerContext {
+		pc.RecentNamespaces = slices.Clone(pc.RecentNamespaces)
+		pc.RecentDebugImages = slices.Clone(pc.RecentDebugImages)
+		out.PerContext[k] = pc
+	}
+	return out
 }
 
 func normalize(s State) State {
@@ -184,7 +211,9 @@ var ErrNewerVersion = errors.New("state file was written by a newer kute; not ov
 // Save atomically writes s to Path() (temp file + rename, so a crash mid
 // write never corrupts the previous state), stamping Version. It refuses
 // with ErrNewerVersion, leaving the file untouched, when the file on disk
-// carries a newer Version.
+// carries a newer Version. A State from Load is merged onto whatever is on
+// disk now rather than replacing it, so two kute windows (one per context
+// is common) each keep the other's changes — see merge.
 func (s State) Save() error {
 	return s.saveTo(Path())
 }
@@ -199,6 +228,9 @@ func (s State) saveTo(path string) error {
 		if json.Unmarshal(data, &onDisk) == nil && onDisk.Version > CurrentVersion {
 			return ErrNewerVersion
 		}
+	}
+	if s.base != nil {
+		s = merge(loadFrom(path), *s.base, s)
 	}
 	s.Version = CurrentVersion
 	dir := filepath.Dir(path)
@@ -224,6 +256,61 @@ func (s State) saveTo(path string) error {
 		return err
 	}
 	return os.Rename(tmpPath, path)
+}
+
+// merge applies mine's changes since base onto disk, the file as it is now
+// (another instance may have saved since this one loaded): a PerContext
+// entry this session changed replaces disk's, every other entry is disk's;
+// a recents list this session changed leads, followed by disk's remaining
+// entries; seen versions are unioned; the later update check wins. Without
+// it the last window to exit discarded every other window's per-context
+// location, recents and dismissed versions (so the 28a chip re-nagged).
+// The read-merge-rename runs at exit in well under a millisecond, so two
+// instances racing inside that window is the one case it doesn't cover.
+func merge(disk, base, mine State) State {
+	out := disk.clone()
+	for k := range base.PerContext {
+		if _, ok := mine.PerContext[k]; !ok {
+			delete(out.PerContext, k)
+		}
+	}
+	for k, pc := range mine.PerContext {
+		if b, ok := base.PerContext[k]; !ok || !samePerContext(b, pc) {
+			out.PerContext[k] = pc
+		}
+	}
+	out.RecentKinds = mergeRecent(disk.RecentKinds, base.RecentKinds, mine.RecentKinds)
+	out.RecentContexts = mergeRecent(disk.RecentContexts, base.RecentContexts, mine.RecentContexts)
+	for _, v := range mine.UpdateCheck.SeenVersions {
+		out.MarkUpdateSeen(v)
+	}
+	if mine.UpdateCheck.LastChecked.After(disk.UpdateCheck.LastChecked) {
+		out.UpdateCheck.LastChecked = mine.UpdateCheck.LastChecked
+		out.UpdateCheck.LatestVersion = mine.UpdateCheck.LatestVersion
+	}
+	return out
+}
+
+func samePerContext(a, b PerContext) bool {
+	return a.Namespace == b.Namespace && a.Kind == b.Kind && a.Filter == b.Filter &&
+		slices.Equal(a.RecentNamespaces, b.RecentNamespaces) &&
+		slices.Equal(a.RecentDebugImages, b.RecentDebugImages)
+}
+
+// mergeRecent keeps disk's list when this session never touched its own,
+// and otherwise puts this session's order first — its index 0 is what it
+// was last looking at — with disk's other entries after it.
+func mergeRecent(disk, base, mine []string) []string {
+	if slices.Equal(base, mine) {
+		return disk
+	}
+	out := slices.Clone(mine)
+	for _, v := range disk {
+		if !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	return capRecent(out)
 }
 
 // PushRecent prepends value to items (most-recent-first), removing any
