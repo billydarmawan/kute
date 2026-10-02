@@ -28,6 +28,10 @@ func (m Model) load() tea.Cmd {
 	kind, namespace, name := m.kind, m.namespace, m.name
 	desc := m.desc
 	timeout := m.timeout
+	var reg resources.Registry
+	if m.session != nil {
+		reg = m.session.Registry
+	}
 
 	parent := m.session.ClusterContext()
 	return func() tea.Msg {
@@ -49,7 +53,7 @@ func (m Model) load() tea.Cmd {
 		}
 
 		chn := buildChain(ctx, lister, obj, namespace)
-		inv := buildInventory(ctx, lister, obj, namespace, &chn)
+		inv := buildInventory(ctx, lister, reg, obj, &chn)
 		fail := buildFailure(obj, inv, time.Now())
 
 		return loadedMsg{
@@ -172,9 +176,21 @@ func appliedRevision(u *unstructured.Unstructured) string {
 // buildInventory resolves status.inventory into rows with live readiness.
 //
 // Entry ids are "<namespace>_<name>_<group>_<Kind>" with the version in a
-// sibling field; a cluster-scoped entry has an empty first segment. Objects
-// are grouped by kind so each kind is listed once, not once per entry.
-func buildInventory(ctx context.Context, lister resources.RawLister, u *unstructured.Unstructured, namespace string, c *chain) []inventoryItem {
+// sibling field; a cluster-scoped entry has an empty first segment.
+//
+// Each entry's (group, Kind) is resolved to its registry key before
+// anything else (inventoryKind) — the bare Kind names a different resource
+// whenever two groups serve it, and read that way a Flux HelmRelease entry
+// listed §18a's Helm releases cluster-wide and a Knative Service entry
+// resolved against core Services.
+//
+// Reads are narrow, because the app pays for the screen you're on: only a
+// kind objectReadiness can actually answer for is read at all — a Secret
+// or ConfigMap entry has no readiness, so listing it would start that
+// kind's informer for a "–" (and an inventory full of SOPS Secrets is the
+// norm) — and each such kind is read once per namespace its own entries
+// name, never cluster-wide.
+func buildInventory(ctx context.Context, lister resources.RawLister, reg resources.Registry, u *unstructured.Unstructured, c *chain) []inventoryItem {
 	entries, _, _ := unstructured.NestedSlice(u.Object, "status", "inventory", "entries")
 	if len(entries) == 0 {
 		if strings.EqualFold(u.GetKind(), "HelmRelease") {
@@ -186,53 +202,91 @@ func buildInventory(ctx context.Context, lister resources.RawLister, u *unstruct
 		return nil
 	}
 
-	type ref struct{ namespace, name string }
-	byKind := map[kube.ResourceKind][]ref{}
-	var order []kube.ResourceKind
+	// scope is one read: a kind in one namespace ("" for a cluster-scoped
+	// entry, whose kind ignores the namespace anyway).
+	type scope struct {
+		kind      kube.ResourceKind
+		namespace string
+	}
+	var (
+		out    []inventoryItem
+		reads  []scope
+		toRead = map[scope]bool{}
+	)
 	for _, e := range entries {
 		em, ok := e.(map[string]any)
 		if !ok {
 			continue
 		}
 		id, _, _ := unstructured.NestedString(em, "id")
-		ns, name, kind, ok := kube.ParseFluxInventoryID(id)
+		ns, name, group, apiKind, ok := kube.ParseFluxInventoryID(id)
 		if !ok {
 			continue
 		}
-		if _, seen := byKind[kind]; !seen {
-			order = append(order, kind)
+		kind, readable := inventoryKind(reg, group, apiKind)
+		out = append(out, inventoryItem{Kind: kind, Namespace: ns, Name: name, Ready: "–", Status: resources.StatusNeutral})
+		if sc := (scope{kind, ns}); readable && !toRead[sc] {
+			toRead[sc] = true
+			reads = append(reads, sc)
 		}
-		byKind[kind] = append(byKind[kind], ref{ns, name})
 	}
 
-	var out []inventoryItem
-	for _, kind := range order {
-		// One list per kind present in the inventory — never a walk of the
-		// registry, and never a read per object.
-		objs, err := lister.ListRaw(ctx, kind, "")
-		byName := map[string]runtime.Object{}
-		if err == nil {
-			for _, o := range objs {
-				if acc, ok := o.(*unstructured.Unstructured); ok {
-					byName[acc.GetNamespace()+"/"+acc.GetName()] = o
-					continue
-				}
-				if n, ns, ok := metaNameNamespace(o); ok {
-					byName[ns+"/"+n] = o
-				}
+	type key struct {
+		kind            kube.ResourceKind
+		namespace, name string
+	}
+	found := map[key]runtime.Object{}
+	for _, sc := range reads {
+		objs, err := lister.ListRaw(ctx, sc.kind, sc.namespace)
+		if err != nil {
+			continue
+		}
+		for _, o := range objs {
+			if n, ns, ok := metaNameNamespace(o); ok {
+				found[key{sc.kind, ns, n}] = o
 			}
 		}
-		for _, r := range byKind[kind] {
-			item := inventoryItem{Kind: kind, Namespace: r.namespace, Name: r.name, Ready: "–", Status: resources.StatusNeutral}
-			if o, ok := byName[r.namespace+"/"+r.name]; ok {
-				item.Ready, item.Status = objectReadiness(o)
-			}
-			item.Glyph = inventoryGlyph(item.Status)
-			out = append(out, item)
+	}
+	for i := range out {
+		it := &out[i]
+		if o, ok := found[key{it.Kind, it.Namespace, it.Name}]; ok {
+			it.Ready, it.Status = objectReadiness(o)
 		}
+		it.Glyph = inventoryGlyph(it.Status)
 	}
 	sortInventory(out)
 	return out
+}
+
+// readableTypedKinds are the built-in kinds objectReadiness has a reading
+// for. Every other built-in answers "–", so reading one would be pure cost.
+var readableTypedKinds = map[kube.ResourceKind]bool{
+	kube.KindDeployment:  true,
+	kube.KindStatefulSet: true,
+	kube.KindDaemonSet:   true,
+	kube.KindPod:         true,
+}
+
+// inventoryKind resolves an inventory entry's (group, Kind) to the registry
+// key it is read and navigated by, and reports whether it is worth reading.
+//
+// kube.RegistryKindFor settles every collision it can see from the pair
+// alone; the registry settles the one it can't — two discovered groups
+// sharing an otherwise-unclaimed Kind, where discovery qualified the loser
+// (kube.AssignRegistryKinds). A discovered kind is readable (its Ready
+// condition or replica counts are objectReadiness's unstructured branch);
+// one the registry doesn't hold is not, since nothing could serve the read.
+func inventoryKind(reg resources.Registry, group, apiKind string) (kube.ResourceKind, bool) {
+	kind := kube.RegistryKindFor(group, apiKind)
+	if readableTypedKinds[kind] {
+		return kind, true
+	}
+	d, ok := reg.Descriptor(kind)
+	if ok && d.Custom && d.APIGroup != group {
+		kind = kube.QualifiedKind(apiKind, group)
+		d, ok = reg.Descriptor(kind)
+	}
+	return kind, ok && d.Custom
 }
 
 // objectReadiness is the inventory's per-object health read. Workloads

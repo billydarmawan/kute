@@ -220,7 +220,7 @@ func appliesLine(ids []string) string {
 	perNS := map[string]int{}
 	total := 0
 	for _, id := range ids {
-		ns, name, kind, ok := kube.ParseFluxInventoryID(id)
+		ns, name, group, kind, ok := kube.ParseFluxInventoryID(id)
 		if !ok {
 			continue
 		}
@@ -228,7 +228,7 @@ func appliesLine(ids []string) string {
 		switch {
 		case ns != "":
 			perNS[ns]++
-		case kind == kube.KindNamespace:
+		case group == "" && kind == string(kube.KindNamespace):
 			perNS[name]++
 		}
 	}

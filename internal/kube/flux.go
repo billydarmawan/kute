@@ -6,12 +6,18 @@ import "strings"
 // Kustomization: "<namespace>_<name>_<group>_<Kind>", with an empty first
 // segment for a cluster-scoped object. Kubernetes names can't contain an
 // underscore, so the split is unambiguous.
-func ParseFluxInventoryID(id string) (namespace, name string, kind ResourceKind, ok bool) {
+//
+// kind is the bare API Kind and group its API group ("" for core). The pair
+// is the object's identity — the Kind alone names a different resource
+// whenever two groups serve it (Flux's HelmRelease vs §18a's Helm list,
+// Knative's Service vs core's) — so resolve it with RegistryKindFor before
+// reading or navigating, never ResourceKind(kind).
+func ParseFluxInventoryID(id string) (namespace, name, group, kind string, ok bool) {
 	parts := strings.Split(id, "_")
 	if len(parts) != 4 {
-		return "", "", "", false
+		return "", "", "", "", false
 	}
-	return parts[0], parts[1], ResourceKind(parts[3]), parts[1] != ""
+	return parts[0], parts[1], parts[2], parts[3], parts[1] != ""
 }
 
 // FluxInventoryIDs reads a reconciler's status.inventory entry ids — the

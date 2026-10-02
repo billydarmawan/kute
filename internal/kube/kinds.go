@@ -147,6 +147,27 @@ func QualifiedKind(kind, group string) ResourceKind {
 	return ResourceKind(kind + "." + group)
 }
 
+// RegistryKindFor maps an object's wire coordinates — its API group and
+// Kind, as a Flux inventory id or an ownerReference carries them — to the
+// registry key kute addresses that kind by. It is RegistryKind's derivation
+// run in reverse from (group, Kind) alone: a built-in typed kind in its own
+// group keeps its bare key, a substituted kind gets its const
+// (helm.toolkit.fluxcd.io/HelmRelease → KindFluxHelmRelease, never §18a's
+// Helm list), and anything colliding with a built-in or an owned name gets
+// QualifiedKind (serving.knative.dev/Service → "Service.serving.knative.dev",
+// never core Services).
+//
+// The one collision it can't see is two *discovered* groups sharing an
+// otherwise-unclaimed Kind, which AssignRegistryKinds settles against the
+// whole discovery snapshot; a caller holding the registry checks the
+// resolved descriptor's APIGroup for that case.
+func RegistryKindFor(group, kind string) ResourceKind {
+	if tk, ok := typedKinds[ResourceKind(kind)]; ok && tk.gvr.Group == group {
+		return ResourceKind(kind)
+	}
+	return DiscoveredKind{Group: group, Kind: kind}.RegistryKind()
+}
+
 // APIKind is the Kubernetes Kind behind k. Identical to string(k) for every
 // kind but a substituted one.
 //
