@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -141,5 +142,81 @@ func TestClusterScopedManifestRefUsesClusterScope(t *testing.T) {
 	ref := normalizeRef(resources.DefaultRegistry(), kube.HelmObjectRef{APIVersion: "v1", Kind: "Namespace", Namespace: "release-ns", Name: "created-ns"})
 	if ref.Namespace != "" {
 		t.Fatalf("Namespace scope = %q, want cluster-wide", ref.Namespace)
+	}
+}
+
+// secretLister adds the release-Secret seam to recordingLister.
+type secretLister struct {
+	recordingLister
+	secrets     []runtime.Object
+	secretReads int
+}
+
+func (l *secretLister) ListHelmReleaseSecrets(context.Context, string) ([]runtime.Object, error) {
+	l.secretReads++
+	return l.secrets, nil
+}
+
+// TestEventBurstReloadsOnceAfterDebounce: Events are always relevant to this
+// screen, so a burst of them must not re-run the whole load per event — it
+// schedules one debounced reload, and only the newest one fires.
+func TestEventBurstReloadsOnceAfterDebounce(t *testing.T) {
+	release := pendingRelease()
+	lister := &secretLister{secrets: []runtime.Object{kube.EncodeHelmReleaseSecret(release)}}
+	m := New(Config{Session: diagnosticSession(), Lister: lister, Events: fakeEvents{}, Release: release})
+	updated, _ := m.Update(m.load()())
+	m = *updated.(*Model)
+	lister.reads, lister.secretReads = nil, 0
+
+	var cmds []tea.Cmd
+	for range 5 {
+		_, cmd := m.Update(kube.ResourceChangedMsg{Kind: kube.KindEvent})
+		if cmd == nil {
+			t.Fatal("expected an Event change to schedule a reload")
+		}
+		cmds = append(cmds, cmd)
+	}
+	if lister.secretReads != 0 || len(lister.reads) != 0 {
+		t.Fatalf("Event changes loaded immediately: secretReads=%d reads=%v", lister.secretReads, lister.reads)
+	}
+	for i, cmd := range cmds {
+		due, ok := cmd().(reloadDueMsg)
+		if !ok {
+			t.Fatalf("scheduled cmd %d produced %T, want reloadDueMsg", i, due)
+		}
+		_, load := m.Update(due)
+		if (load != nil) != (i == len(cmds)-1) {
+			t.Fatalf("reloadDueMsg %d: load=%v, want only the newest to load", i, load != nil)
+		}
+		if load != nil {
+			load()
+		}
+	}
+	if lister.secretReads != 1 {
+		t.Fatalf("release re-read %d times for one burst, want 1", lister.secretReads)
+	}
+}
+
+// TestReleaseReadUsesReleaseSecretSeam: the release itself is re-read through
+// the narrow release-Secret cache, never the decorated ListRaw(HelmRelease)
+// that decodes every release in the namespace.
+func TestReleaseReadUsesReleaseSecretSeam(t *testing.T) {
+	release := pendingRelease()
+	newer := release
+	newer.Revision, newer.Status = 2, "deployed"
+	other := release
+	other.Name = "unrelated"
+	lister := &secretLister{secrets: []runtime.Object{
+		kube.EncodeHelmReleaseSecret(release), kube.EncodeHelmReleaseSecret(newer), kube.EncodeHelmReleaseSecret(other),
+	}}
+	m := New(Config{Session: diagnosticSession(), Lister: lister, Events: fakeEvents{}, Release: release})
+	msg := m.load()().(loadedMsg)
+	for _, kind := range lister.reads {
+		if kind == kube.KindHelmRelease {
+			t.Fatalf("read the decorated HelmRelease list: %v", lister.reads)
+		}
+	}
+	if lister.secretReads != 1 || msg.release.Revision != 2 || msg.release.Status != "deployed" {
+		t.Fatalf("secretReads=%d release=%d/%s, want one seam read landing revision 2 deployed", lister.secretReads, msg.release.Revision, msg.release.Status)
 	}
 }

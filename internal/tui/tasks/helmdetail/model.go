@@ -25,6 +25,30 @@ type EventsReader interface {
 	NamespaceEvents(context.Context, string) ([]kube.Event, error)
 }
 
+// HelmSecretLister is the optional narrow seam onto the release-Secret cache
+// (helmhistory's own HelmSecretLister, duplicated per the package-local-seam
+// convention). Exported so app can assert its lister decorators against it.
+type HelmSecretLister interface {
+	ListHelmReleaseSecrets(ctx context.Context, namespace string) ([]runtime.Object, error)
+}
+
+// reloadDebounce coalesces bursts of watch events — Events above all, which
+// this screen always listens to — into one reload, the same value as
+// browse's own reloadDebounce, duplicated per the package-local-seam
+// convention.
+const reloadDebounce = 250 * time.Millisecond
+
+// reloadDueMsg fires scheduleReload's debounced reload; epoch drops one
+// superseded by a later event.
+type reloadDueMsg struct{ epoch int }
+
+// scheduleReload arranges one reloadDueMsg reloadDebounce from now.
+func scheduleReload(epoch int) tea.Cmd {
+	return tea.Tick(reloadDebounce, func(time.Time) tea.Msg {
+		return reloadDueMsg{epoch: epoch}
+	})
+}
+
 type OpenEventsFunc func(kind kube.ResourceKind, namespace, name string, width, height int) (tea.Model, tea.Cmd)
 type OpenSavedYAMLFunc func(ref kube.HelmObjectRef, width, height int) (tea.Model, tea.Cmd)
 
@@ -139,15 +163,7 @@ func (m Model) load() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, timeout)
 		defer cancel()
-		release := fallback
-		if objs, err := lister.ListRaw(ctx, kube.KindHelmRelease, fallback.Namespace); err == nil {
-			for _, obj := range objs {
-				if hr, ok := obj.(*kube.HelmReleaseObject); ok && hr.Release.Name == fallback.Name && hr.Release.Namespace == fallback.Namespace {
-					release = hr.Release
-					break
-				}
-			}
-		}
+		release := currentRelease(ctx, lister, fallback)
 
 		type scope struct {
 			kind      kube.ResourceKind
@@ -236,6 +252,38 @@ func (m Model) load() tea.Cmd {
 		}
 		return loadedMsg{epoch: epoch, release: release, rows: rows, relevant: relevant, diagnosis: diagnosis, pending: pending, now: time.Now()}
 	}
+}
+
+// currentRelease re-reads this one release's newest revision. Through the
+// release-Secret seam it narrows to this release's Secrets before decoding
+// only the newest of them (helmhistory's recipe), rather than the decorated
+// ListRaw(KindHelmRelease), which decodes every release in the namespace and
+// reads the workload caches for a rollout flag this screen never shows.
+// fallback stands whenever the read fails or no longer finds the release.
+func currentRelease(ctx context.Context, lister resources.RawLister, fallback kube.HelmRelease) kube.HelmRelease {
+	if hs, ok := lister.(HelmSecretLister); ok {
+		secrets, err := hs.ListHelmReleaseSecrets(ctx, fallback.Namespace)
+		if err != nil {
+			return fallback
+		}
+		mine := kube.HelmReleaseSecretsFor(secrets, fallback.Namespace, fallback.Name)
+		for _, r := range kube.DecodeLatestHelmReleases(mine) {
+			if r.Name == fallback.Name && r.Namespace == fallback.Namespace {
+				return r
+			}
+		}
+		return fallback
+	}
+	objs, err := lister.ListRaw(ctx, kube.KindHelmRelease, fallback.Namespace)
+	if err != nil {
+		return fallback
+	}
+	for _, obj := range objs {
+		if hr, ok := obj.(*kube.HelmReleaseObject); ok && hr.Release.Name == fallback.Name && hr.Release.Namespace == fallback.Namespace {
+			return hr.Release
+		}
+	}
+	return fallback
 }
 
 func registryKind(reg resources.Registry, ref kube.HelmObjectRef) kube.ResourceKind {
@@ -346,7 +394,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.conn = kube.ConnState(msg)
 	case kube.ResourceChangedMsg:
 		if m.relevant[msg.Kind] {
+			// Debounced: Events are always relevant and arrive in bursts, and
+			// each load re-reads the release plus every declared kind.
 			m.reloadEpoch++
+			return m, scheduleReload(m.reloadEpoch)
+		}
+	case reloadDueMsg:
+		if msg.epoch == m.reloadEpoch {
 			return m, m.load()
 		}
 	case tui.CacheSyncRetryMsg:

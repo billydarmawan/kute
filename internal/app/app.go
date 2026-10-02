@@ -459,6 +459,7 @@ var (
 	_ tui.ScopedChecker            = (*kube.Cluster)(nil)
 	_ tui.LiveCounter              = (*kube.Cluster)(nil)
 	_ helmhistory.HelmSecretLister = (*kube.Cluster)(nil)
+	_ helmdetail.HelmSecretLister  = (*kube.Cluster)(nil)
 
 	// The two lister decorators must satisfy every optional seam the
 	// cluster does. Embedding resources.RawLister as an interface field
@@ -480,6 +481,7 @@ var (
 	_ tui.ScopedChecker            = forwardAwareLister{}
 	_ tui.LiveCounter              = forwardAwareLister{}
 	_ helmhistory.HelmSecretLister = forwardAwareLister{}
+	_ helmdetail.HelmSecretLister  = forwardAwareLister{}
 	_ browse.KindSyncChecker       = helmAwareLister{}
 	_ browse.CacheSyncChecker      = helmAwareLister{}
 	_ tui.KindErrorReporter        = helmAwareLister{}
@@ -488,6 +490,7 @@ var (
 	_ tui.ScopedChecker            = helmAwareLister{}
 	_ tui.LiveCounter              = helmAwareLister{}
 	_ helmhistory.HelmSecretLister = helmAwareLister{}
+	_ helmdetail.HelmSecretLister  = helmAwareLister{}
 	// Only the outermost decorator can answer this one — nothing below it
 	// holds a chart index — but it is the lister screens actually assert
 	// against, so this is the assertion that matters.
@@ -511,6 +514,7 @@ var (
 	_ tui.KindStartedChecker       = (*fake.Cluster)(nil)
 	_ tui.KindForbiddenReporter    = (*fake.Cluster)(nil)
 	_ helmhistory.HelmSecretLister = (*fake.Cluster)(nil)
+	_ helmdetail.HelmSecretLister  = (*fake.Cluster)(nil)
 	// This block has no tui.ScopedChecker or tui.LiveCounter assertion for
 	// fake.Cluster. The fake has no informers to scope: SwitchNamespace only
 	// changes which objects ListRaw filters to (see fake.go's own field
