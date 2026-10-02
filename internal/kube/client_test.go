@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"k8s.io/client-go/tools/clientcmd"
@@ -215,5 +216,46 @@ func TestConfigLookupErrorNamesTheFlag(t *testing.T) {
 	err := buildConfigLookupError("/tmp/kute-flag-missing", "--kubeconfig", "/home/x/.kube/config", errors.New("boom"))
 	if err.Paths[0].Label != "--kubeconfig" {
 		t.Errorf("Paths[0].Label = %q, want --kubeconfig", err.Paths[0].Label)
+	}
+}
+
+// Only a kubeconfig that isn't there is "no kubeconfig found". A typo'd
+// --context against a perfectly good file used to come back as 10b's lookup
+// error with that file marked "invalid kubeconfig" — and, inside a pod, to
+// fall back silently to the in-cluster API server under the typo's name.
+func TestClientConfigErrorsOnlyLookupWhenKubeconfigMissing(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "config")
+	if err := os.WriteFile(good, []byte(`
+apiVersion: v1
+kind: Config
+current-context: dev
+contexts:
+- name: dev
+  context: {cluster: dev}
+clusters:
+- name: dev
+  cluster: {server: https://dev.example.invalid}
+users: []
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", good)
+	_, err := NewClientForContext("typo")
+	if err == nil {
+		t.Fatal("NewClientForContext(typo) succeeded")
+	}
+	if _, ok := errors.AsType[*ConfigLookupError](err); ok {
+		t.Errorf("NewClientForContext(typo) = %v, want the context error itself, not \"no kubeconfig found\"", err)
+	}
+	if !strings.Contains(err.Error(), "typo") {
+		t.Errorf("NewClientForContext(typo) = %v, want it to name the missing context", err)
+	}
+
+	t.Setenv("KUBECONFIG", filepath.Join(dir, "missing"))
+	if _, err := NewClientForContext(""); err == nil {
+		t.Fatal("NewClientForContext with no kubeconfig succeeded")
+	} else if _, ok := errors.AsType[*ConfigLookupError](err); !ok {
+		t.Errorf("NewClientForContext with no kubeconfig = %v, want a *ConfigLookupError", err)
 	}
 }

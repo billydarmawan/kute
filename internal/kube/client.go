@@ -146,6 +146,20 @@ func buildConfigLookupError(explicitPath, explicitLabel, defaultPath string, cau
 	return &ConfigLookupError{Paths: checks, cause: cause}
 }
 
+// kubeconfigMissing reports whether err from building a client config means
+// there is no kubeconfig to read: the resolved file doesn't exist, or holds
+// no configuration at all.
+func kubeconfigMissing(err error, path string) bool {
+	if clientcmd.IsEmptyConfig(err) {
+		return true
+	}
+	if path == "" {
+		return false
+	}
+	_, statErr := os.Stat(path)
+	return os.IsNotExist(statErr)
+}
+
 func pathFailureReason(path string) string {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -195,6 +209,15 @@ func newClientForContext(contextName string) (Client, error) {
 
 	restConfig, err := clientConfig.ClientConfig()
 	if err != nil {
+		// Only a kubeconfig that isn't there at all is 10b's "no kubeconfig
+		// found", and only then may in-cluster config stand in for it. Any
+		// other failure — an unknown --context, a stale context, a missing
+		// cert file — is about a kubeconfig that does exist: falling back
+		// would connect to the pod's own API server while the header and
+		// prod tagging still named the context that was asked for.
+		if !kubeconfigMissing(err, loadingRules.ExplicitPath) {
+			return Client{}, err
+		}
 		if inClusterConfig, inClusterErr := rest.InClusterConfig(); inClusterErr == nil {
 			restConfig = inClusterConfig
 		} else {

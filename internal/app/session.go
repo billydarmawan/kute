@@ -112,7 +112,7 @@ func restoredLocation(st state.State, ctx kube.Context) tui.Location {
 
 // startupContext picks the kubeconfig context to launch against: --context
 // when given (passed through verbatim, so a name the kubeconfig doesn't have
-// surfaces as 4c's unreachable screen naming it rather than silently landing
+// fails the build with an error naming it rather than silently landing
 // somewhere else), else the most recently used one
 // (sessionState.RecentContexts[0], mirroring 7a's own per-context
 // namespace/kind/filter restore) if the kubeconfig still has it, otherwise
