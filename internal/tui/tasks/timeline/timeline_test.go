@@ -728,6 +728,29 @@ func railFixture() (fakeLister, string) {
 	}}, "nva-worker-9k2ss"
 }
 
+// TestRailWindowFollowsTimeNotRevisionNumber pins the lifetime window after
+// a rollback: revision 6 reused revision 4's ReplicaSet, which keeps its old
+// creation time, so the rail's revision order and time order disagree. The
+// window for revision 5 must still run to the next revision *in time*.
+func TestRailWindowFollowsTimeNotRevisionNumber(t *testing.T) {
+	now := time.Now()
+	restart := kube.TimelineEntry{Time: now.Add(-time.Hour), Kind: kube.TimelineRestart, Object: "Pod/nva-worker-9k2ss", Reason: "Restarted"}
+	m := Model{
+		fetchedAt: now,
+		rail: []kube.TimelineEntry{
+			{Time: now.Add(-time.Minute), Kind: kube.TimelineRollout, Object: "Deployment/nva-worker", Revision: 7},
+			{Time: now.Add(-21 * 24 * time.Hour), Kind: kube.TimelineRollout, Object: "Deployment/nva-worker", Revision: 6, PriorRevisions: []int{4}},
+			{Time: now.Add(-2 * time.Hour), Kind: kube.TimelineRollout, Object: "Deployment/nva-worker", Revision: 5},
+		},
+		entries:      []kube.TimelineEntry{restart},
+		railSelected: 2,
+	}
+	got, ok := m.railSelectionTarget()
+	if !ok || got.Kind != kube.TimelineRestart {
+		t.Fatalf("target = %+v, want the restart inside revision 5's lifetime", got)
+	}
+}
+
 // TestRailFocusAndRollbackFlow covers 16b's rail-focused-by-default model
 // (the rail is why you pressed 't' on a workload, so it starts focused —
 // 'tab' moves focus onto the feed instead) end-to-end through a non-prod

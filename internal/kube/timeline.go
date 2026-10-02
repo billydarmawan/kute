@@ -55,6 +55,12 @@ type TimelineEntry struct {
 	// revision rail reads them directly rather than re-parsing Message.
 	Revision int
 	Image    string
+	// PriorRevisions are the revisions a rollback-reused ReplicaSet held
+	// before this one (its "deployment.kubernetes.io/revision-history"
+	// annotation), oldest first. Non-empty means the ReplicaSet's
+	// creationTimestamp is when the *first* of them rolled out, not this
+	// revision — RedateRolledBackRevisions corrects the current one.
+	PriorRevisions []int
 	// GitRevision is set on TimelineRevision and TimelineSync entries: the
 	// shortened "master@efd398b"/"main@e41b90c" form. CommitSubject is set
 	// on TimelineRevision entries only — the commit's first line, which
@@ -150,18 +156,74 @@ func TimelineFromRollouts(objs []runtime.Object) []TimelineEntry {
 			continue
 		}
 		rev, _ := strconv.Atoi(revText)
+		prior := revisionHistory(rs.Annotations[revisionHistoryAnnotation])
+		message := fmt.Sprintf("revision %d · %s", rev, rolloutReplicaSetImage(rs))
+		if len(prior) > 0 {
+			message = fmt.Sprintf("revision %d · rolled back (was rev %d) · %s", rev, prior[len(prior)-1], rolloutReplicaSetImage(rs))
+		}
 		out = append(out, TimelineEntry{
-			Time:      rs.CreationTimestamp.Time,
-			Kind:      TimelineRollout,
-			Object:    "Deployment/" + rs.OwnerReferences[0].Name,
-			Namespace: rs.Namespace,
-			Reason:    "Rollout",
-			Message:   fmt.Sprintf("revision %d · %s", rev, rolloutReplicaSetImage(rs)),
-			Revision:  rev,
-			Image:     rolloutReplicaSetImage(rs),
+			Time:           rs.CreationTimestamp.Time,
+			Kind:           TimelineRollout,
+			Object:         "Deployment/" + rs.OwnerReferences[0].Name,
+			Namespace:      rs.Namespace,
+			Reason:         "Rollout",
+			Message:        message,
+			Revision:       rev,
+			Image:          rolloutReplicaSetImage(rs),
+			PriorRevisions: prior,
 		})
 	}
 	return out
+}
+
+// revisionHistoryAnnotation is where the deployment controller records
+// the revisions a ReplicaSet held before a rollback re-adopted it and
+// bumped its revision annotation ("1,3").
+const revisionHistoryAnnotation = "deployment.kubernetes.io/revision-history"
+
+func revisionHistory(value string) []int {
+	if value == "" {
+		return nil
+	}
+	var out []int
+	for _, field := range strings.Split(value, ",") {
+		if rev, err := strconv.Atoi(strings.TrimSpace(field)); err == nil {
+			out = append(out, rev)
+		}
+	}
+	return out
+}
+
+// RedateRolledBackRevisions moves each Deployment's current revision, when
+// a rollback reused an old ReplicaSet for it, from that ReplicaSet's
+// creationTimestamp — possibly weeks back, outside every incident window —
+// to the Deployment's Progressing condition lastUpdateTime, the last time
+// the controller reported progress on that very rollout. Only the current
+// revision has such a signal; an older reused one keeps its creation time
+// and its "rolled back" label. deployments is a Deployment list; entries
+// are updated in place.
+func RedateRolledBackRevisions(entries []TimelineEntry, deployments []runtime.Object) {
+	current := make(map[string]time.Time)
+	for _, obj := range deployments {
+		dep, ok := obj.(*appsv1.Deployment)
+		if !ok {
+			continue
+		}
+		for _, cond := range dep.Status.Conditions {
+			if cond.Type == appsv1.DeploymentProgressing && !cond.LastUpdateTime.IsZero() {
+				current[dep.Namespace+"/Deployment/"+dep.Name+"#"+dep.Annotations["deployment.kubernetes.io/revision"]] = cond.LastUpdateTime.Time
+			}
+		}
+	}
+	for i := range entries {
+		e := &entries[i]
+		if e.Kind != TimelineRollout || len(e.PriorRevisions) == 0 {
+			continue
+		}
+		if t, ok := current[e.Namespace+"/"+e.Object+"#"+strconv.Itoa(e.Revision)]; ok && t.After(e.Time) {
+			e.Time = t
+		}
+	}
 }
 
 func rolloutReplicaSetImage(rs *appsv1.ReplicaSet) string {

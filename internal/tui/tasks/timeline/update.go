@@ -428,10 +428,16 @@ func (m Model) railSelectionTarget() (kube.TimelineEntry, bool) {
 	if !ok {
 		return kube.TimelineEntry{}, false
 	}
+	// The window ends at the next revision *by time*, not the next by
+	// number: a rollback-reused ReplicaSet keeps its original creation time,
+	// so revision order and time order disagree after any rollback, and a
+	// window taken from the neighbouring rail entry would run backwards.
 	start := m.rail[m.railSelected].Time
 	end := m.fetchedAt
-	if m.railSelected > 0 {
-		end = m.rail[m.railSelected-1].Time
+	for i, r := range m.rail {
+		if i != m.railSelected && r.Time.After(start) && r.Time.Before(end) {
+			end = r.Time
+		}
 	}
 	var latest *kube.TimelineEntry
 	for i := range m.entries {

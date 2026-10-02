@@ -246,6 +246,12 @@ func rolloutsForScope(ctx context.Context, lister resources.RawLister, namespace
 		return nil, nil, ""
 	}
 	all := kube.TimelineFromRollouts(objs)
+	// A rollback reuses the old ReplicaSet, so without this the rollback
+	// lands at that ReplicaSet's original creation date, far outside the
+	// incident window it belongs in.
+	if deps, depErr := lister.ListRaw(ctx, kube.KindDeployment, namespace); depErr == nil {
+		kube.RedateRolledBackRevisions(all, deps)
+	}
 	if objectKind == "" {
 		return all, nil, ""
 	}

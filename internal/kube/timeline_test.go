@@ -107,3 +107,37 @@ func TestMergeTimelineSortsNewestFirst(t *testing.T) {
 		t.Fatalf("merged not newest-first: %+v", merged)
 	}
 }
+
+// TestRolledBackRevisionIsLabelledAndRedated pins a rollback's reused
+// ReplicaSet: its creationTimestamp is the original rollout's, weeks back,
+// so the current revision takes the Deployment's Progressing lastUpdateTime
+// and is labelled with the revision it used to be.
+func TestRolledBackRevisionIsLabelledAndRedated(t *testing.T) {
+	now := time.Now()
+	reused := newReplicaSet("web-old", "web", "6", "nginx:1.25", now.Add(-21*24*time.Hour))
+	reused.Annotations["deployment.kubernetes.io/revision-history"] = "2,4"
+	older := newReplicaSet("web-mid", "web", "5", "nginx:1.26", now.Add(-2*time.Hour))
+	older.Annotations["deployment.kubernetes.io/revision-history"] = "3"
+	entries := TimelineFromRollouts([]runtime.Object{reused, older})
+
+	progressed := now.Add(-5 * time.Minute)
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default", Annotations: map[string]string{"deployment.kubernetes.io/revision": "6"}},
+		Status: appsv1.DeploymentStatus{Conditions: []appsv1.DeploymentCondition{{
+			Type: appsv1.DeploymentProgressing, LastUpdateTime: metav1.NewTime(progressed),
+		}}},
+	}
+	RedateRolledBackRevisions(entries, []runtime.Object{dep})
+
+	byRev := map[int]TimelineEntry{}
+	for _, e := range entries {
+		byRev[e.Revision] = e
+	}
+	if e := byRev[6]; !e.Time.Equal(progressed) || e.Message != "revision 6 · rolled back (was rev 4) · nginx:1.25" {
+		t.Fatalf("current reused revision = %+v, want redated to the Progressing update and labelled", e)
+	}
+	// Not the current revision, so no signal dates its re-adoption.
+	if e := byRev[5]; !e.Time.Equal(older.CreationTimestamp.Time) {
+		t.Fatalf("older reused revision moved to %v, want its creation time", e.Time)
+	}
+}
