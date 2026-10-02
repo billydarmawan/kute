@@ -22,7 +22,20 @@ func (m *Model) Reload() tea.Cmd {
 	return m.load()
 }
 
+// pasteTarget is the PROD type-the-name confirm buffer while one is up (the
+// same gate updateConfirmKey routes typed keys through) — this screen has no
+// other text buffer.
+func (m *Model) pasteTarget() tui.PasteTarget {
+	if m.actions.Active() && m.actions.Tier() == actions.TierModal {
+		return m.actions.PasteTarget()
+	}
+	return nil
+}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, ok := tui.RoutePaste(msg, m.pasteTarget()); ok {
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
@@ -150,7 +163,22 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateConfirmKey routes keys while 'R' rollback's confirmation is showing:
+// TierModal (the PROD type-the-name modal — "Rollback inherits 8b friction")
+// gets typing/backspace/enter-when-matched, TierInline stays the simple
+// y/n/esc prompt — mirrors tasks/timeline's own updateConfirmKey.
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.actions.Tier() == actions.TierModal {
+		switch msg.String() {
+		case "esc":
+			m.actions.Cancel()
+		case "enter":
+			return m, m.actions.Confirm()
+		default:
+			return m, m.actions.HandleTypeKey(msg)
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "y":
 		return m, m.actions.Confirm()

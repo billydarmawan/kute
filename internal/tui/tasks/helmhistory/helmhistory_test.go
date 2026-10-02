@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/kute-dev/kute/internal/config"
 	"github.com/kute-dev/kute/internal/helmrepo"
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
@@ -272,6 +273,45 @@ func TestRollbackToSelectedRevisionConfirmsAndExecutes(t *testing.T) {
 		t.Fatal("expected a pending rollback confirm after 'R'")
 	}
 	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if mut.namespace != "production" || mut.name != "postgresql" || mut.revision != 1 {
+		t.Fatalf("HelmRollback called with ns=%q name=%q rev=%d, want production/postgresql/1", mut.namespace, mut.name, mut.revision)
+	}
+}
+
+// TestRollbackInProdRequiresTypedName pins §18a's "Rollback inherits 8b
+// friction": in a PROD context 'R' opens the type-the-release-name modal,
+// a bare 'y' types into it rather than confirming, and only the matching
+// name (pasted here, through tui.RoutePaste) plus enter rolls back.
+func TestRollbackInProdRequiresTypedName(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindSecret: {
+			revisionSecret("production", "postgresql", "superseded", 1),
+			revisionSecret("production", "postgresql", "deployed", 2),
+		},
+	}}
+	mut := &fakeMutator{}
+	session := newSession()
+	session.Config = config.Config{ProdContexts: []string{session.Location.Context}}
+	m := New(Config{Session: session, Lister: lister, Mutator: mut, Namespace: "production", Name: "postgresql"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	m.moveSelection(1)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+	view := plain(m.Render())
+	if !strings.Contains(view, `type "postgresql" to confirm`) || !strings.Contains(view, "rollback (when name matches)") {
+		t.Fatalf("expected the type-the-name modal in PROD:\n%s", view)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if mut.name != "" {
+		t.Fatal("expected 'y' + enter not to roll back in PROD")
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "esc"})
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+	m = step(t, m, tea.PasteMsg{Content: "postgresql"})
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
 	if mut.namespace != "production" || mut.name != "postgresql" || mut.revision != 1 {
 		t.Fatalf("HelmRollback called with ns=%q name=%q rev=%d, want production/postgresql/1", mut.namespace, mut.name, mut.revision)
 	}

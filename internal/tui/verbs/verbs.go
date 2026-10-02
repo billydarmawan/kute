@@ -462,7 +462,8 @@ var (
 		Tier: actions.TierModal, Kinds: []kube.ResourceKind{kube.KindNode}, Mutating: true,
 	}
 	// Rollback is 18a's 'R' on a Helm release — "inherits 8b friction":
-	// inline y/N in non-prod, escalated to TierModal in PROD by TierFor,
+	// inline y/N in non-prod, escalated by TierFor in PROD to TierModal,
+	// where actions.RequiresTypedName makes it the type-the-name modal,
 	// same as Delete's own Tier. Shells out to the real helm binary
 	// (kube.Mutator.HelmRollback) rather than reading the watch cache.
 	Rollback = Verb{
@@ -471,10 +472,10 @@ var (
 	}
 	// RolloutUndo is 16b's 'R' on the revision rail — a deliberately
 	// separate verb from the Helm-only Rollback above (same key/label,
-	// different Kind and a different Scope.Verb string: "rollout-undo") so
-	// extending actions.requiresTypedName for this one can't change 18a's
-	// existing plain-y/N-even-in-PROD rollback behavior. §16b: "y/N in the
-	// keybar for non-prod, type-the-deployment-name modal in PROD".
+	// different Kind and a different Scope.Verb string: "rollout-undo"),
+	// though both now share actions.RequiresTypedName's PROD gate. §16b:
+	// "y/N in the keybar for non-prod, type-the-deployment-name modal in
+	// PROD".
 	RolloutUndo = Verb{
 		ID: "rollout-undo", Key: "R", Label: "rollback",
 		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindDeployment}, Mutating: true,

@@ -244,9 +244,9 @@ func rollbackPromptShort(target kube.CommandTarget, scope tui.TaskScope) string 
 	return kube.HelmRollbackCommandSummary(target, scope.Namespace, scope.ResourceName, scope.Revision)
 }
 
-// rollbackDetail renders the PROD modal's detail line (nodes.go's
-// confirmBody) — the same "will run" command string, shown alongside the
-// confirm card instead of the keybar's single line.
+// rollbackDetail renders the PROD modal's detail line (delete.go's
+// typeNameConfirmModal) — the same "will run" command string, shown in the
+// type-the-name modal instead of the keybar's single line.
 func rollbackDetail(target kube.CommandTarget, scope tui.TaskScope) string {
 	return "will run: " + kube.HelmRollbackCommandString(target, scope.Namespace, scope.ResourceName, scope.Revision)
 }

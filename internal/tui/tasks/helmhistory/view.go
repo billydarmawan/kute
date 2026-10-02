@@ -254,7 +254,7 @@ func (m Model) Body(width, height int) string {
 		// TierInline (non-prod: "Rollback inherits 8b friction" — inline
 		// y/N, never a modal) keeps rendering the rail underneath, with the
 		// confirm text in the keybar's RightNote (keys.go) — only the PROD
-		// escalation gets this floating card.
+		// escalation gets this type-the-name modal.
 		return m.confirmBody(width, height)
 	}
 	switch m.state {
@@ -269,22 +269,32 @@ func (m Model) Body(width, height int) string {
 	}
 }
 
+// confirmBody renders 18a's PROD "type the release name to confirm" modal —
+// the same TypeModalStyles/TypeNameModal shape as 8b's delete confirm and
+// 16b's rollout-undo (timeline's rollbackConfirmModal), with the exact helm
+// command as its will-run line.
 func (m Model) confirmBody(width, height int) string {
 	theme := m.Theme()
-	title, detail := "Confirm", ""
+	title, detail, target := "Confirm", "", m.name
 	if pending := m.actions.Pending(); pending != nil {
-		title = pending.Label
+		title = "⇅ " + pending.Label
+		target = pending.Scope.ResourceName
 		detail = "will run: " + kube.HelmRollbackCommandString(m.session.CommandTarget(), pending.Scope.Namespace, pending.Scope.ResourceName, pending.Scope.Revision)
 	}
-	styles := components.ConfirmStyles{
-		Border: lipgloss.NewStyle().Foreground(theme.ConfirmBorder).Background(theme.ConfirmHeaderBg),
-		Title:  lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Background(theme.ConfirmHeaderBg),
-		Detail: lipgloss.NewStyle().Foreground(theme.TextSecondary).Background(theme.ConfirmHeaderBg),
-		Rule:   lipgloss.NewStyle().Foreground(theme.TextGhost).Background(theme.ConfirmHeaderBg),
-		Key:    lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.ConfirmHeaderBg),
-		Label:  lipgloss.NewStyle().Foreground(theme.TextDim).Background(theme.ConfirmHeaderBg),
+	styles := components.TypeModalStyles{
+		Border:    lipgloss.NewStyle().BorderForeground(theme.ConfirmBorder).Background(theme.ConfirmHeaderBg),
+		Title:     lipgloss.NewStyle().Foreground(theme.Bad).Bold(true).Background(theme.ConfirmHeaderBg),
+		ProdTag:   lipgloss.NewStyle().Foreground(theme.ProdText).Bold(true).Background(theme.ConfirmHeaderBg),
+		Owner:     lipgloss.NewStyle().Foreground(theme.Good).Background(theme.ConfirmHeaderBg),
+		Detail:    lipgloss.NewStyle().Foreground(theme.TextSecondary).Background(theme.ConfirmHeaderBg),
+		Rule:      lipgloss.NewStyle().Foreground(theme.TextGhost).Background(theme.ConfirmHeaderBg),
+		Input:     lipgloss.NewStyle().Foreground(theme.Text).Background(theme.ConfirmHeaderBg),
+		Selection: lipgloss.NewStyle().Foreground(theme.Bg).Background(theme.Accent),
+		Progress:  lipgloss.NewStyle().Foreground(theme.TextFaint).Background(theme.ConfirmHeaderBg),
+		Key:       lipgloss.NewStyle().Foreground(theme.Bad).Background(theme.ConfirmHeaderBg),
+		Label:     lipgloss.NewStyle().Foreground(theme.TextDim).Background(theme.ConfirmHeaderBg),
 	}
-	return components.ConfirmCard(title, detail, styles, width, height)
+	return components.TypeNameModal(title, "", detail, target, m.actions.TypedInput(), "rollback", m.isProd(), styles, width, height)
 }
 
 // tableDataRows is how many data rows railBody's own Table renders — the

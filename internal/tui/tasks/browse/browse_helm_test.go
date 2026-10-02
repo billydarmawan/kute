@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/kute-dev/kute/internal/config"
 	"github.com/kute-dev/kute/internal/helmrepo"
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
@@ -472,6 +473,42 @@ func TestRollbackInlineConfirmNonProd(t *testing.T) {
 		t.Fatal("expected a pending confirm after 'R'")
 	}
 	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if mut.namespace != "default" || mut.name != "postgresql" || mut.revision != 2 {
+		t.Fatalf("HelmRollback called with ns=%q name=%q rev=%d, want default/postgresql/2", mut.namespace, mut.name, mut.revision)
+	}
+}
+
+// TestRollbackInProdRequiresTypedName: the Releases list's PROD rollback is
+// the type-the-release-name modal, not a one-key y (§18a: "Rollback
+// inherits 8b friction").
+func TestRollbackInProdRequiresTypedName(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindHelmRelease: {helmRelease("default", "postgresql", "postgresql", "12.1.9", "15.4.0", "deployed", 3)},
+	}}
+	mut := &fakeHelmMutator{}
+	session := newSession()
+	session.Location.Kind = kube.KindHelmRelease
+	session.Config = config.Config{ProdContexts: []string{session.Location.Context}}
+	m := New(Config{Session: session, Lister: lister, Mutator: mut})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+	view := plain(m.Render())
+	if !strings.Contains(view, `type "postgresql" to confirm`) || !strings.Contains(view, "helm rollback postgresql 2") {
+		t.Fatalf("expected the type-the-name modal with its will-run line in PROD:\n%s", view)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if mut.name != "" {
+		t.Fatal("expected 'y' + enter not to roll back in PROD")
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "esc"})
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+	for _, r := range "postgresql" {
+		m = step(t, m, tea.KeyPressMsg{Text: string(r)})
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
 	if mut.namespace != "default" || mut.name != "postgresql" || mut.revision != 2 {
 		t.Fatalf("HelmRollback called with ns=%q name=%q rev=%d, want default/postgresql/2", mut.namespace, mut.name, mut.revision)
 	}

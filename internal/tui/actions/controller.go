@@ -269,9 +269,10 @@ func (c *Controller) Confirm() tea.Cmd {
 // reaches TierModal) and job-replace (§37c: unlike job-retry's clone, this
 // deletes the original Job — its Status, events, and §37b's own attempt
 // history — before recreating it, which is exactly delete/rollout-restart's
-// own "this destroys something" bar).
-// Drain's TierModal confirm, and 18a's Helm rollback (a different
-// Scope.Verb, "rollback"), both stay the simple y/N ConfirmCard. Job's own
+// own "this destroys something" bar), and 18a's Helm rollback ("Rollback
+// inherits 8b friction" — the same PROD type-the-name modal 16b's narrower
+// rollout-undo gets). Drain's TierModal confirm stays the simple y/N
+// ConfirmCard. Job's own
 // "job-retry" deliberately never reaches TierModal at all (browse/jobs.go's
 // beginJobRetry) — components.TypeNameModal this gates is reserved for
 // destructive confirms, and Retry (a clone, not a delete+recreate) isn't
@@ -284,7 +285,7 @@ func (c *Controller) Confirm() tea.Cmd {
 func RequiresTypedName(verb string) bool {
 	return verb == "delete" || verb == "force-delete" || verb == "rollout-undo" ||
 		verb == "rollout-restart" || verb == "cronjob-suspend" ||
-		verb == "job-suspend" || verb == "job-replace"
+		verb == "job-suspend" || verb == "job-replace" || verb == "rollback"
 }
 
 // Cancel abandons the pending confirmation.

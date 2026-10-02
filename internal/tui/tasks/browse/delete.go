@@ -111,6 +111,13 @@ func (m Model) typeNameConfirmModal(width, height int) string {
 		title = "✕ " + pending.Label
 		target = pending.Scope.ResourceName
 		switch {
+		case pending.Scope.Verb == "rollback":
+			// 18a's PROD escalation ("Rollback inherits 8b friction") — the
+			// release name, and the exact helm command the inline confirm's
+			// keybar shows outside PROD.
+			title = "⇅ " + pending.Label
+			actionVerb = "rollback"
+			detail = rollbackDetail(m.session.CommandTarget(), pending.Scope)
 		case pending.Scope.Verb == "rollout-restart":
 			actionVerb = "restart"
 			detail = rolloutRestartWillRunLine(pending.Scope)

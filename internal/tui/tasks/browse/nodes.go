@@ -315,11 +315,6 @@ func (m Model) confirmBody(width, height int) string {
 	detail := ""
 	if pending := m.actions.Pending(); pending != nil {
 		title = pending.Label
-		if pending.Scope.Verb == "rollback" {
-			// 18a: "shell out to helm with a will run line" — shown in the
-			// PROD modal's detail slot alongside the confirm card.
-			detail = rollbackDetail(m.session.CommandTarget(), pending.Scope)
-		}
 	}
 	styles := components.ConfirmStyles{
 		Border: lipgloss.NewStyle().Foreground(theme.ConfirmBorder).Background(theme.ConfirmHeaderBg),

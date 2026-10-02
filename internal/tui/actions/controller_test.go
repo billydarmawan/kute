@@ -1069,17 +1069,18 @@ func TestHandleBulkResultAllFail(t *testing.T) {
 // job-replace — but never cronjob-resume/job-resume, neither of which ever
 // reaches TierModal at all (verbs.TierForCronJobSuspend/TierForJobSuspend),
 // nor job-retry (a clone, not a delete+recreate — verbs.JobRetry's own doc
-// comment), nor drain/rollback.
+// comment), nor drain. 18a's Helm rollback is in: "Rollback inherits 8b
+// friction".
 func TestRequiresTypedName(t *testing.T) {
 	t.Parallel()
 
 	want := map[string]bool{
 		"delete": true, "force-delete": true, "rollout-undo": true,
 		"rollout-restart": true, "cronjob-suspend": true,
-		"job-suspend": true, "job-replace": true,
+		"job-suspend": true, "job-replace": true, "rollback": true,
 	}
 	dontWant := []string{
-		"cronjob-resume", "job-resume", "job-retry", "drain", "rollback",
+		"cronjob-resume", "job-resume", "job-retry", "drain",
 		"cordon", "flux-suspend", "cronjob-set-schedule", "set-image",
 	}
 	for verb := range want {
