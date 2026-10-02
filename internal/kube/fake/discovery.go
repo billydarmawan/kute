@@ -25,8 +25,8 @@ func (c *Cluster) SeedDiscovered(dk kube.DiscoveredKind) {
 // CountInstances is the fake counterpart of *kube.Cluster.CountInstances —
 // the 14b CRDs list's live COUNT column, reading straight off the seeded
 // objects map (fully generic already, same as ListRaw).
-func (c *Cluster) CountInstances(kind kube.ResourceKind) int {
+func (c *Cluster) CountInstances(kind kube.ResourceKind) (int, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.objects[kind])
+	return len(c.objects[kind]), true
 }

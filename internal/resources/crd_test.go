@@ -151,9 +151,40 @@ func TestCRDDescriptorProjectsCountAndScope(t *testing.T) {
 	}
 }
 
+// TestCRDDescriptorCountIsNeverFabricated: a kind whose instance count isn't
+// known — cache still filling, Forbidden, failing, or no live cluster at all
+// — renders COUNT as "–", never a 0 the cluster didn't report.
+func TestCRDDescriptorCountIsNeverFabricated(t *testing.T) {
+	crdObj := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "apiextensions.k8s.io/v1",
+		"kind":       "CustomResourceDefinition",
+		"metadata":   map[string]any{"name": "certificates.cert-manager.io"},
+		"spec": map[string]any{
+			"group":    "cert-manager.io",
+			"names":    map[string]any{"kind": "Certificate", "plural": "certificates"},
+			"scope":    "Namespaced",
+			"versions": []any{map[string]any{"name": "v1", "served": true, "storage": true}},
+		},
+	}}
+	for name, counter := range map[string]InstanceCounter{
+		"unknown to the counter": fakeCounter{},
+		"no live cluster":        nil,
+	} {
+		if got := CRDDescriptor(counter).Project(crdObj).Cells[4]; got != "–" {
+			t.Errorf("%s: COUNT cell = %q, want –", name, got)
+		}
+	}
+	if got := CRDDescriptor(fakeCounter{"Certificate": 0}).Project(crdObj).Cells[4]; got != "0" {
+		t.Errorf("a known empty kind: COUNT cell = %q, want 0", got)
+	}
+}
+
 type fakeCounter map[kube.ResourceKind]int
 
-func (f fakeCounter) CountInstances(kind kube.ResourceKind) int { return f[kind] }
+func (f fakeCounter) CountInstances(kind kube.ResourceKind) (int, bool) {
+	n, ok := f[kind]
+	return n, ok
+}
 
 func httpRouteDiscoveredKind() kube.DiscoveredKind {
 	return kube.DiscoveredKind{
@@ -258,7 +289,7 @@ func TestBuildDiscoveredRegistryIngressGetsLiveBackendResolution(t *testing.T) {
 // is unused by that test, so it's a stub.
 type fakeClusterReader struct{ lister fakeLister }
 
-func (f fakeClusterReader) CountInstances(kube.ResourceKind) int { return 0 }
+func (f fakeClusterReader) CountInstances(kube.ResourceKind) (int, bool) { return 0, true }
 func (f fakeClusterReader) ListRaw(ctx context.Context, kind kube.ResourceKind, ns string) ([]runtime.Object, error) {
 	return f.lister.ListRaw(ctx, kind, ns)
 }

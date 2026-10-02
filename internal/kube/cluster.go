@@ -1316,8 +1316,12 @@ func (c *Cluster) DiscoveredKinds() []DiscoveredKind {
 }
 
 // CountInstances reads a dynamically registered kind's cluster-wide informer
-// cache length — the 14b CRDs list's live COUNT column. 0 for a kind with no
-// registered informer (not yet discovered, or discovery hasn't run).
+// cache length — the 14b CRDs list's live COUNT column. ok is false whenever
+// that length isn't the answer: no registered informer (not yet discovered,
+// or discovery hasn't run), a cache still on its initial LIST, or one that
+// is Forbidden (always the case under --namespace-scoped, since this read is
+// cluster-wide) or failing — "counts are never fabricated", so the column
+// shows unknown rather than a 0 the cluster never reported.
 //
 // This starts the kind's instance informer if discovery knows it, so
 // opening the CRDs list opens a watch per discovered kind. That's the one
@@ -1326,17 +1330,20 @@ func (c *Cluster) DiscoveredKinds() []DiscoveredKind {
 // really wants a server-side count rather than a cache length. Always
 // cluster-wide (namespace ""), regardless of scoped/cluster-wide mode — the
 // CRDs list itself is a cluster-wide screen.
-func (c *Cluster) CountInstances(kind ResourceKind) int {
+func (c *Cluster) CountInstances(kind ResourceKind) (int, bool) {
 	c.ensureDynamicKindFor(kind, "")
 	info, ok := c.getDynKind(kind, "")
 	if !ok {
-		return 0
+		return 0, false
+	}
+	if !c.KindSynced(kind, "") || c.KindError(kind, "") != nil || c.KindForbidden(kind, "") != nil {
+		return 0, false
 	}
 	objs, err := listDynamic(info, "")
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return len(objs)
+	return len(objs), true
 }
 
 // PodMetricsByNamespace fetches all pod metrics in namespace in a single List,

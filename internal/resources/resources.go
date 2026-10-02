@@ -292,10 +292,11 @@ type Descriptor struct {
 }
 
 // InstanceCounter reads a live instance count for a discovered kind — the
-// 14b CRDs list's COUNT column. Satisfied directly by *kube.Cluster and
-// *kube/fake.Cluster.
+// 14b CRDs list's COUNT column. ok is false when the count isn't known (cache
+// not yet filled, Forbidden, failing), which renders as "–", never 0.
+// Satisfied directly by *kube.Cluster and *kube/fake.Cluster.
 type InstanceCounter interface {
-	CountInstances(kind kube.ResourceKind) int
+	CountInstances(kind kube.ResourceKind) (count int, ok bool)
 }
 
 // DefaultHealthGlyph is the generic per-class glyph used by every kind that

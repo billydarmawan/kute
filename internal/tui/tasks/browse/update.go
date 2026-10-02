@@ -139,6 +139,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reloadEpoch++
 			return m, m.scheduleReload(m.reloadEpoch)
 		}
+		// 14b's COUNT column reads every discovered kind's own instance
+		// cache and shows "–" until that cache has filled, so an instance
+		// event is what replaces it with the real count — and keeps the
+		// count live after that.
+		if m.kind == kube.KindCustomResourceDefinition && m.session != nil {
+			if desc, ok := m.session.Registry.Descriptor(msg.Kind); ok && desc.Custom {
+				m.reloadEpoch++
+				return m, m.scheduleReload(m.reloadEpoch)
+			}
+		}
 	case kube.ConnStateMsg:
 		wasOffline := m.offline()
 		wasPollingMetrics := m.pollsMetrics()

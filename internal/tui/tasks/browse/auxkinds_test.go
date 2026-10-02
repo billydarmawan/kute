@@ -485,3 +485,25 @@ func TestCRDChangeIsIgnoredWhenColumnsAreUnchanged(t *testing.T) {
 		t.Fatal("a CRD change reloaded the Pods list, which has nothing to do with CRDs")
 	}
 }
+
+// TestCRDListReloadsOnInstanceEvents: 14b's COUNT reads each discovered
+// kind's instance cache and shows "–" until it fills, so an instance event
+// must reload the CRDs list or the column never leaves "–".
+func TestCRDListReloadsOnInstanceEvents(t *testing.T) {
+	session := newSession()
+	session.Registry, session.Groups = resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{applicationDK()}, nil)
+	m := New(Config{Session: session, Lister: fakeLister{}})
+	m.SetSize(120, 36)
+	m.kind = kube.KindCustomResourceDefinition
+
+	before := m.reloadEpoch
+	_, cmd := m.Update(kube.ResourceChangedMsg{Kind: kube.ResourceKind("Application")})
+	if cmd == nil || m.reloadEpoch == before {
+		t.Fatal("an Application change must reload the CRDs list — it feeds that row's COUNT")
+	}
+
+	before = m.reloadEpoch
+	if _, cmd := m.Update(kube.ResourceChangedMsg{Kind: kube.KindCronJob}); cmd != nil || m.reloadEpoch != before {
+		t.Fatal("a built-in kind's change has nothing to do with the CRDs list")
+	}
+}

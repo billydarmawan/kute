@@ -250,7 +250,7 @@ var crdColumns = []string{"Name", "Group", "Versions", "Scope", "Count", "Age"}
 // CRDDescriptor is the 14b CRDs list's built-in Descriptor — cluster-scoped
 // like Nodes/Namespaces/Forwards, not itself Custom (it's always present,
 // not a discovered instance kind). counter supplies the live COUNT column;
-// nil renders every row's count as 0 (no live cluster to read).
+// nil renders every row's count as unknown, "–" (no live cluster to read).
 func CRDDescriptor(counter InstanceCounter) Descriptor {
 	return crdDescriptor(counter, nil)
 }
@@ -315,16 +315,21 @@ func projectCRD(counter InstanceCounter, keys map[string]kube.ResourceKind) func
 		if k, ok := keys[dk.CRDName]; ok {
 			key = k
 		}
-		count := 0
+		// "–", not 0, until the count is actually known — a cache still
+		// filling or a Forbidden kind has not reported zero instances
+		// (docs/lazy-informers.md §4: counts are never fabricated).
+		count := "–"
 		if counter != nil {
-			count = counter.CountInstances(key)
+			if n, ok := counter.CountInstances(key); ok {
+				count = strconv.Itoa(n)
+			}
 		}
 
 		return Row{
 			Name: name,
 			Cells: []string{
 				name, dk.Group, versionsCell(dk.Versions), scopeCell(dk.ClusterScoped),
-				strconv.Itoa(count), shortAge(age),
+				count, shortAge(age),
 			},
 			Status: class, Glyph: glyph, GlyphClass: class,
 			// Key carries the discovered instance kind's ResourceKind
