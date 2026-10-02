@@ -1,6 +1,7 @@
 package kube
 
 import (
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -212,6 +213,20 @@ func TestListRawAfterStopDoesNotStartInformers(t *testing.T) {
 		c.mu.Unlock()
 		if registered {
 			t.Fatal("ListRaw after Stop registered an informer that can never be stopped")
+		}
+
+		// Nor may the read register one on the factory behind kindInformers'
+		// back: a Lister() taken from a factory registers its informer there,
+		// unwired, and whoever starts that factory next runs it with no
+		// watch-error handler — the same path a SwitchContext landing between
+		// ensureKind and the read opened onto the next cluster's factory.
+		probe := make(chan struct{})
+		c.factory.Start(probe)
+		started := c.factory.WaitForCacheSync(probe)
+		close(probe)
+		synctest.Wait()
+		if _, ok := started[reflect.TypeFor[*corev1.Secret]()]; ok {
+			t.Fatal("ListRaw after Stop registered an unwired Secret informer on the factory")
 		}
 	})
 }

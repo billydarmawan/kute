@@ -567,7 +567,13 @@ func (c *Cluster) eagerHasSynced() []cache.InformerSynced {
 // laziness invisible to callers: no screen has to declare what it needs, and
 // a kind nobody opens is never watched. Reports the scope it registered (or
 // found already registered) at, so ListRaw's own factory lookup and a
-// caller's ensureDynamicKindFor-style scope resolution agree.
+// caller's ensureDynamicKindFor-style scope resolution agree, and the
+// factory that scope resolved to under the same lock — nil for a stopped
+// cluster, where there is nothing safe to read. ListRaw must list from that
+// factory rather than look it up again: a SwitchContext between two critical
+// sections would hand it the new cluster's factory, whose Lister() registers
+// an informer there with no handlers, which the next Start then runs — and
+// SetWatchErrorHandler can never be attached to it afterwards.
 //
 // The whole body holds c.mu, for the same two reasons it always has. It
 // keeps the factory/stopCh reads from racing SwitchContext's replacement of
@@ -575,9 +581,9 @@ func (c *Cluster) eagerHasSynced() []cache.InformerSynced {
 // in between, a concurrent caller's Start could run this informer before its
 // watch-error handler was attached, and SetWatchErrorHandler then fails
 // outright on an already-running informer.
-func (c *Cluster) ensureKind(kind ResourceKind, namespace string) string {
+func (c *Cluster) ensureKind(kind ResourceKind, namespace string) (string, informers.SharedInformerFactory) {
 	if _, ok := typedKinds[kind]; !ok {
-		return ""
+		return "", nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -585,16 +591,16 @@ func (c *Cluster) ensureKind(kind ResourceKind, namespace string) string {
 	// A stopped cluster has a nil stopCh, and an informer started with one
 	// would never stop, so leave it unregistered.
 	if c.stopCh == nil {
-		return scope
-	}
-	if _, ok := c.kindInformers[scopeKey{kind, scope}]; ok {
-		return scope
+		return scope, nil
 	}
 	f := c.factoryForScopeLocked(scope)
+	if _, ok := c.kindInformers[scopeKey{kind, scope}]; ok {
+		return scope, f
+	}
 	c.registerTypedWatchLocked(kind, scope, f)
 	f.Start(c.stopCh)
 	c.health.noteListBurst()
-	return scope
+	return scope, f
 }
 
 // Synced reports whether the startup informer set has completed its initial
@@ -1239,13 +1245,15 @@ func (c *Cluster) ListRaw(_ context.Context, kind ResourceKind, namespace string
 		// cache, which is exactly what KindSynced is for — the caller sees
 		// "not synced", holds its loading state, and the informer's own
 		// change events bring it back once objects land.
-		scope := c.ensureKind(kind, namespace)
-		// Snapshot the factory under the lock: SwitchContext replaces it
-		// wholesale, so reading it unlocked could tear a read across two
-		// clusters' caches.
-		c.mu.Lock()
-		f := c.factoryForScopeLocked(scope)
-		c.mu.Unlock()
+		//
+		// The factory comes back from the same critical section that
+		// registered the informer: SwitchContext replaces it wholesale, and
+		// one looked up afterwards could belong to the next cluster, where
+		// reading its Lister() registers an informer with no handlers.
+		_, f := c.ensureKind(kind, namespace)
+		if f == nil {
+			return nil, nil
+		}
 		return tk.list(f, namespace, labels.Everything())
 	}
 	c.ensureDynamicKindFor(kind, namespace)
