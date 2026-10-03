@@ -598,6 +598,9 @@ type Model struct {
 
 	filterActive bool
 	filterInput  textfield.Model
+	// appliedFilter is the query recomputeVisible last ran against rows
+	// that had loaded, so it can tell a changed query from a reload.
+	appliedFilter string
 	// filterListFocused is true once a live filter has been committed
 	// (enter, unconditionally — see updateFilterKey) without clearing it:
 	// the query/chrome stay exactly as filterActive left them, but keys

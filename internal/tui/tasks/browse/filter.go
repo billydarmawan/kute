@@ -24,26 +24,38 @@ type filterMatch struct {
 // buildDisplayRows' grouping and fold rely on that — a score-ranked list
 // split a namespace into two runs and could fold an unhealthy row into a
 // "healthy" summary. An empty query matches every row with no highlight
-// indexes.
-func applyFilter(rows []resources.Row, query string) []filterMatch {
+// indexes. best is the index into the result of the highest-scoring match
+// (-1 when nothing matched or the query is empty): the order stays the
+// list's, but the cursor still belongs on the row the query names best, so
+// typing "api" lands on api-… rather than a failing attempts-fail-… that
+// sorts above it on a looser a…p…i match.
+func applyFilter(rows []resources.Row, query string) (out []filterMatch, best int) {
 	if query == "" {
-		out := make([]filterMatch, len(rows))
+		out = make([]filterMatch, len(rows))
 		for i, r := range rows {
 			out[i] = filterMatch{row: r}
 		}
-		return out
+		return out, -1
 	}
 	names := make([]string, len(rows))
 	for i, r := range rows {
 		names[i] = r.Name
 	}
 	found := fuzzy.Find(query, names)
+	best = -1
+	bestRow := -1
+	if len(found) > 0 {
+		bestRow = found[0].Index // fuzzy.Find ranks by score, best first
+	}
 	sort.SliceStable(found, func(i, j int) bool { return found[i].Index < found[j].Index })
-	out := make([]filterMatch, 0, len(found))
+	out = make([]filterMatch, 0, len(found))
 	for _, m := range found {
+		if m.Index == bestRow {
+			best = len(out)
+		}
 		out = append(out, filterMatch{row: rows[m.Index], matches: m.MatchedIndexes})
 	}
-	return out
+	return out, best
 }
 
 // highlightName renders name with matched rune positions styled matchStyle

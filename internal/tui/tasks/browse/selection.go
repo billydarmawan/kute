@@ -22,14 +22,26 @@ func (r rowRef) matches(row resources.Row) bool {
 // a filter-query edit), rebuilds m.display (grouping.go's buildDisplayRows)
 // from the freshly filtered m.visible, and tries to keep the same row
 // selected by namespace + name. A pendingSelect (a jump-palette resource
-// Enter) wins over the previously selected row and is consumed here.
+// Enter) wins over the previously selected row and is consumed here. When
+// the query itself changed since the last pass (typed, pasted, or restored
+// on a context switch), the cursor moves to the best-scoring match instead,
+// since the row it was on is no longer what the user is asking for.
 func (m *Model) recomputeVisible() {
 	ref := m.selectedRef()
+	query := m.filterInput.Value()
+	var best int
+	m.visible, best = applyFilter(m.rows, query)
+	if query != m.appliedFilter && best >= 0 && len(m.rows) > 0 {
+		r := m.visible[best].row
+		ref = rowRef{namespace: r.Namespace, name: r.Name}
+	}
+	if len(m.rows) > 0 {
+		m.appliedFilter = query
+	}
 	if m.pendingSelect.name != "" {
 		ref = m.pendingSelect
 		m.pendingSelect = rowRef{}
 	}
-	m.visible = applyFilter(m.rows, m.filterInput.Value())
 	m.rebuildDisplay()
 	m.restoreSelection(ref)
 	// Unconditional, not syncAggregates: the CronJob/Job ticks rewrite
