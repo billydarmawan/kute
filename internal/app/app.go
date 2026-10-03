@@ -2000,6 +2000,13 @@ type pendingEvent struct {
 	// the root shell never rebuilds the kind registry and a custom kind's
 	// list keeps rendering without its printer columns.
 	columnsArrived bool
+	// namespace is the scope every folded event shares (see
+	// kube.ResourceChangedMsg.Namespace). Folding events from two different
+	// namespaces — or any cluster-wide one — widens it to "", which
+	// Affects treats as touching every read, so a screen on either namespace
+	// still reloads; dropping it outright instead made every change look
+	// cluster-wide and reloaded lists showing a namespace nothing touched.
+	namespace string
 }
 
 func newEventCoalescer() *eventCoalescer {
@@ -2017,6 +2024,9 @@ func (c *eventCoalescer) observeMsg(msg kube.ResourceChangedMsg, now time.Time) 
 	p, ok := c.pending[msg.Kind]
 	if !ok {
 		p.first = now
+		p.namespace = msg.Namespace
+	} else if p.namespace != msg.Namespace {
+		p.namespace = ""
 	}
 	p.last = now
 	p.columnsArrived = p.columnsArrived || msg.ColumnsArrived
@@ -2057,7 +2067,7 @@ func (c *eventCoalescer) flush(now time.Time) []kube.ResourceKind {
 }
 
 // flushMsgs is flush returning the message each due kind delivers, with any
-// ColumnsArrived flag folded into it intact.
+// ColumnsArrived flag and the folded events' shared Namespace intact.
 func (c *eventCoalescer) flushMsgs(now time.Time) []kube.ResourceChangedMsg {
 	var msgs []kube.ResourceChangedMsg
 	for kind, p := range c.pending {
@@ -2065,7 +2075,7 @@ func (c *eventCoalescer) flushMsgs(now time.Time) []kube.ResourceChangedMsg {
 			continue
 		}
 		delete(c.pending, kind)
-		msgs = append(msgs, kube.ResourceChangedMsg{Kind: kind, ColumnsArrived: p.columnsArrived})
+		msgs = append(msgs, kube.ResourceChangedMsg{Kind: kind, Namespace: p.namespace, ColumnsArrived: p.columnsArrived})
 	}
 	slices.SortFunc(msgs, func(a, b kube.ResourceChangedMsg) int { return cmp.Compare(a.Kind, b.Kind) })
 	return msgs
@@ -2117,7 +2127,7 @@ func forwardEvents(ctx context.Context, src eventSource, program *tea.Program, f
 				// A release Secret changing already emits KindHelmRelease from
 				// the real filtered release informer. This covers fake/demo
 				// listers whose releases derive from their shared Secrets.
-				program.Send(kube.ResourceChangedMsg{Kind: kube.KindHelmRelease})
+				program.Send(kube.ResourceChangedMsg{Kind: kube.KindHelmRelease, Namespace: msg.Namespace})
 			}
 		}
 		resetEventTimer(now)

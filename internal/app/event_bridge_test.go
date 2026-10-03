@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -192,5 +193,51 @@ func TestEventCoalescerKeepsColumnsArrived(t *testing.T) {
 	c.observeMsg(kube.ResourceChangedMsg{Kind: kube.KindCustomResourceDefinition}, start.Add(2*time.Minute))
 	if msgs := c.flushMsgs(start.Add(3 * time.Minute)); len(msgs) != 1 || msgs[0].ColumnsArrived {
 		t.Fatalf("flushed %+v, want a plain CRD event", msgs)
+	}
+}
+
+// TestEventCoalescerKeepsNamespace: a per-namespace cache's burst must
+// deliver its namespace, or every change reads as cluster-wide and a screen
+// on another namespace reloads for nothing (kube.ResourceChangedMsg.Affects).
+func TestEventCoalescerKeepsNamespace(t *testing.T) {
+	c := newEventCoalescer()
+	start := time.Unix(0, 0)
+	for i := range 5 {
+		c.observeMsg(kube.ResourceChangedMsg{Kind: kube.KindPod, Namespace: "a"}, start.Add(time.Duration(i)*10*time.Millisecond))
+	}
+	msgs := c.flushMsgs(start.Add(time.Minute))
+	if len(msgs) != 1 || msgs[0] != (kube.ResourceChangedMsg{Kind: kube.KindPod, Namespace: "a"}) {
+		t.Fatalf("flushed %+v, want one Pod event scoped to a", msgs)
+	}
+	if msgs[0].Affects("b") {
+		t.Fatal("a burst in namespace a reloads a screen on b")
+	}
+}
+
+// TestEventCoalescerMixedNamespacesReachEveryScreen: events for one kind in
+// two namespaces folded into one turn must still reach a screen on either
+// namespace — and one scoped event folded with a cluster-wide one must reach
+// every screen.
+func TestEventCoalescerMixedNamespacesReachEveryScreen(t *testing.T) {
+	for name, nss := range map[string][]string{
+		"two namespaces":          {"a", "b", "a"},
+		"scoped then clusterwide": {"a", ""},
+		"clusterwide then scoped": {"", "a"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := newEventCoalescer()
+			start := time.Unix(0, 0)
+			for i, ns := range nss {
+				c.observeMsg(kube.ResourceChangedMsg{Kind: kube.KindPod, Namespace: ns}, start.Add(time.Duration(i)*10*time.Millisecond))
+			}
+			msgs := c.flushMsgs(start.Add(time.Minute))
+			for _, screen := range []string{"a", "b", ""} {
+				want := screen != "b" || slices.Contains(nss, "b") || slices.Contains(nss, "")
+				got := slices.ContainsFunc(msgs, func(m kube.ResourceChangedMsg) bool { return m.Affects(screen) })
+				if got != want {
+					t.Fatalf("screen on %q reloads = %v, want %v (flushed %+v)", screen, got, want, msgs)
+				}
+			}
+		})
 	}
 }
