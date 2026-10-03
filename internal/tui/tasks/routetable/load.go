@@ -591,32 +591,71 @@ func routeRefsNotPermitted(u *unstructured.Unstructured) bool {
 // routeMatchText renders one rule's match summary: the path match plus its
 // type ("prefix"/"exact"/"regex") and any header matches (docs/design
 // README.md §23b: "/internal prefix · header x-env=stage") — hostnames live
-// in the top strip, not here. GRPCRoute/TCPRoute rules carry no "matches"
-// field at all, so this degrades to "*" (match-all).
+// in the top strip, not here. A GRPCRoute match renders its
+// "service/method"; a header-only match renders its headers rather than
+// passing for match-all. A rule with several matches (ORed) shows the first
+// plus "+N". No "matches" field at all (TCPRoute, a match-all rule) is "*".
 func routeMatchText(rule map[string]any) string {
 	matches, _, _ := unstructured.NestedSlice(rule, "matches")
 	if len(matches) == 0 {
 		return "*"
 	}
 	pm, ok := matches[0].(map[string]any)
-	if !ok {
-		return "*"
+	text := "*"
+	if ok {
+		text = routeOneMatchText(pm)
 	}
-	path, _, _ := unstructured.NestedString(pm, "path", "value")
-	if path == "" {
-		return "*"
+	if len(matches) > 1 {
+		text += fmt.Sprintf(" +%d", len(matches)-1)
 	}
+	return text
+}
+
+// routeOneMatchText renders a single matches[] entry: an HTTP path (with its
+// type label), else a GRPC method, followed by any header clauses — or the
+// headers alone, or "*" when the entry constrains nothing.
+func routeOneMatchText(pm map[string]any) string {
+	var head string
 	var extras []string
-	if label := routeMatchTypeLabel(pm); label != "" {
-		extras = append(extras, label)
+	if path, _, _ := unstructured.NestedString(pm, "path", "value"); path != "" {
+		head = path
+		if label := routeMatchTypeLabel(pm); label != "" {
+			extras = append(extras, label)
+		}
+	} else if method := routeGRPCMethodText(pm); method != "" {
+		head = method
 	}
 	if headers := routeHeaderMatchSummary(pm); headers != "" {
+		if head == "" {
+			return headers
+		}
 		extras = append(extras, headers)
 	}
-	if len(extras) == 0 {
-		return path
+	if head == "" {
+		return "*"
 	}
-	return path + " " + strings.Join(extras, " · ")
+	if len(extras) == 0 {
+		return head
+	}
+	return head + " " + strings.Join(extras, " · ")
+}
+
+// routeGRPCMethodText renders a GRPCRoute matches[].method as
+// "service/method", "*" standing in for whichever half is unset; "" when
+// the match names neither.
+func routeGRPCMethodText(pm map[string]any) string {
+	service, _, _ := unstructured.NestedString(pm, "method", "service")
+	method, _, _ := unstructured.NestedString(pm, "method", "method")
+	if service == "" && method == "" {
+		return ""
+	}
+	if service == "" {
+		service = "*"
+	}
+	if method == "" {
+		method = "*"
+	}
+	return service + "/" + method
 }
 
 // routeMatchTypeLabel renders spec.rules[].matches[].path.type in the

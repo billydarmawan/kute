@@ -1121,3 +1121,35 @@ func TestIngressTLSMissNeverStartsSharedSecretCache(t *testing.T) {
 		t.Fatalf("tls facts = %+v, want a miss naming the type checked", m.tlsFacts)
 	}
 }
+
+// TestRouteMatchTextRendersEveryMatchShape pins 23b's MATCH cell beyond a
+// lone path match: a header-only or GRPC method match must not read as
+// match-all, and a multi-match rule says how many matches it hides.
+func TestRouteMatchTextRendersEveryMatchShape(t *testing.T) {
+	header := map[string]any{"name": "x-env", "value": "stage"}
+	for _, tc := range []struct {
+		name    string
+		matches []any
+		want    string
+	}{
+		{"none", nil, "*"},
+		{"path", []any{map[string]any{"path": map[string]any{"value": "/api"}}}, "/api prefix"},
+		{"path+header", []any{map[string]any{"path": map[string]any{"value": "/api", "type": "Exact"}, "headers": []any{header}}}, "/api exact · header x-env=stage"},
+		{"header only", []any{map[string]any{"headers": []any{header}}}, "header x-env=stage"},
+		{"grpc method", []any{map[string]any{"method": map[string]any{"service": "pkg.Svc", "method": "Get"}}}, "pkg.Svc/Get"},
+		{"grpc service only", []any{map[string]any{"method": map[string]any{"service": "pkg.Svc"}}}, "pkg.Svc/*"},
+		{"multi", []any{
+			map[string]any{"path": map[string]any{"value": "/a"}},
+			map[string]any{"path": map[string]any{"value": "/b"}},
+			map[string]any{"path": map[string]any{"value": "/c"}},
+		}, "/a prefix +2"},
+	} {
+		rule := map[string]any{}
+		if tc.matches != nil {
+			rule["matches"] = tc.matches
+		}
+		if got := routeMatchText(rule); got != tc.want {
+			t.Errorf("%s: routeMatchText = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
