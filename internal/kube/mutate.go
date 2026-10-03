@@ -475,6 +475,25 @@ func CloneJobSpec(src *batchv1.JobSpec) *batchv1.JobSpec {
 	return spec
 }
 
+// StripRerunSourceAnnotations removes from a rerun clone's annotations
+// everything that ties it to where the source Job came from. A rerun is
+// always standalone (§37c doc comment on the Mutator interface): no CronJob
+// association, real or Kute's own, so the clone never inherits history-limit
+// GC or a stale "cronjob/x" SOURCE reading; and no Helm hook/ownership
+// annotations (helm.sh/hook*, meta.helm.sh/*), which would otherwise outrank
+// Kute's own manual tag and read "helm/<release> <hook>" instead of
+// "manual · <creator>". Exported so fake.Cluster's RetryJob strips the same.
+func StripRerunSourceAnnotations(annotations map[string]string) {
+	delete(annotations, "kubectl.kubernetes.io/last-applied-configuration")
+	delete(annotations, AnnotationCronJobUID)
+	delete(annotations, AnnotationCronJobName)
+	for key := range annotations {
+		if strings.HasPrefix(key, "helm.sh/hook") || strings.HasPrefix(key, "meta.helm.sh/") {
+			delete(annotations, key)
+		}
+	}
+}
+
 // RetryJob clones name's spec into a new Job called newName — get, strip
 // the fields the API server must regenerate, create. The source Job (its
 // Status, events, history) is never touched: this is what
@@ -502,13 +521,7 @@ func (c *Cluster) RetryJob(ctx context.Context, namespace, name, newName, creato
 	if clone.Annotations == nil {
 		clone.Annotations = map[string]string{}
 	}
-	delete(clone.Annotations, "kubectl.kubernetes.io/last-applied-configuration")
-	// A rerun is always standalone (§37c doc comment on the Mutator
-	// interface) — strip whatever CronJob association the source Job
-	// carried, real or Kute's own, so the clone never inherits history-limit
-	// GC or a stale "cronjob/x" SOURCE reading.
-	delete(clone.Annotations, AnnotationCronJobUID)
-	delete(clone.Annotations, AnnotationCronJobName)
+	StripRerunSourceAnnotations(clone.Annotations)
 	clone.Annotations[AnnotationTriggeredBy] = creator
 	clone.Annotations[AnnotationTriggeredAt] = at.UTC().Format(time.RFC3339)
 	_, err = c.clientset.BatchV1().Jobs(namespace).Create(ctx, clone, metav1.CreateOptions{})

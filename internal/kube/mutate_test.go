@@ -205,6 +205,41 @@ func TestRetryJobStripsCronJobAssociation(t *testing.T) {
 	}
 }
 
+// TestRetryJobStripsHelmHookIdentity guards §37c: a rerun of a Helm hook
+// Job reads "manual · <creator>", not the hook it was cloned from.
+func TestRetryJobStripsHelmHookIdentity(t *testing.T) {
+	t.Parallel()
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "migrate", Namespace: "default",
+			Annotations: map[string]string{
+				HelmHookAnnotation:               "pre-upgrade",
+				"helm.sh/hook-weight":            "-5",
+				"helm.sh/hook-delete-policy":     "before-hook-creation",
+				HelmReleaseNameAnnotation:        "shop",
+				"meta.helm.sh/release-namespace": "default",
+				"team":                           "payments",
+			},
+		},
+	}
+	c, cs := newTestCluster(job)
+	if err := c.RetryJob(t.Context(), "default", "migrate", "migrate-rerun-1", "you", time.Now()); err != nil {
+		t.Fatalf("RetryJob: %v", err)
+	}
+	clone, err := cs.BatchV1().Jobs("default").Get(t.Context(), "migrate-rerun-1", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Get clone: %v", err)
+	}
+	for key := range clone.Annotations {
+		if strings.HasPrefix(key, "helm.sh/hook") || strings.HasPrefix(key, "meta.helm.sh/") {
+			t.Errorf("expected %s stripped from the clone, got %+v", key, clone.Annotations)
+		}
+	}
+	if clone.Annotations["team"] != "payments" || clone.Annotations[AnnotationTriggeredBy] != "you" {
+		t.Errorf("clone annotations = %+v, want unrelated ones kept and the manual tag set", clone.Annotations)
+	}
+}
+
 func TestRetryJobRejectsEmptyNames(t *testing.T) {
 	t.Parallel()
 	c, _ := newTestCluster(&batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "batch-1", Namespace: "default"}})

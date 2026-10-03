@@ -471,9 +471,8 @@ func (c *Cluster) RetryJob(_ context.Context, namespace, name, newName, creator 
 			annotations = map[string]string{}
 		}
 		// Mirrors kube.Cluster.RetryJob: a rerun is always standalone, never
-		// carrying over a source CronJob's association.
-		delete(annotations, kube.AnnotationCronJobUID)
-		delete(annotations, kube.AnnotationCronJobName)
+		// carrying over a source CronJob's association or Helm hook identity.
+		kube.StripRerunSourceAnnotations(annotations)
 		annotations[kube.AnnotationTriggeredBy] = creator
 		annotations[kube.AnnotationTriggeredAt] = at.UTC().Format(time.RFC3339)
 		clone := &batchv1.Job{
