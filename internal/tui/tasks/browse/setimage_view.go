@@ -157,7 +157,7 @@ func (m Model) setImageFieldLine(t *setImageTarget, theme tui.Theme, width int) 
 	faint := lipgloss.NewStyle().Foreground(theme.TextFaint)
 
 	prompt := accent.Render("image ›") + " "
-	note := "editing tag · ctrl-e edit full ref"
+	note := "editing tag · ctrl+e edit full ref"
 	if t.fullRef {
 		note = "editing full ref"
 	}

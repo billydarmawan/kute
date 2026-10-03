@@ -9,7 +9,7 @@
   ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮  
   │ container   worker   prepare init  mesh sidecar                                               ↹ switch container │  
   │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│  
-  │ image › registry.nva.dev/nva-worker:3.4.2                                     editing tag · ctrl-e edit full ref │  
+  │ image › registry.nva.dev/nva-worker:3.4.2                                     editing tag · ctrl+e edit full ref │  
   │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│  
   │ TAG         SEEN           FROM                                                                                  │  
   │   3.4.3     40m ago        deploy/nva-worker · nva-prod                                                          │  
@@ -33,4 +33,4 @@
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-   SET IMAGE  ↵ apply  ↑↓ pick from history  ↹ container  ctrl-e full ref  esc cancel          watch the rollout in 9a  
+   SET IMAGE  ↵ apply  ↑↓ pick from history  ↹ container  ctrl+e full ref  esc cancel          watch the rollout in 9a  

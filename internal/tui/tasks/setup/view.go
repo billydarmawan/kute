@@ -500,7 +500,7 @@ func (m Model) editLines(theme tui.Theme, bw int) []string {
 		return nil
 	}
 	label := lipgloss.NewStyle().Foreground(theme.TextFaint).Render("kubeconfig path")
-	hint := lipgloss.NewStyle().Foreground(theme.TextFaint).Render("enter connect · ctrl-v paste · esc cancel")
+	hint := lipgloss.NewStyle().Foreground(theme.TextFaint).Render("enter connect · ctrl+v paste · esc cancel")
 	return []string{label, "  " + m.pathInput.View(), components.Pad(hint, bw)}
 }
 

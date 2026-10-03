@@ -378,7 +378,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// 14).
 			switch {
 			case errors.Is(msg.Err, kube.ErrManualJobNameConflict):
-				m.execFeedback = "job name taken since staging — press ctrl-r to restage"
+				m.execFeedback = "job name taken since staging — press ctrl+r to restage"
 				m.actions.DismissResult()
 			case msg.Err == nil:
 				m.execFeedback = "✓ job created · " + m.lastCronJobRunName

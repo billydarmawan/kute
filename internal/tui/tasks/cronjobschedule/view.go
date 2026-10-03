@@ -148,9 +148,9 @@ func (m Model) timezoneLines(theme tui.Theme) []string {
 	case !m.tzEditable():
 		switch m.timeZoneCapability() {
 		case kube.TimeZoneCapabilityUnsupported:
-			note = lipgloss.NewStyle().Foreground(theme.TextDim).Render("read-only · this cluster is below Kubernetes 1.25 · ctrl-y full edit")
+			note = lipgloss.NewStyle().Foreground(theme.TextDim).Render("read-only · this cluster is below Kubernetes 1.25 · ctrl+y full edit")
 		default:
-			note = lipgloss.NewStyle().Foreground(theme.TextDim).Render("read-only · cluster support unknown · ctrl-y full edit")
+			note = lipgloss.NewStyle().Foreground(theme.TextDim).Render("read-only · cluster support unknown · ctrl+y full edit")
 		}
 	default:
 		note = lipgloss.NewStyle().Foreground(theme.TextDim).Render("tab to edit")

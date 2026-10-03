@@ -13,7 +13,7 @@ browse
                    │────────────────────────────────────────────────────────────────────────────────│                   
                    │ ↵ jumps to Deployments in default — namespace and filter carry over            │                   
                    │────────────────────────────────────────────────────────────────────────────────│                   
-                   │ ↵ jump  ↑↓ ctrl+jk move  ctrl-d/u half-page  type to keep narrowing  esc close │                   
+                   │ ↵ jump  ↑↓ ctrl+jk move  ctrl+d/u half-page  type to keep narrowing  esc close │                   
                    ╰────────────────────────────────────────────────────────────────────────────────╯                   
                                                                                                                         
                                                                                                                         

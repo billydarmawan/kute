@@ -76,7 +76,7 @@ func (m Model) Keybar() tui.Keybar {
 		if len(t.containers) > 1 {
 			hints = append(hints, tui.KeyHint{Key: tui.GlyphTab, Label: "container"})
 		}
-		hints = append(hints, tui.KeyHint{Key: "ctrl-e", Label: "full ref"}, tui.KeyHint{Key: "esc", Label: "cancel"})
+		hints = append(hints, tui.KeyHint{Key: "ctrl+e", Label: "full ref"}, tui.KeyHint{Key: "esc", Label: "cancel"})
 		rightNote := "watch the rollout in 9a"
 		if t.kind == kube.KindCronJob {
 			rightNote = "future jobs use the new image · running jobs unaffected"

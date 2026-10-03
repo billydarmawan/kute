@@ -959,7 +959,7 @@ func (m Model) renderKeyRow(styles Styles, width int) string {
 	if m.Scope == ScopeGoto || m.Scope == ScopeNamespace {
 		moveKey = "↑↓ ctrl+jk"
 	}
-	halfPage := keyHint{"ctrl-d/u", "half-page"}
+	halfPage := keyHint{"ctrl+d/u", "half-page"}
 	narrow := "to narrow"
 	aliasNarrow := "to keep narrowing"
 	if width < 70 && (m.Scope == ScopeGoto || m.Scope == ScopeNamespace) {

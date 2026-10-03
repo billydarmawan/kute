@@ -762,7 +762,7 @@ func associatedJobOutcome(s JobSummary) string {
 // to agree with.
 func associatedJobSource(s JobSummary) string {
 	if s.Source == JobSourceManual {
-		return "manual · ctrl-r" // "manual · ctrl-r"
+		return "manual · ctrl+r" // "manual · ctrl+r"
 	}
 	if s.ScheduledAt.IsZero() {
 		return "schedule"

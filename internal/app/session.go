@@ -160,8 +160,8 @@ func helpListKeys() []tui.KeyHint {
 		verbs.Filter.Hint(),
 		{Key: "1-9", Label: "sort column"},
 		{Key: "↑↓ jk", Label: "move"},
-		{Key: "ctrl-d", Label: "half-page down"},
-		{Key: "ctrl-u", Label: "half-page up"},
+		{Key: "ctrl+d", Label: "half-page down"},
+		{Key: "ctrl+u", Label: "half-page up"},
 		verbs.Mark.Hint(),
 		verbs.Open.Hint(),
 	}

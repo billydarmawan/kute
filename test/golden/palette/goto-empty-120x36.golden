@@ -24,7 +24,7 @@ browse
                    │────────────────────────────────────────────────────────────────────────────────│                   
                    │ alias — colored first letter · typing it pins that kind to rank 1 · ↵ jumps    │                   
                    │────────────────────────────────────────────────────────────────────────────────│                   
-                   │ type to narrow  ↑↓ ctrl+jk move  ctrl-d/u half-page  ↵ jump          esc close │                   
+                   │ type to narrow  ↑↓ ctrl+jk move  ctrl+d/u half-page  ↵ jump          esc close │                   
                    ╰────────────────────────────────────────────────────────────────────────────────╯                   
                                                                                                                         
                                                                                                                         

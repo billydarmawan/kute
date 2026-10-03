@@ -13,7 +13,7 @@ browse
             │─────────────────────────────────────────────────────│             
             │ ↵ jumps to Deployments in default — namespace and … │             
             │─────────────────────────────────────────────────────│             
-            │ ↵ jump  ↑↓ move  ctrl-d/u ½  type narrow  esc close │             
+            │ ↵ jump  ↑↓ move  ctrl+d/u ½  type narrow  esc close │             
             ╰─────────────────────────────────────────────────────╯             
                                                                                 
                                                                                 
