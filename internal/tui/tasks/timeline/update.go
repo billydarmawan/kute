@@ -314,7 +314,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.moveSelection(-1)
 		}
-	case "tab":
+	case verbs.TimelineFocusRail.Key, verbs.ToggleGroup.Key:
 		if len(m.rail) > 0 {
 			m.railFocused = !m.railFocused
 		} else if !m.objectScoped() {
@@ -329,9 +329,9 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if task, cmd, ok := m.openSelectedEvents(); ok {
 			return task, cmd
 		}
-	case "t":
+	case verbs.TimeWindow.Key:
 		m.cycleWindow()
-	case "w":
+	case verbs.WarningsOnly.Key:
 		if !m.objectScoped() {
 			m.warningsOnly = !m.warningsOnly
 			m.recomputeVisible()
@@ -344,7 +344,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.filterInput.Prompt = ""
 			m.filterInput.Focus()
 		}
-	case "v":
+	case verbs.CopyRevision.Key:
 		// §32a/§34a: copy the revision — the thing you paste into `git show`
 		// or an incident channel. Only meaningful on a revision or sync row.
 		if e, ok := m.selectedRow(); ok && (e.Kind == kube.TimelineRevision || e.Kind == kube.TimelineSync) && e.GitRevision != "" {

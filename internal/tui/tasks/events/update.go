@@ -244,10 +244,10 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case verbs.ToggleGroup.Key:
 		m.normalExpanded = !m.normalExpanded
 		m.recomputeVisible()
-	case "w":
+	case verbs.WarningsOnly.Key:
 		m.warningsOnly = !m.warningsOnly
 		m.recomputeVisible()
-	case "t":
+	case verbs.TimeWindow.Key:
 		m.cycleWindow()
 	case verbs.AllNamespaces.Key:
 		return m, m.switchNamespace("")

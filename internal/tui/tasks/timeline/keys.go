@@ -41,7 +41,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeFilter,
 			PillText:  "FILTER",
-			Groups:    [][]tui.KeyHint{{{Key: "esc", Label: "clear"}}},
+			Groups:    [][]tui.KeyHint{{verbs.Back.HintAs("clear")}},
 			RightNote: "type to narrow",
 		}
 	}
@@ -56,22 +56,22 @@ func (m Model) Keybar() tui.Keybar {
 // tasks/events' own Keybar — 'w's label toggles with warningsOnly); 'tab'
 // expand/collapse only once there's a normal group to fold/expand.
 func (m Model) namespaceKeybar() tui.Keybar {
-	warnLabel := "warnings only"
+	warn := verbs.WarningsOnly.Hint()
 	if m.warningsOnly {
-		warnLabel = "all events"
+		warn.Label = "all events"
 	}
 	groups := [][]tui.KeyHint{
-		{{Key: "w", Label: warnLabel}, {Key: "t", Label: "time window"}},
+		{warn, verbs.TimeWindow.Hint()},
 		{verbs.Filter.Hint()},
 	}
 	if m.normalPresent {
-		groups = append(groups, []tui.KeyHint{{Key: "tab", Label: "expand/collapse normal"}})
+		groups = append(groups, []tui.KeyHint{verbs.ToggleGroup.HintAs("expand/collapse normal")})
 	}
 	if m.revisionSelected() {
 		// §32a/§34a: only offered on a revision or sync row — there is
 		// nothing to copy from an ordinary event, and a key that does
 		// nothing is worse than an absent one.
-		groups = append(groups, []tui.KeyHint{{Key: "v", Label: "copy revision"}})
+		groups = append(groups, []tui.KeyHint{verbs.CopyRevision.Hint()})
 	}
 	return tui.Keybar{
 		Pill:       tui.ModeBrowse,
@@ -91,12 +91,12 @@ func (m Model) namespaceKeybar() tui.Keybar {
 // only apply while the rail has focus.
 func (m Model) objectKeybar() tui.Keybar {
 	groups := [][]tui.KeyHint{
-		{{Key: "t", Label: "time window"}},
+		{verbs.TimeWindow.Hint()},
 	}
 	if len(m.rail) > 0 {
-		groups = append(groups, []tui.KeyHint{{Key: "tab", Label: "focus rail/feed"}})
+		groups = append(groups, []tui.KeyHint{verbs.TimelineFocusRail.Hint()})
 		if m.railFocused {
-			rail := []tui.KeyHint{{Key: "↑↓", Label: "select revision"}}
+			rail := []tui.KeyHint{verbs.Move.HintAs("select revision")}
 			if m.mutator != nil && !verbs.RolloutUndo.HiddenWhileOffline(m.conn.Offline()) {
 				hint := verbs.RolloutUndo.Hint()
 				// rail[0], the current revision, is no rollback target

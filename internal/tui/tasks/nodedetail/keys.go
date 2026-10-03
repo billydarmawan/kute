@@ -66,7 +66,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeFilter,
 			PillText:  "FILTER",
-			Groups:    [][]tui.KeyHint{{{Key: "esc", Label: "clear"}}},
+			Groups:    [][]tui.KeyHint{{verbs.Back.HintAs("clear")}},
 			RightNote: "type to narrow",
 		}
 	}

@@ -16,23 +16,23 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeFilter,
 			PillText:  "FILTER",
-			Groups:    [][]tui.KeyHint{{{Key: "esc", Label: "clear"}}},
+			Groups:    [][]tui.KeyHint{{verbs.Back.HintAs("clear")}},
 			RightNote: "type to narrow",
 		}
 	}
 
-	warnLabel := "warnings only"
+	warn := verbs.WarningsOnly.Hint()
 	if m.warningsOnly {
-		warnLabel = "all events"
+		warn.Label = "all events"
 	}
 	groups := [][]tui.KeyHint{
-		{{Key: "w", Label: warnLabel}, {Key: "t", Label: "time window"}},
+		{warn, verbs.TimeWindow.Hint()},
 	}
 	if row, ok := m.selectedRow(); ok && row.kind == rowGroup {
 		groups = append(groups, []tui.KeyHint{verbs.YAML.Hint()})
 	}
 	if m.hasNormal() {
-		groups = append(groups, []tui.KeyHint{{Key: "tab", Label: "expand/collapse normal"}})
+		groups = append(groups, []tui.KeyHint{verbs.ToggleGroup.HintAs("expand/collapse normal")})
 	}
 
 	return tui.Keybar{
