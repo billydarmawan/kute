@@ -130,7 +130,7 @@ func (m *Model) routePodShellsProbed(msg podShellsProbedMsg) (tea.Model, tea.Cmd
 	if m.openExec == nil {
 		return m, nil
 	}
-	task, cmd := m.openExec(msg.namespace, msg.podName, msg.containers, m.width, m.height)
+	task, cmd := m.openExec(msg.namespace, msg.podName, msg.containers, msg.probed(), m.width, m.height)
 	if task != nil {
 		return task, cmd
 	}
@@ -140,4 +140,17 @@ func (m *Model) routePodShellsProbed(msg podShellsProbedMsg) (tea.Model, tea.Cmd
 // shellProbingNote is the keybar line shown while the 'x' shell probe runs.
 func shellProbingNote(podName string) string {
 	return podName + ": checking for a shell…"
+}
+
+// probed is the shells every successful probe found, keyed by container,
+// for execpicker to reuse rather than probe again; a probe that couldn't
+// run is left out so the picker retries it.
+func (msg podShellsProbedMsg) probed() map[string][]string {
+	out := make(map[string][]string, len(msg.results))
+	for _, r := range msg.results {
+		if r.err == nil {
+			out[r.container] = r.shells
+		}
+	}
+	return out
 }

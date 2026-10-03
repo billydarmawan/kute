@@ -62,7 +62,11 @@ type OpenTimelineFunc func(kind kube.ResourceKind, namespace, name string, width
 // OpenExecFunc pushes tasks/execpicker (10a) for the loaded pod when it has
 // more than one container — same shape as browse.OpenExecFunc, duplicated
 // per the repo's package-local-seam convention.
-type OpenExecFunc func(namespace, name string, containers []kube.ContainerInfo, width, height int) (tea.Model, tea.Cmd)
+//
+// probed carries the shells the 'x' pre-check already found per container
+// (a successful probe only, possibly empty), so the picker probes just the
+// rest instead of re-running every kubectl exec; nil when nothing was probed.
+type OpenExecFunc func(namespace, name string, containers []kube.ContainerInfo, probed map[string][]string, width, height int) (tea.Model, tea.Cmd)
 
 // OpenSecretDataFunc pushes tasks/secretdata (27b) for a Secret RELATED
 // entry — same shape as browse.OpenSecretDataFunc. A Secret link lands on

@@ -655,7 +655,7 @@ func (m Model) openSelectedExec() (tea.Model, tea.Cmd, bool) {
 	if m.openExec == nil {
 		return nil, nil, false
 	}
-	task, cmd := m.openExec(m.namespace, m.name, m.pod.ContainerInfos, m.width, m.height)
+	task, cmd := m.openExec(m.namespace, m.name, m.pod.ContainerInfos, nil, m.width, m.height)
 	return task, cmd, task != nil
 }
 

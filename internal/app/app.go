@@ -1027,7 +1027,7 @@ func kubeconfigPathOrEmpty() string {
 // = [pod]), so poddetail's j/k is inert from this entry point; wiring
 // real prev/next through nodedetail's own pod table is a natural follow-up,
 // not required here.
-func openNodeDetailFunc(sess *tui.Session, active seams, openPodDetail browse.OpenPodDetailFunc, openLogs browse.OpenLogsFunc, openYAML browse.OpenYAMLFunc, openExec func(namespace, name string, containers []kube.ContainerInfo, width, height int) (tea.Model, tea.Cmd), openDebug func(namespace, name string, containers []kube.ContainerInfo, podPhase string, waiting bool, width, height int) (tea.Model, tea.Cmd), openForward browse.OpenForwardFunc, openNodeDebug func(name string, podCount, width, height int) (tea.Model, tea.Cmd)) browse.OpenNodeDetailFunc {
+func openNodeDetailFunc(sess *tui.Session, active seams, openPodDetail browse.OpenPodDetailFunc, openLogs browse.OpenLogsFunc, openYAML browse.OpenYAMLFunc, openExec func(namespace, name string, containers []kube.ContainerInfo, probed map[string][]string, width, height int) (tea.Model, tea.Cmd), openDebug func(namespace, name string, containers []kube.ContainerInfo, podPhase string, waiting bool, width, height int) (tea.Model, tea.Cmd), openForward browse.OpenForwardFunc, openNodeDebug func(name string, podCount, width, height int) (tea.Model, tea.Cmd)) browse.OpenNodeDetailFunc {
 	openPod := func(pod kube.Pod, width, height int) (tea.Model, tea.Cmd) {
 		return openPodDetail(pod, []browse.PodSiblingRef{{Namespace: pod.Namespace, Name: pod.Name}}, 0, width, height)
 	}
@@ -1061,7 +1061,7 @@ func openNodeDetailFunc(sess *tui.Session, active seams, openPodDetail browse.Op
 // the same seams active already satisfies for browse/nodedetail. shells/
 // openDebug wire §41a/§41b/§41c's shell pre-check (debug.go). The pushed
 // debug panel owns the authoritative access review and who-can handoff.
-func openPodDetailFunc(sess *tui.Session, active seams, openLogs browse.OpenLogsFunc, openYAML browse.OpenYAMLFunc, openExec func(namespace, name string, containers []kube.ContainerInfo, width, height int) (tea.Model, tea.Cmd), openForward browse.OpenForwardFunc, shells poddetail.ShellDetector, openDebug func(namespace, name string, containers []kube.ContainerInfo, podPhase string, waiting bool, width, height int) (tea.Model, tea.Cmd), demo bool) browse.OpenPodDetailFunc {
+func openPodDetailFunc(sess *tui.Session, active seams, openLogs browse.OpenLogsFunc, openYAML browse.OpenYAMLFunc, openExec func(namespace, name string, containers []kube.ContainerInfo, probed map[string][]string, width, height int) (tea.Model, tea.Cmd), openForward browse.OpenForwardFunc, shells poddetail.ShellDetector, openDebug func(namespace, name string, containers []kube.ContainerInfo, podPhase string, waiting bool, width, height int) (tea.Model, tea.Cmd), demo bool) browse.OpenPodDetailFunc {
 	openObjectEvents := openObjectEventsFunc(sess, active, openYAML)
 	openObjectTimeline := openObjectTimelineFunc(sess, active, openObjectEvents)
 	return func(pod kube.Pod, siblings []browse.PodSiblingRef, index int, width, height int) (tea.Model, tea.Cmd) {
@@ -1501,14 +1501,15 @@ func openHelmValuesFunc(sess *tui.Session) browse.OpenHelmValuesFunc {
 // exec, and probes each container's shells through the shells seam (real:
 // kubectlShellDetector, demo: *fake.Cluster). openDebug wires §41a's fork —
 // enter on a row already known to have no shell.
-func openExecFunc(sess *tui.Session, shells execpicker.ShellDetector, openDebug execpicker.OpenDebugFunc, demo bool) func(namespace, name string, containers []kube.ContainerInfo, width, height int) (tea.Model, tea.Cmd) {
-	return func(namespace, name string, containers []kube.ContainerInfo, width, height int) (tea.Model, tea.Cmd) {
+func openExecFunc(sess *tui.Session, shells execpicker.ShellDetector, openDebug execpicker.OpenDebugFunc, demo bool) func(namespace, name string, containers []kube.ContainerInfo, probed map[string][]string, width, height int) (tea.Model, tea.Cmd) {
+	return func(namespace, name string, containers []kube.ContainerInfo, probed map[string][]string, width, height int) (tea.Model, tea.Cmd) {
 		ep := execpicker.New(execpicker.Config{
 			Session:    sess,
 			Namespace:  namespace,
 			PodName:    name,
 			Containers: containers,
 			Shells:     shells,
+			Probed:     probed,
 			OpenDebug:  openDebug,
 			Demo:       demo,
 		})

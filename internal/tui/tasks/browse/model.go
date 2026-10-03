@@ -135,7 +135,11 @@ type OpenObjectTimelineFunc func(kind kube.ResourceKind, namespace, name string,
 // container — browse execs single-container pods directly via
 // kube.ExecSpec without pushing a task (docs/design README.md §10a:
 // "skipped entirely for single-container pods").
-type OpenExecFunc func(namespace, name string, containers []kube.ContainerInfo, width, height int) (tea.Model, tea.Cmd)
+//
+// probed carries the shells the 'x' pre-check already found per container
+// (a successful probe only, possibly empty), so the picker probes just the
+// rest instead of re-running every kubectl exec; nil when nothing was probed.
+type OpenExecFunc func(namespace, name string, containers []kube.ContainerInfo, probed map[string][]string, width, height int) (tea.Model, tea.Cmd)
 
 // OpenForwardFunc pushes tasks/forwardpicker (13a) for a Pod/Service/
 // Deployment row (docs/design README.md §13a).

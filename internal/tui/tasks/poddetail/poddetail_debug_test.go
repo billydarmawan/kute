@@ -44,7 +44,7 @@ func TestFailedJobPodSkipsShellProbeAndOpensCopyDebug(t *testing.T) {
 	var gotPhase string
 	m := New(Config{
 		Session: newSession(), Lister: lister, Shells: detector,
-		OpenExec: func(string, string, []kube.ContainerInfo, int, int) (tea.Model, tea.Cmd) {
+		OpenExec: func(string, string, []kube.ContainerInfo, map[string][]string, int, int) (tea.Model, tea.Cmd) {
 			pickerCalled = true
 			return sentinelTask{}, nil
 		},
@@ -133,7 +133,7 @@ func TestAllShelllessMultiContainerSkipsPicker(t *testing.T) {
 	m := New(Config{
 		Session: newSession(), Lister: lister,
 		Shells: fakeShellDetector{},
-		OpenExec: func(string, string, []kube.ContainerInfo, int, int) (tea.Model, tea.Cmd) {
+		OpenExec: func(string, string, []kube.ContainerInfo, map[string][]string, int, int) (tea.Model, tea.Cmd) {
 			pickerCalled = true
 			return sentinelTask{}, nil
 		},

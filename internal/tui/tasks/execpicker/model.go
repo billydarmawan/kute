@@ -60,7 +60,11 @@ type Config struct {
 	PodName    string
 	Containers []kube.ContainerInfo
 	Shells     ShellDetector
-	OpenDebug  OpenDebugFunc
+	// Probed is the shells already detected per container by the opener's
+	// own 'x' pre-check (successful probes only, possibly empty). Those
+	// rows render their result at once; Init probes only the rest.
+	Probed    map[string][]string
+	OpenDebug OpenDebugFunc
 	// Demo is true for --demo — see browse.Config.Demo's doc comment;
 	// execSelected checks it before building a real kubectl command.
 	Demo bool
@@ -91,6 +95,10 @@ type Model struct {
 }
 
 func New(cfg Config) Model {
+	detected := make(map[string]shellResult, len(cfg.Probed))
+	for container, shells := range cfg.Probed {
+		detected[container] = shellResult{shells: shells}
+	}
 	return Model{
 		width:      tui.DefaultWidth,
 		height:     tui.DefaultHeight,
@@ -100,12 +108,13 @@ func New(cfg Config) Model {
 		containers: cfg.Containers,
 		shells:     cfg.Shells,
 		openDebug:  cfg.OpenDebug,
-		detected:   map[string]shellResult{},
+		detected:   detected,
 		demo:       cfg.Demo,
 	}
 }
 
-// Init probes every container's shells at once. The picker only ever renders
+// Init probes, all at once, every container's shells not already in
+// Config.Probed. The picker only ever renders
 // for a multi-container pod, so this is a handful of one-shot reads on an
 // explicitly-opened screen, not a poll — and every row renders immediately
 // with "checking…" rather than blocking on them.
@@ -115,6 +124,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	cmds := make([]tea.Cmd, 0, len(m.containers))
 	for _, c := range m.containers {
+		if _, known := m.detected[c.Name]; known {
+			continue
+		}
 		cmds = append(cmds, m.detectShellsCmd(c.Name))
 	}
 	return tea.Batch(cmds...)

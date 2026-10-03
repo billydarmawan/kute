@@ -79,7 +79,11 @@ type OpenLogsFunc func(pod kube.Pod, container string, width, height int) (tea.M
 // container — same shape as browse.OpenExecFunc, duplicated per the repo's
 // package-local-seam convention. A single container execs immediately via
 // kube.ExecSpec without pushing a task.
-type OpenExecFunc func(namespace, name string, containers []kube.ContainerInfo, width, height int) (tea.Model, tea.Cmd)
+//
+// probed carries the shells the 'x' pre-check already found per container
+// (a successful probe only, possibly empty), so the picker probes just the
+// rest instead of re-running every kubectl exec; nil when nothing was probed.
+type OpenExecFunc func(namespace, name string, containers []kube.ContainerInfo, probed map[string][]string, width, height int) (tea.Model, tea.Cmd)
 
 // OpenDebugFunc pushes tasks/debugpanel (§41c) for a selected pod row that
 // is not running. podPhase is the API phase, not the display reason.

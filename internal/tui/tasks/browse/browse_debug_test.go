@@ -44,7 +44,7 @@ func TestFailedPodSkipsShellProbeAndOpensCopyDebug(t *testing.T) {
 	var gotPhase string
 	m := New(Config{
 		Session: newSession(), Lister: lister, Shells: detector,
-		OpenExec: func(string, string, []kube.ContainerInfo, int, int) (tea.Model, tea.Cmd) {
+		OpenExec: func(string, string, []kube.ContainerInfo, map[string][]string, int, int) (tea.Model, tea.Cmd) {
 			pickerCalled = true
 			return stubTask{}, nil
 		},
@@ -169,7 +169,7 @@ func TestAllShelllessMultiContainerSkipsPicker(t *testing.T) {
 	m := New(Config{
 		Session: newSession(), Lister: lister,
 		Shells: fakeShellDetector{},
-		OpenExec: func(string, string, []kube.ContainerInfo, int, int) (tea.Model, tea.Cmd) {
+		OpenExec: func(string, string, []kube.ContainerInfo, map[string][]string, int, int) (tea.Model, tea.Cmd) {
 			pickerCalled = true
 			return stubTask{}, nil
 		},
@@ -197,11 +197,13 @@ func TestMixedShellsStillPushesPicker(t *testing.T) {
 		kube.KindPod: {podWithContainers("default", "api-0", "app", "sidecar")},
 	}}
 	var gotContainers []kube.ContainerInfo
+	var gotProbed map[string][]string
 	m := New(Config{
 		Session: newSession(), Lister: lister,
 		Shells: fakeShellDetector{"sidecar": {"sh"}},
-		OpenExec: func(_, _ string, containers []kube.ContainerInfo, _, _ int) (tea.Model, tea.Cmd) {
+		OpenExec: func(_, _ string, containers []kube.ContainerInfo, probed map[string][]string, _, _ int) (tea.Model, tea.Cmd) {
 			gotContainers = containers
+			gotProbed = probed
 			return stubTask{}, nil
 		},
 	})
@@ -215,6 +217,13 @@ func TestMixedShellsStillPushesPicker(t *testing.T) {
 	}
 	if len(gotContainers) != 2 {
 		t.Fatalf("expected both containers handed to OpenExec, got %v", gotContainers)
+	}
+	// The picker reuses these instead of probing every container again.
+	if shells, ok := gotProbed["app"]; !ok || len(shells) != 0 {
+		t.Fatalf("probed[app] = %v (present %v), want a known empty result", shells, ok)
+	}
+	if got := gotProbed["sidecar"]; len(got) != 1 || got[0] != "sh" {
+		t.Fatalf("probed[sidecar] = %v, want [sh]", got)
 	}
 }
 

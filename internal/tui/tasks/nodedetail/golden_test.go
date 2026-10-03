@@ -129,7 +129,7 @@ func goldenNodeDetailModelWithImpact(t *testing.T, width, height int, impact kub
 	// poddetail's own golden model.
 	openPod := func(kube.Pod, int, int) (tea.Model, tea.Cmd) { return sentinelTask{}, nil }
 	openLogs := func(kube.Pod, string, int, int) (tea.Model, tea.Cmd) { return sentinelTask{}, nil }
-	openExec := func(string, string, []kube.ContainerInfo, int, int) (tea.Model, tea.Cmd) { return sentinelTask{}, nil }
+	openExec := func(string, string, []kube.ContainerInfo, map[string][]string, int, int) (tea.Model, tea.Cmd) { return sentinelTask{}, nil }
 	openYAML := func(kube.ResourceKind, string, string, int, int) (tea.Model, tea.Cmd) { return sentinelTask{}, nil }
 	openEvents := func(kube.ResourceKind, string, string, int, int) (tea.Model, tea.Cmd) { return sentinelTask{}, nil }
 	openTimeline := func(kube.ResourceKind, string, string, int, int) (tea.Model, tea.Cmd) { return sentinelTask{}, nil }

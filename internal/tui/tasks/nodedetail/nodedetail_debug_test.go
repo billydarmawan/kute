@@ -25,7 +25,7 @@ func TestWaitingPodRowOpensCopyDebugInsteadOfExec(t *testing.T) {
 	var gotPhase string
 	m := New(Config{
 		Session: newSession(), Lister: lister, NodeName: "node-a",
-		OpenExec: func(string, string, []kube.ContainerInfo, int, int) (tea.Model, tea.Cmd) {
+		OpenExec: func(string, string, []kube.ContainerInfo, map[string][]string, int, int) (tea.Model, tea.Cmd) {
 			pickerCalled = true
 			return sentinelTask{}, nil
 		},

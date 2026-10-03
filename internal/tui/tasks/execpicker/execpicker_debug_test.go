@@ -1,6 +1,7 @@
 package execpicker
 
 import (
+	"context"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -119,3 +120,46 @@ type stubTask struct{}
 func (stubTask) Init() tea.Cmd                       { return nil }
 func (stubTask) Update(tea.Msg) (tea.Model, tea.Cmd) { return stubTask{}, nil }
 func (stubTask) View() tea.View                      { return tea.NewView("") }
+
+type recordingShellDetector struct{ asked []string }
+
+func (d *recordingShellDetector) DetectShells(_ context.Context, _, _, container string) ([]string, error) {
+	d.asked = append(d.asked, container)
+	return []string{"sh"}, nil
+}
+
+// TestProbedContainersAreNotProbedAgain pins L2: a container the opener's
+// own 'x' pre-check already probed renders that result at once, and Init
+// probes only the containers it has no answer for.
+func TestProbedContainersAreNotProbedAgain(t *testing.T) {
+	t.Parallel()
+	detector := &recordingShellDetector{}
+	m := New(Config{
+		Session:   newModel().session,
+		Namespace: "default",
+		PodName:   "nva-gateway-2b81x",
+		Containers: []kube.ContainerInfo{
+			{Name: "gateway", State: "Running"},
+			{Name: "distroless", State: "Running"},
+			{Name: "sidecar", State: "Running"},
+		},
+		Shells: detector,
+		Probed: map[string][]string{"gateway": {"bash", "sh"}, "distroless": nil},
+	})
+	if got := m.preferredShell(0); got != "bash" {
+		t.Fatalf("preferredShell(gateway) = %q, want bash from the pre-check", got)
+	}
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("expected a probe for the unprobed sidecar")
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			c()
+		}
+	}
+	if len(detector.asked) != 1 || detector.asked[0] != "sidecar" {
+		t.Fatalf("probed %v, want only [sidecar]", detector.asked)
+	}
+}

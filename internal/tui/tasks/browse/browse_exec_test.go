@@ -37,7 +37,7 @@ func TestExecSingleContainerRunsDirectly(t *testing.T) {
 	openExecCalled := false
 	m := New(Config{
 		Session: newSession(), Lister: lister,
-		OpenExec: func(string, string, []kube.ContainerInfo, int, int) (tea.Model, tea.Cmd) {
+		OpenExec: func(string, string, []kube.ContainerInfo, map[string][]string, int, int) (tea.Model, tea.Cmd) {
 			openExecCalled = true
 			return stubTask{}, nil
 		},
@@ -66,7 +66,7 @@ func TestExecMultiContainerPushesPicker(t *testing.T) {
 	var gotContainers []kube.ContainerInfo
 	m := New(Config{
 		Session: newSession(), Lister: lister,
-		OpenExec: func(ns, name string, containers []kube.ContainerInfo, w, h int) (tea.Model, tea.Cmd) {
+		OpenExec: func(ns, name string, containers []kube.ContainerInfo, _ map[string][]string, w, h int) (tea.Model, tea.Cmd) {
 			gotContainers = containers
 			return stubTask{}, nil
 		},
@@ -144,7 +144,7 @@ func TestExecRefusedWhileOffline(t *testing.T) {
 	openExecCalled := false
 	m := New(Config{
 		Session: newSession(), Lister: lister,
-		OpenExec: func(string, string, []kube.ContainerInfo, int, int) (tea.Model, tea.Cmd) {
+		OpenExec: func(string, string, []kube.ContainerInfo, map[string][]string, int, int) (tea.Model, tea.Cmd) {
 			openExecCalled = true
 			return stubTask{}, nil
 		},
