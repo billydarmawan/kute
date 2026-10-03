@@ -1,12 +1,15 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -370,5 +373,47 @@ func TestCapLogTextBoundsPluginStderr(t *testing.T) {
 	got := capLogText(strings.Repeat("é", maxConnErrLog))
 	if !strings.HasSuffix(got, "… (truncated)") || len(got) > maxConnErrLog+len("… (truncated)") || !utf8.ValidString(got) {
 		t.Fatalf("capLogText didn't cap cleanly: len %d, valid %t", len(got), utf8.ValidString(got))
+	}
+}
+
+// lockedBuffer is a bytes.Buffer two goroutines can write to.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestReportProgramCrashFooterFollowsBubbleTeasStack: for a tea.Cmd panic,
+// Bubble Tea prints the stack on its own goroutine after Run has already
+// returned, so the footer waits for it rather than landing above or inside
+// the trace (14 L7).
+func TestReportProgramCrashFooterFollowsBubbleTeasStack(t *testing.T) {
+	sink := newTestSink(t, newLiveState(nil, false))
+	out := &lockedBuffer{}
+	previous := crashOut
+	crashOut = out
+	t.Cleanup(func() { crashOut = previous })
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_, _ = out.Write([]byte("Caught panic: STACK\r\n"))
+	}()
+	_ = reportProgramCrash(sink, errors.Join(tea.ErrProgramKilled, tea.ErrProgramPanic))
+
+	got := out.String()
+	stack, footer := strings.Index(got, "STACK"), strings.Index(got, "kute crashed")
+	if stack < 0 || footer < stack {
+		t.Fatalf("footer must follow Bubble Tea's stack print; got:\n%s", got)
 	}
 }

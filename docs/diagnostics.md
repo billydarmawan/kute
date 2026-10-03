@@ -91,7 +91,9 @@ decision: `Program.Run` recovers command-goroutine panics internally and
 surfaces only `ErrProgramPanic`. `reportProgramCrash` still writes a report for
 it, saying the value is unavailable rather than implying the run ended
 cleanly — the context, kind and terminal size in it are still most of what a
-maintainer needs.
+maintainer needs. Bubble Tea prints that panic's stack from its own goroutine,
+after `Run` has already returned, so kute waits a moment (`cmdPanicSettle`)
+before printing the footer, to keep it below the trace rather than inside it.
 
 After any `ErrProgramPanic`, `run` still saves `state.json` but does not fold
 the current location into it (`saveSessionState`): if the kind, filter or

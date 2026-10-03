@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -219,10 +220,21 @@ func reportProgramCrash(sink *diag.Sink, err error) error {
 	path := sink.LastReport()
 	if path == "" {
 		path = sink.Report(diag.Crash{Cause: "unknown"})
+		// Bubble Tea caught this one on a goroutine of its own, which is
+		// still printing the panic and stack to stderr: Run returns as soon
+		// as its shutdown finishes, not when that print does. Let it land,
+		// so the footer — the part that says what to do — ends up below a
+		// long trace rather than buried in the middle of it.
+		time.Sleep(cmdPanicSettle)
 	}
 	_, _ = io.WriteString(crashOut, sink.Footer(path))
 	return ErrCrashed
 }
+
+// cmdPanicSettle is how long reportProgramCrash waits for Bubble Tea's own
+// stack print before writing the footer, for a panic kute never saw. A var
+// only so tests can shorten it.
+var cmdPanicSettle = 250 * time.Millisecond
 
 // maxConnErrLog caps a connection error in the diagnostics stream. For an
 // exec credential plugin ConnState.Err is the plugin's own stderr, which
