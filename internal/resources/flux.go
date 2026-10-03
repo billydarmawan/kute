@@ -193,6 +193,11 @@ func fluxStatus(u *unstructured.Unstructured, suspended bool) (glyph string, cla
 		}
 		return "✕", StatusFail, "False" // ✕
 	case hasReady:
+		// Ready=Unknown + Reconciling=True is Flux's ordinary in-progress
+		// state, the one every reconcile passes through.
+		if rec, ok := fluxCondition(u, "Reconciling"); ok && rec.status == "True" {
+			return "◌", StatusWarn, readyCond.status // ◌
+		}
 		return "▲", StatusWarn, readyCond.status // ▲ (Unknown)
 	}
 	// No Ready condition at all. Unlike 14a's neutral "no status semantics"

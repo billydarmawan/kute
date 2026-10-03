@@ -214,6 +214,11 @@ func TestProjectFluxResourceStatus(t *testing.T) {
 			wantGlyph: "▲", wantClass: StatusWarn, wantReady: "Unknown",
 		},
 		{
+			name:      "reconciling with Ready=Unknown is progress",
+			obj:       fluxObj("Kustomization", "progressing", false, nil, conds(cond("Ready", "Unknown", "reconciliation in progress"), cond("Reconciling", "True", "reconciliation in progress"))),
+			wantGlyph: "◌", wantClass: StatusWarn, wantReady: "Unknown",
+		},
+		{
 			name:      "no conditions yet is pending, not neutral",
 			obj:       fluxObj("Kustomization", "fresh", false, nil, nil),
 			wantGlyph: "▲", wantClass: StatusWarn, wantReady: "–",
