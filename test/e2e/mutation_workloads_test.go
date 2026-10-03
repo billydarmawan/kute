@@ -117,11 +117,11 @@ func TestWorkloadEditorsMutateAndRemain(t *testing.T) {
 	a.WaitFor("Deployments", Settle)
 
 	// Resources now follows the same refresh-and-remain contract.
-	a.Press("V")
+	a.Press("r")
 	a.WaitFor("RESOURCES", Settle)
 	replaceTypedValue(a, "10m", "20m")
 	a.Enter()
-	a.WaitFor("set resources: worker", Settle)
+	a.WaitFor("applied cpu.request=20m", Settle)
 	var resourcesRV string
 	waitForAPI(t, "set resources", func(ctx context.Context) (bool, error) {
 		dep, err := client.AppsV1().Deployments(Namespace).Get(ctx, name, metav1.GetOptions{})
@@ -132,7 +132,7 @@ func TestWorkloadEditorsMutateAndRemain(t *testing.T) {
 		return dep.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().String() == "20m", nil
 	})
 	requireNewResourceVersion(t, imageRV, resourcesRV)
-	a.WaitForAll(Settle, "RESOURCES", "20m", "set resources: worker")
+	a.WaitForAll(Settle, "RESOURCES", "container   worker", "applied cpu.request=20m")
 	a.Esc()
 	a.WaitFor("Deployments", Settle)
 
