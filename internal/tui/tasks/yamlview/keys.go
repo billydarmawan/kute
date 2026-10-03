@@ -5,16 +5,14 @@ import (
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
-// Keybar composes the bottom band from verb references where one exists,
-// plus a handful of local literals for keys that have no registry entry
-// (docs/design README.md §8a's own vocabulary — "search"/"fold"/"copy"
-// aren't verbs any other screen shares).
+// Keybar composes the bottom band from verb references only — §8a's own
+// search/fold/copy keys are screen-local registry entries.
 func (m Model) Keybar() tui.Keybar {
 	if m.searchActive {
 		return tui.Keybar{
 			Pill:      tui.ModeFilter,
 			PillText:  "SEARCH",
-			Groups:    [][]tui.KeyHint{{{Key: "esc", Label: "clear"}}},
+			Groups:    [][]tui.KeyHint{{verbs.Back.HintAs("clear")}},
 			RightNote: "type to search",
 		}
 	}
@@ -28,17 +26,17 @@ func (m Model) Keybar() tui.Keybar {
 	}
 
 	groups := [][]tui.KeyHint{
-		{{Key: "↑↓", Label: "jk"}},
-		{{Key: "tab", Label: "fold/unfold"}, {Key: "f", Label: "unfold all"}},
-		{{Key: "/", Label: "search"}, {Key: "Y", Label: "copy"}},
+		{verbs.Move.HintAs("jk")},
+		{verbs.YAMLFold.Hint(), verbs.YAMLUnfoldAll.Hint()},
+		{verbs.Search.Hint(), verbs.YAMLCopy.Hint()},
 	}
 	pillText := "YAML"
 	if m.isSecret {
 		pillText = "SECRET"
 		groups = append(groups, []tui.KeyHint{
-			{Key: "x", Label: "reveal/mask"},
-			{Key: "X", Label: "reveal all"},
-			{Key: "y", Label: "copy value"},
+			verbs.SecretRevealToggle.Hint(),
+			verbs.SecretRevealAll.Hint(),
+			verbs.SecretCopyValue.Hint(),
 		})
 	}
 

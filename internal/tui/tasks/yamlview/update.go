@@ -136,7 +136,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(-1)
 	case "down", "j":
 		m.moveCursor(1)
-	case verbs.ToggleGroup.Key:
+	case verbs.YAMLFold.Key:
 		if m.folded != nil {
 			rendered := m.rendered()
 			// FoldableKey (managedfields.go) marks an expanded header not
@@ -149,18 +149,18 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			m.clampCursor()
 		}
-	case "f":
+	case verbs.YAMLUnfoldAll.Key:
 		if m.folded != nil {
 			unfoldAll(m.folded)
 			m.clampCursor()
 		}
-	case verbs.Filter.Key:
+	case verbs.Search.Key:
 		m.searchActive = true
 		m.searchInput = textfield.New()
 		m.searchInput.SetStyles(tui.TextInputStyles(m.Theme()))
 		m.searchInput.Prompt = ""
 		m.searchInput.Focus()
-	case "Y":
+	case verbs.YAMLCopy.Key:
 		// copyText, not m.lines: for a Secret, m.lines is the masked
 		// rendering, while §21a's full-YAML copy keeps values base64
 		// (with stringData folded into data and last-applied dropped, so
@@ -169,15 +169,15 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.SetClipboard(m.copyText)
-	case "x":
+	case verbs.SecretRevealToggle.Key:
 		if m.isSecret {
 			m.toggleRevealAtCursor()
 		}
-	case "X":
+	case verbs.SecretRevealAll.Key:
 		if m.isSecret && m.hasUnrevealedSecretData() {
 			m.revealAllConfirm = true
 		}
-	case "y":
+	case verbs.SecretCopyValue.Key:
 		if m.isSecret {
 			return m, m.copyDecodedSecretValue()
 		}
