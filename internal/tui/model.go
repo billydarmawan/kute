@@ -1230,6 +1230,9 @@ func (m Model) handlePaletteKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 			// was opened from one esc-back away — the same machinery every
 			// pre-filled "jump to related object" action now shares.
 			cmd = gotoDispatch(m.session, item)
+			if cmd != nil && gotoSwitchesContext(item) {
+				cmd = tea.Batch(cmd, m.beginSwitchFeedback())
+			}
 		case palette.ScopeNamespace:
 			cmd = namespaceDispatch(m.session, item)
 		case palette.ScopeContext:

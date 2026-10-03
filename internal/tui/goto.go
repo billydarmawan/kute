@@ -37,6 +37,10 @@ const (
 	// item (gotoUpdateItem) whose Enter opens the panel instead of
 	// navigating.
 	gotoOpenUpdatePanel
+	// gotoSwitchContext is a kubeconfig context in the fuzzy corpus (§2b:
+	// typing searches "kinds/resources/namespaces/contexts"); its name is
+	// gotoTarget.name, and Enter switches exactly as 7a's palette does.
+	gotoSwitchContext
 )
 
 type gotoTarget struct {
@@ -308,6 +312,9 @@ func gotoFuzzyItems(sess *Session, query string, resourceCorpus *gotoResourceCor
 		corpus = append(corpus, resourceCorpus.items...)
 	}
 	corpus = append(corpus, gotoNamespaceItems(sess)...)
+	if resourceCorpus != nil {
+		corpus = append(corpus, resourceCorpus.contexts...)
+	}
 	corpus = append(corpus, gotoWhoCanItem())
 	corpus = append(corpus, gotoOverviewItem())
 	if item, ok := gotoFluxTreeItem(sess); ok {
@@ -461,6 +468,9 @@ func gotoKindItems(sess *Session) []palette.Item {
 // answered "no matches" for everything else (review 13 H4).
 type gotoResourceCorpus struct {
 	items []palette.Item
+	// contexts are the kubeconfig's other contexts — read from disk, so
+	// snapshotted with the names rather than on every keystroke.
+	contexts []palette.Item
 	// objs carries each item's object and descriptor, so status is projected
 	// only for the few results that survive the filter and the cap.
 	objs map[gotoTarget]gotoCorpusObject
@@ -477,6 +487,7 @@ type gotoCorpusObject struct {
 // in fuzzy score fall back to.
 func buildGotoResourceCorpus(sess *Session) *gotoResourceCorpus {
 	corpus := &gotoResourceCorpus{objs: map[gotoTarget]gotoCorpusObject{}}
+	corpus.contexts = gotoContextItems(sess)
 	if sess == nil || sess.Lister == nil {
 		return corpus
 	}
@@ -653,6 +664,36 @@ func gotoNamespaceItems(sess *Session) []palette.Item {
 	return items
 }
 
+// gotoContextItems lists every kubeconfig context other than the current
+// one for the fuzzy corpus. None without a live cluster to rebuild (--demo),
+// where contextDispatch's switch would be a no-op anyway.
+func gotoContextItems(sess *Session) []palette.Item {
+	if sess == nil || sess.Cluster == nil {
+		return nil
+	}
+	var items []palette.Item
+	for _, name := range contextNames() {
+		if name == sess.Location.Context {
+			continue
+		}
+		items = append(items, palette.Item{
+			Label:   name,
+			Detail:  "context",
+			Right:   "↗", // a jump, not a count, like a namespace result
+			ProdTag: sess.Config.IsProd(name),
+			Data:    gotoTarget{action: gotoSwitchContext, name: name},
+		})
+	}
+	return items
+}
+
+// gotoSwitchesContext reports whether item is a context result, whose
+// dispatch the root pairs with 7a's switch feedback.
+func gotoSwitchesContext(item palette.Item) bool {
+	t, ok := item.Data.(gotoTarget)
+	return ok && t.action == gotoSwitchContext
+}
+
 // gotoRecentKindLabels maps recent kind strings (Session.State.RecentKinds)
 // to their display names for the 2b RECENT row.
 func gotoRecentKindLabels(sess *Session) []string {
@@ -703,6 +744,8 @@ func gotoDispatch(sess *Session, item palette.Item) tea.Cmd {
 		return func() tea.Msg { return SwitchNamespaceMsg{Namespace: ns} }
 	case gotoOpenUpdatePanel:
 		return func() tea.Msg { return OpenUpdatePanelMsg{} }
+	case gotoSwitchContext:
+		return switchContextCmd(sess, target.name)
 	}
 	return nil
 }
