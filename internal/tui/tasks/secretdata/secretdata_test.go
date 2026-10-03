@@ -115,7 +115,7 @@ func (f *fakeMutator) RequestFluxReconcile(_ context.Context, kind kube.Resource
 func (f *fakeMutator) RequestArgoRefresh(_ context.Context, kind kube.ResourceKind, namespace, name string) error {
 	return nil
 }
-func (f *fakeMutator) RequestArgoSync(_ context.Context, kind kube.ResourceKind, namespace, name, revision string) error {
+func (f *fakeMutator) RequestArgoSync(_ context.Context, kind kube.ResourceKind, namespace, name, revision, initiator string) error {
 	return nil
 }
 

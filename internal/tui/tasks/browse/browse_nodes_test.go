@@ -60,6 +60,7 @@ type fakeMutator struct {
 	fluxReconciles       []string // "namespace/name" of every RequestFluxReconcile call
 	argoRefreshes        []string // "namespace/name" of every RequestArgoRefresh call
 	argoSyncs            []string // "namespace/name@revision" of every RequestArgoSync call
+	argoSyncInitiators   []string // the initiator of each of those calls
 	certRenews           []string // "namespace/name" of every RenewCertificate call
 	retriedJobs          []string // "namespace/name->newName" of every RetryJob call
 	replacedJobs         []string // "namespace/name" of every ReplaceJob call
@@ -280,11 +281,12 @@ func (f *fakeMutator) RequestArgoRefresh(_ context.Context, _ kube.ResourceKind,
 	return nil
 }
 
-func (f *fakeMutator) RequestArgoSync(_ context.Context, _ kube.ResourceKind, namespace, name, revision string) error {
+func (f *fakeMutator) RequestArgoSync(_ context.Context, _ kube.ResourceKind, namespace, name, revision, initiator string) error {
 	if f.err != nil {
 		return f.err
 	}
 	f.argoSyncs = append(f.argoSyncs, namespace+"/"+name+"@"+revision)
+	f.argoSyncInitiators = append(f.argoSyncInitiators, initiator)
 	return nil
 }
 

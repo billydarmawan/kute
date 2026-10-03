@@ -317,6 +317,11 @@ type Config struct {
 	// Empty falls back to a generic "kute" attribution rather than leaving
 	// the annotation blank.
 	CurrentUser string
+	// Identity is the connect-time SelfSubjectReview answer §33a's sync
+	// credits as operation.initiatedBy.username. Read at Begin time, not
+	// captured here, because the review lands after browse is built and is
+	// replaced on every context switch. nil credits "kute".
+	Identity IdentityReader
 	// InitErr is the reason Lister is nil (cluster unreachable at launch) —
 	// surfaced verbatim instead of a generic message when set. Phase 4's
 	// tasks/setup screen replaces this with the real 4c/10b recovery flow.
@@ -338,6 +343,7 @@ type Model struct {
 	metrics             MetricsReader
 	nodeMetricsSrc      NodeMetricsReader
 	mutator             kube.Mutator
+	identity            IdentityReader
 	shells              ShellDetector
 	actions             actions.Controller
 	openLogs            OpenLogsFunc
@@ -914,6 +920,7 @@ func New(cfg Config) Model {
 		retrier:             cfg.Retrier,
 		timeout:             cfg.LoadTimeout,
 		currentUser:         cfg.CurrentUser,
+		identity:            cfg.Identity,
 		demo:                cfg.Demo,
 		kind:                kind,
 		namespace:           namespace,

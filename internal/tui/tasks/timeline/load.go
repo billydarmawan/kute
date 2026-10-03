@@ -531,8 +531,10 @@ func argoSyncStatusOf(ctx context.Context, lister resources.RawLister, namespace
 			automated, _, _ := unstructured.NestedBool(u.Object, "status", "operationState", "initiatedBy", "automated")
 			// §34a: "was this a human or the machine? — matters at 2am."
 			// Only Argo's own automated flag says machine; a sync with no
-			// recorded username (a bare operation patch, kute's own S
-			// among them) names nobody rather than crediting auto-sync.
+			// recorded username (a bare operation patch from another
+			// tool) names nobody rather than crediting auto-sync. kute's
+			// own S records operation.initiatedBy (kube.ArgoSyncPatch), so
+			// its syncs read as the reviewed user, or "kute".
 			by := username
 			if automated {
 				by = "auto-sync"

@@ -217,9 +217,52 @@ func TestArgoSyncShowsConfirmThenSyncsOnY(t *testing.T) {
 		t.Fatalf("expected no sync before 'y', got %v", mut.argoSyncs)
 	}
 
+	if !strings.Contains(kb.RightNote, `"initiatedBy":{"automated":false,"username":"kute"}`) {
+		t.Fatalf("expected an unreviewed sync credited to kute in the patch, got %q", kb.RightNote)
+	}
+
 	m = step(t, m, tea.KeyPressMsg{Text: "y"})
 	if len(mut.argoSyncs) != 1 || mut.argoSyncs[0] != "argocd/worker@main" {
 		t.Fatalf("argoSyncs = %v, want [argocd/worker@main]", mut.argoSyncs)
+	}
+	if mut.argoSyncInitiators[0] != "kute" {
+		t.Fatalf("initiator = %q, want kute", mut.argoSyncInitiators[0])
+	}
+}
+
+type fakeIdentity struct {
+	id kube.ReviewedIdentity
+	ok bool
+}
+
+func (f *fakeIdentity) ReviewedIdentity() (kube.ReviewedIdentity, bool) { return f.id, f.ok }
+
+// TestArgoSyncCreditsTheReviewedIdentity: with a SelfSubjectReview answer,
+// the will-run line and the executed sync both name that user — read at
+// Begin time, so a review landing after browse was built still counts.
+func TestArgoSyncCreditsTheReviewedIdentity(t *testing.T) {
+	mut := &fakeMutator{}
+	identity := &fakeIdentity{}
+	reg, groups := resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{applicationDK()}, nil)
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.ResourceKind("Application"): {application("worker", "main", "abc0000", "OutOfSync", "Healthy")},
+	}}
+	session := newSession()
+	session.Registry, session.Groups = reg, groups
+	session.Location.Kind = kube.ResourceKind("Application")
+	session.Location.Namespace = "argocd"
+	m := New(Config{Session: session, Lister: lister, Mutator: mut, Identity: identity})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	identity.id, identity.ok = kube.ReviewedIdentity{Username: "alice@example.com"}, true
+
+	m = step(t, m, tea.KeyPressMsg{Text: "S"})
+	if kb := m.Keybar(); !strings.Contains(kb.RightNote, `"username":"alice@example.com"`) {
+		t.Fatalf("will-run line should credit the reviewed user, got %q", kb.RightNote)
+	}
+	step(t, m, tea.KeyPressMsg{Text: "y"})
+	if len(mut.argoSyncInitiators) != 1 || mut.argoSyncInitiators[0] != "alice@example.com" {
+		t.Fatalf("initiators = %v, want [alice@example.com]", mut.argoSyncInitiators)
 	}
 }
 

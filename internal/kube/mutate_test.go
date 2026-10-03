@@ -1869,6 +1869,61 @@ func TestSetFluxSuspendPatchesSpecSuspend(t *testing.T) {
 	}
 }
 
+// TestRequestArgoSyncCreditsTheInitiator pins §33a's whole patch body: the
+// sync carries operation.initiatedBy in Argo CD's OperationInitiator shape,
+// so Argo records who synced instead of nobody (which 34a would otherwise
+// have to leave blank), and the will-run line prints that same body.
+func TestRequestArgoSyncCreditsTheInitiator(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ initiator, want string }{
+		{"alice@example.com", "alice@example.com"},
+		{"", DefaultArgoSyncInitiator},
+	} {
+		c, dyn := newDynTestCluster(newWidget("shop", "argocd"))
+		if err := c.RequestArgoSync(t.Context(), ResourceKind("Widget"), "argocd", "shop", "main", tc.initiator); err != nil {
+			t.Fatalf("RequestArgoSync: %v", err)
+		}
+		wantBody := `{"operation":{"initiatedBy":{"automated":false,"username":"` + tc.want + `"},"sync":{"revision":"main"}}}`
+		var patched bool
+		for _, a := range dyn.Actions() {
+			p, ok := a.(k8stesting.PatchAction)
+			if !ok {
+				continue
+			}
+			patched = true
+			if got := string(p.GetPatch()); got != wantBody {
+				t.Errorf("patch body = %s, want %s", got, wantBody)
+			}
+			if p.GetPatchType() != types.MergePatchType {
+				t.Errorf("patch type = %v, want a merge patch", p.GetPatchType())
+			}
+		}
+		if !patched {
+			t.Fatal("no patch reached the dynamic client")
+		}
+		got, err := dyn.Resource(widgetGVR).Namespace("argocd").Get(t.Context(), "shop", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if v, _, _ := unstructured.NestedString(got.Object, "operation", "initiatedBy", "username"); v != tc.want {
+			t.Errorf("operation.initiatedBy.username = %q, want %q", v, tc.want)
+		}
+		cmd := ArgoSyncCommandString(KindPod, "argocd", "shop", "main", tc.initiator)
+		if !strings.Contains(cmd, "'"+wantBody+"'") {
+			t.Errorf("will-run %q does not print the body RequestArgoSync sends", cmd)
+		}
+	}
+}
+
+func TestArgoSyncInitiatorPrefersTheReviewedUsername(t *testing.T) {
+	if got := ArgoSyncInitiator(ReviewedIdentity{Username: "alice"}, true); got != "alice" {
+		t.Errorf("reviewed: got %q, want alice", got)
+	}
+	if got := ArgoSyncInitiator(ReviewedIdentity{}, false); got != "kute" {
+		t.Errorf("unreviewed: got %q, want kute", got)
+	}
+}
+
 // TestRequestFluxReconcileStampsAFreshTimestamp pins that the annotation
 // lands and parses as RFC3339 — a malformed stamp is silently ignored by
 // the Flux controllers, so "it wrote something" is not enough.

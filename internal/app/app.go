@@ -602,6 +602,7 @@ type seams interface {
 	debugpanel.AccessReviewer
 	certchain.EventsReader
 	cronjobschedule.CapabilityReader
+	browse.IdentityReader
 }
 
 // NewModel builds the root model. It's rooted at tasks/browse when a
@@ -767,6 +768,7 @@ func buildBrowseTask(cfg Config, sess *tui.Session, cluster *kube.Cluster) *brow
 		Forwards:            sess.Forwards,
 		Retrier:             cluster,
 		CurrentUser:         cluster.Context.UserName,
+		Identity:            cluster,
 		Demo:                false,
 	})
 	return &b
@@ -859,6 +861,7 @@ func buildDemoBrowseTask(sess *tui.Session, demoCluster *fake.Cluster, clusterNa
 		Forwards:            sess.Forwards,
 		Retrier:             demoCluster,
 		CurrentUser:         demoCluster.CurrentUser(),
+		Identity:            demoCluster,
 		Demo:                true,
 	})
 	return &b

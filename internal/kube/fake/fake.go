@@ -912,9 +912,10 @@ func (c *Cluster) RequestArgoRefresh(ctx context.Context, kind kube.ResourceKind
 	return c.PatchMeta(ctx, kind, namespace, name, true, kube.ArgoRefreshAnnotation, "normal", false)
 }
 
-// RequestArgoSync sets operation.sync.revision on a seeded Argo CD
-// Application in place — §33a's 'S' against the fake cluster.
-func (c *Cluster) RequestArgoSync(_ context.Context, kind kube.ResourceKind, namespace, name, revision string) error {
+// RequestArgoSync sets operation.sync.revision and operation.initiatedBy on
+// a seeded Argo CD Application in place — §33a's 'S' against the fake
+// cluster, the same two fields the real merge patch writes.
+func (c *Cluster) RequestArgoSync(_ context.Context, kind kube.ResourceKind, namespace, name, revision, initiator string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	u, err := c.findUnstructuredLocked(kind, namespace, name)
@@ -922,6 +923,12 @@ func (c *Cluster) RequestArgoSync(_ context.Context, kind kube.ResourceKind, nam
 		return err
 	}
 	if err := unstructured.SetNestedField(u.Object, revision, "operation", "sync", "revision"); err != nil {
+		return err
+	}
+	if initiator == "" {
+		initiator = kube.DefaultArgoSyncInitiator
+	}
+	if err := unstructured.SetNestedMap(u.Object, map[string]any{"username": initiator, "automated": false}, "operation", "initiatedBy"); err != nil {
 		return err
 	}
 	c.notify(kind)

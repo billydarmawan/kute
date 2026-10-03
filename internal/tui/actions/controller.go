@@ -702,7 +702,7 @@ func executeScope(mutator kube.Mutator, scope tui.TaskScope) error {
 	case "argo-sync":
 		err = mutator.RequestArgoSync(context.Background(),
 			kube.ResourceKind(scope.ResourceKind), scope.Namespace,
-			scope.ResourceName, scope.ArgoSyncRevision)
+			scope.ResourceName, scope.ArgoSyncRevision, scope.ArgoSyncInitiator)
 	case "rollout-restart":
 		err = mutator.RolloutRestart(context.Background(),
 			kube.ResourceKind(scope.ResourceKind), scope.Namespace, scope.ResourceName)

@@ -25,6 +25,21 @@ import (
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
+// IdentityReader is the connect-time SelfSubjectReview seam — satisfied by
+// *kube.Cluster and *fake.Cluster's ReviewedIdentity.
+type IdentityReader interface {
+	ReviewedIdentity() (kube.ReviewedIdentity, bool)
+}
+
+// argoSyncInitiator is who §33a's sync is credited to: the reviewed
+// username, else "kute" (kube.ArgoSyncInitiator).
+func (m Model) argoSyncInitiator() string {
+	if m.identity == nil {
+		return kube.DefaultArgoSyncInitiator
+	}
+	return kube.ArgoSyncInitiator(m.identity.ReviewedIdentity())
+}
+
 // argoVerbsApply reports whether §33a's verbs are live on the current view:
 // an Argo Application kind, a wired mutator, and a settled list. Keyed on
 // the descriptor's own Argo flag, never a kind-name check — same shape as
@@ -54,7 +69,8 @@ func (m *Model) beginArgoRefresh(row resources.Row) tea.Cmd {
 // re-fetching the object" idiom fluxSourceRef uses) — a re-apply of what
 // git already says to run, never a move to a different ref. TierInline:
 // PROD escalates to a y/N card (never the type-the-name modal) via
-// verbs.Resolve.
+// verbs.Resolve. The sync is credited to argoSyncInitiator, so Argo's own
+// operationState (and 34a's timeline) names who pressed S.
 func (m *Model) beginArgoSync(row resources.Row) tea.Cmd {
 	revision := argoSyncRevisionFromRow(row)
 	return m.actions.Begin(actions.Request{Verb: verbs.ArgoSync, Prod: m.isProd()}, tui.TaskAction{
@@ -63,7 +79,8 @@ func (m *Model) beginArgoSync(row resources.Row) tea.Cmd {
 		Scope: tui.TaskScope{
 			ResourceKind: string(m.kind), ResourceName: row.Name,
 			Namespace: row.Namespace, Verb: "argo-sync", IsMutating: true,
-			ArgoSyncRevision: revision,
+			ArgoSyncRevision:  revision,
+			ArgoSyncInitiator: m.argoSyncInitiator(),
 		},
 	})
 }
@@ -84,7 +101,7 @@ func argoSyncRevisionFromRow(row resources.Row) string {
 // same idiom as rolloutRestartWillRunLine (deployments.go).
 func argoSyncWillRunLine(scope tui.TaskScope) string {
 	return "will run: " + kube.ArgoSyncCommandString(
-		kube.ResourceKind(scope.ResourceKind), scope.Namespace, scope.ResourceName, scope.ArgoSyncRevision)
+		kube.ResourceKind(scope.ResourceKind), scope.Namespace, scope.ResourceName, scope.ArgoSyncRevision, scope.ArgoSyncInitiator)
 }
 
 // argoDashboardTimeout bounds the u key's argocd-cm read, like every other

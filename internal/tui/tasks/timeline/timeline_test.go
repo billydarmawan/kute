@@ -2,6 +2,7 @@ package timeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -669,7 +670,7 @@ func (f *fakeRolloutMutator) RequestFluxReconcile(_ context.Context, kind kube.R
 func (f *fakeRolloutMutator) RequestArgoRefresh(_ context.Context, kind kube.ResourceKind, namespace, name string) error {
 	return nil
 }
-func (f *fakeRolloutMutator) RequestArgoSync(_ context.Context, kind kube.ResourceKind, namespace, name, revision string) error {
+func (f *fakeRolloutMutator) RequestArgoSync(_ context.Context, kind kube.ResourceKind, namespace, name, revision, initiator string) error {
 	return nil
 }
 func (f *fakeRolloutMutator) RenewCertificate(_ context.Context, namespace, name string) error {
@@ -1453,8 +1454,8 @@ func TestArgoSyncByFallsBackToAutoSync(t *testing.T) {
 }
 
 // TestArgoSyncWithNoInitiatorCreditsNobody pins the other half: a manual
-// sync that recorded no username — a bare operation patch, kute's own S
-// among them — is not the machine, so it names nobody rather than
+// sync that recorded no username — a bare operation patch from another
+// tool — is not the machine, so it names nobody rather than
 // "auto-sync".
 func TestArgoSyncWithNoInitiatorCreditsNobody(t *testing.T) {
 	app := argoApplicationFixture("kute-frontend", "main", "9d04c7ea0000000000000000000000000000000", "", false)
@@ -1477,6 +1478,42 @@ func TestArgoSyncWithNoInitiatorCreditsNobody(t *testing.T) {
 	}
 	if view := plain(m.Render()); strings.Contains(view, "auto-sync") {
 		t.Fatalf("a sync with no initiator must not read as auto-sync:\n%s", view)
+	}
+}
+
+// TestKuteStartedArgoSyncShowsItsInitiator: Argo copies the operation kute
+// patched (kube.ArgoSyncPatch) into status.operationState, initiatedBy
+// included, so a sync started from 33a's S reads as whoever pressed it.
+func TestKuteStartedArgoSyncShowsItsInitiator(t *testing.T) {
+	var patch struct {
+		Operation map[string]any `json:"operation"`
+	}
+	if err := json.Unmarshal(kube.ArgoSyncPatch("main", "alice@example.com"), &patch); err != nil {
+		t.Fatal(err)
+	}
+	app := argoApplicationFixture("kute-frontend", "main", "9d04c7ea0000000000000000000000000000000", "", false)
+	state := app.Object["status"].(map[string]any)["operationState"].(map[string]any)
+	state["operation"] = map[string]any{"sync": patch.Operation["sync"]}
+	state["initiatedBy"] = patch.Operation["initiatedBy"]
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.ResourceKind("Application"): {app},
+	}}
+	events := []kube.Event{
+		{Type: "Normal", Reason: "OperationCompleted", Object: "Application/kute-frontend", Namespace: "default", Count: 1, LastSeen: time.Now()},
+	}
+	m := New(Config{Session: newSession(), Events: fakeEvents{events: events}, Lister: lister, Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	got, ok := syncRow(m)
+	if !ok {
+		t.Fatalf("expected a sync row, rows: %+v", m.rows)
+	}
+	if got.By != "alice@example.com" {
+		t.Errorf("By = %q, want the kute user who synced", got.By)
+	}
+	if view := plain(m.Render()); !strings.Contains(view, "alice@example.com") {
+		t.Fatalf("expected the initiator in the row:\n%s", view)
 	}
 }
 

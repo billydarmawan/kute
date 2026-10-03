@@ -148,6 +148,11 @@ type TaskScope struct {
 	// re-derived at execute time. This re-applies what git already says to
 	// run, never a move to a different ref. Empty for every other verb.
 	ArgoSyncRevision string
+	// ArgoSyncInitiator is the "argo-sync" verb's operation.initiatedBy.
+	// username (kube.ArgoSyncInitiator), resolved at Begin time alongside
+	// ArgoSyncRevision so the will-run line and the executed patch name the
+	// same person. Empty for every other verb.
+	ArgoSyncInitiator string
 	// CronJobResourceVersion is the source CronJob's own resourceVersion at
 	// staging time — the precondition "cronjob-suspend"/"cronjob-resume"
 	// and "cronjob-set-schedule" pass to kube.Mutator's SetCronJobSuspend/

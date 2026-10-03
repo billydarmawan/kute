@@ -736,7 +736,7 @@ Right after the server-version read, connect (and every context switch) issues o
 `SelfSubjectReview` — `authentication.k8s.io/v1`, falling back to `v1beta1` only when v1
 answers NotFound — and caches the returned username and groups on the cluster
 (`Cluster.ReviewedIdentity`, `internal/kube/identity.go`). Who-can (22a) pins that identity as
-"(you)". For token, OIDC and
+"(you)", and §33a's Argo sync stamps its username as `operation.initiatedBy.username`. For token, OIDC and
 exec-plugin auth the kubeconfig only knows its AuthInfo entry name, which is never an RBAC
 subject. The review is a create with an empty body, touches no informer, is cleared on context
 switch, and is never retried or re-issued per screen open; any failure leaves it unset and the

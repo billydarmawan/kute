@@ -44,6 +44,10 @@ func NewDemo() *Cluster {
 	// default" query has a real closest-miss row to show, the same persona
 	// docs/design README.md's own 4b mockup names.
 	c.SetUserName("dev-readonly")
+	// …and the identity a real cluster's connect-time SelfSubjectReview
+	// would report for it, so --demo's 33a sync is credited to dev-readonly
+	// the way a live one is, not to the "kute" fallback.
+	c.SetReviewedIdentity("dev-readonly", []string{"system:authenticated"})
 	// --demo pretends to be a recent, fully-supported cluster: the
 	// schedule editor's timezone field is editable rather than read-only,
 	// matching what a real 1.27+ cluster (kind's own default today) would

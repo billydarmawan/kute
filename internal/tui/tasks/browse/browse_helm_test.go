@@ -622,7 +622,7 @@ func (f *fakeHelmMutator) RequestFluxReconcile(_ context.Context, kind kube.Reso
 func (f *fakeHelmMutator) RequestArgoRefresh(_ context.Context, kind kube.ResourceKind, namespace, name string) error {
 	return nil
 }
-func (f *fakeHelmMutator) RequestArgoSync(_ context.Context, kind kube.ResourceKind, namespace, name, revision string) error {
+func (f *fakeHelmMutator) RequestArgoSync(_ context.Context, kind kube.ResourceKind, namespace, name, revision, initiator string) error {
 	return nil
 }
 func (f *fakeHelmMutator) RenewCertificate(_ context.Context, namespace, name string) error {

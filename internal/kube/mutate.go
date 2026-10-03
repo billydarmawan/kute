@@ -133,8 +133,11 @@ type Mutator interface {
 	// stance §30a takes on `flux suspend`/`flux reconcile`). revision is
 	// the Application's own already-configured target (spec.source.
 	// targetRevision, or "HEAD" when unset) — this re-applies what git
-	// already says to run, never a move to a different ref.
-	RequestArgoSync(ctx context.Context, kind ResourceKind, namespace, name, revision string) error
+	// already says to run, never a move to a different ref. initiator is
+	// recorded as operation.initiatedBy.username (ArgoSyncInitiator: the
+	// reviewed identity, else "kute") so Argo — and 34a's timeline — credit
+	// the sync to a person rather than to nobody or to auto-sync.
+	RequestArgoSync(ctx context.Context, kind ResourceKind, namespace, name, revision, initiator string) error
 	// RenewCertificate forces cert-manager to reissue a Certificate: a plain
 	// merge patch setting the Issuing status condition, the same trigger
 	// cert-manager's own trigger controller reacts to (docs/design/
@@ -826,23 +829,48 @@ func (c *Cluster) RequestArgoRefresh(ctx context.Context, kind ResourceKind, nam
 }
 
 // RequestArgoSync implements Mutator: a merge patch on operation.sync.
-// revision, the API write `argocd app sync` performs. Not a spec field —
+// revision plus operation.initiatedBy, the API write `argocd app sync`
+// performs (the CLI fills initiatedBy.username from its session too). Not a spec field —
 // .operation is Argo's own imperative trigger the application-controller
 // watches for and clears once handled — so patchDynamic's plain merge
 // patch is the right tool, same idiom SetFluxSuspend uses for spec.suspend.
-func (c *Cluster) RequestArgoSync(ctx context.Context, kind ResourceKind, namespace, name, revision string) error {
+func (c *Cluster) RequestArgoSync(ctx context.Context, kind ResourceKind, namespace, name, revision, initiator string) error {
 	if name == "" {
 		return fmt.Errorf("cannot sync %s: empty name", kind)
 	}
-	patch, err := json.Marshal(map[string]any{
+	return c.patchDynamic(ctx, kind, namespace, name, ArgoSyncPatch(revision, initiator))
+}
+
+// DefaultArgoSyncInitiator is who a sync is credited to when the
+// connect-time SelfSubjectReview didn't answer: the tool, never a guessed
+// person and never auto-sync.
+const DefaultArgoSyncInitiator = "kute"
+
+// ArgoSyncInitiator is the operation.initiatedBy.username for a sync kute
+// starts: the reviewed identity's username when known, else
+// DefaultArgoSyncInitiator.
+func ArgoSyncInitiator(id ReviewedIdentity, reviewed bool) string {
+	if reviewed && id.Username != "" {
+		return id.Username
+	}
+	return DefaultArgoSyncInitiator
+}
+
+// ArgoSyncPatch is the literal merge-patch body RequestArgoSync sends and
+// ArgoSyncCommandString prints — one builder so the two can't drift. Its
+// initiatedBy matches Argo CD's OperationInitiator (username, automated):
+// a manual sync, attributed. An empty initiator is DefaultArgoSyncInitiator.
+func ArgoSyncPatch(revision, initiator string) []byte {
+	if initiator == "" {
+		initiator = DefaultArgoSyncInitiator
+	}
+	patch, _ := json.Marshal(map[string]any{
 		"operation": map[string]any{
-			"sync": map[string]any{"revision": revision},
+			"initiatedBy": map[string]any{"username": initiator, "automated": false},
+			"sync":        map[string]any{"revision": revision},
 		},
 	})
-	if err != nil {
-		return err
-	}
-	return c.patchDynamic(ctx, kind, namespace, name, patch)
+	return patch
 }
 
 // renewCertificatePatch is the literal merge-patch body RenewCertificate
@@ -971,9 +999,9 @@ func ArgoRefreshCommandString(kind ResourceKind, namespace, name string) string 
 
 // ArgoSyncCommandString renders the kubectl patch kute actually issues for
 // §33a's 'S' — not the `argocd app sync` it is equivalent to, same rule.
-func ArgoSyncCommandString(kind ResourceKind, namespace, name, revision string) string {
-	cmd := fmt.Sprintf(`kubectl patch %s/%s --type merge -p '{"operation":{"sync":{"revision":%q}}}'`,
-		kind.ResourceArg(), name, revision)
+func ArgoSyncCommandString(kind ResourceKind, namespace, name, revision, initiator string) string {
+	cmd := fmt.Sprintf(`kubectl patch %s/%s --type merge -p '%s'`,
+		kind.ResourceArg(), name, ArgoSyncPatch(revision, initiator))
 	if namespace != "" {
 		cmd += " -n " + namespace
 	}
