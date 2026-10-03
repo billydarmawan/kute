@@ -196,7 +196,9 @@ func TestArgoApplications(t *testing.T) {
 		a.Enter()
 		a.WaitLoaded(Settle)
 		a.WaitForAll(Settle, "kute-billing", "SYNC", "HEALTH", "REVISION", "Degraded")
-		a.WaitForAll(Settle, "CONDITIONS", "EVENTS", "OperationComplet", "application synced successfully")
+		// The REASON cell is 16 wide, so "OperationCompleted" truncates with
+		// the app-wide … marker rather than being hard-cut.
+		a.WaitForAll(Settle, "CONDITIONS", "EVENTS", "OperationComple…", "application synced successfully")
 
 		// No Flux-style bespoke banner — proof this is 14d, not a
 		// copy-pasted Flux detail screen.
