@@ -462,10 +462,7 @@ func (m Model) suspendConfirmModal(width, height int) string {
 	if pending := m.actions.Pending(); pending != nil {
 		title = "✕ " + pending.Label
 		target = pending.Scope.ResourceName
-		detail = jobactions.SuspendWillRunLine(pending.Scope)
-		if m.summary.Object != nil {
-			detail += "   " + jobactions.SuspendDangerNote(m.summary, m.now)
-		}
+		detail = jobactions.SuspendModalDetail(pending.Scope, m.summary, m.now)
 	}
 	styles := components.TypeModalStyles{
 		Border:    lipgloss.NewStyle().BorderForeground(theme.ConfirmBorder).Background(theme.ConfirmHeaderBg),

@@ -32,10 +32,7 @@ func (m Model) Keybar() tui.Keybar {
 				// suspendConfirmModal). cronjob-resume never appears here,
 				// fixed TierNone (staged, reversible, immediate) the same way
 				// cronjob-run-now is.
-				note = jobactions.SuspendWillRunLine(pending.Scope)
-				if m.summary.Object != nil {
-					note += "   " + jobactions.SuspendDangerNote(m.summary, m.now)
-				}
+				note = jobactions.SuspendConfirmNote(pending.Scope, m.summary, m.now)
 			case "set-meta":
 				// 26a: the panel stays open under this confirm and already
 				// renders the full will-run line + join warning in its own

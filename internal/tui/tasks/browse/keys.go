@@ -197,10 +197,8 @@ func (m Model) Keybar() tui.Keybar {
 						note = bulkCronJobSuspendWillRunLine(pending.Scope)
 						break
 					}
-					note = jobactions.SuspendWillRunLine(pending.Scope)
-					if summary, ok := m.cronJobSummaryFor(pending.Scope.Namespace, pending.Scope.ResourceName); ok {
-						note += "   " + jobactions.SuspendDangerNote(summary, m.now)
-					}
+					summary, _ := m.cronJobSummaryFor(pending.Scope.Namespace, pending.Scope.ResourceName)
+					note = jobactions.SuspendConfirmNote(pending.Scope, summary, m.now)
 				case "set-meta":
 					// 26a: the panel itself stays open under this confirm
 					// (meta.go's own doc comment) and already renders the full

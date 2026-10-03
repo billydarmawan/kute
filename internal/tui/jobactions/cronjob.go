@@ -378,6 +378,29 @@ func SuspendWillRunLine(scope tui.TaskScope) string {
 	return "will run: " + kube.CronJobSuspendCommandString(scope.Namespace, scope.ResourceName, scope.Verb == "cronjob-suspend")
 }
 
+// SuspendConfirmNote is the inline (non-PROD) suspend confirm's keybar
+// note: the will-run line and, when the summary is known, the danger note
+// on the same row.
+func SuspendConfirmNote(scope tui.TaskScope, summary resources.CronJobSummary, now time.Time) string {
+	note := SuspendWillRunLine(scope)
+	if danger := SuspendDangerNote(summary, now); danger != "" {
+		note += "   " + danger
+	}
+	return note
+}
+
+// SuspendModalDetail is the PROD type-the-name modal's detail: the same two
+// statements as SuspendConfirmNote, the danger note on its own line — the
+// modal sizes to its widest line, and the two side by side overrun a
+// 120-column terminal.
+func SuspendModalDetail(scope tui.TaskScope, summary resources.CronJobSummary, now time.Time) string {
+	detail := SuspendWillRunLine(scope)
+	if danger := SuspendDangerNote(summary, now); danger != "" {
+		detail += "\n" + danger
+	}
+	return detail
+}
+
 // SuspendDangerNote supplements the suspend confirm (§36c: "the card names
 // any currently-active Jobs and states plainly that they are unaffected:
 // suspend only stops *future* scheduling"), naming the actual next

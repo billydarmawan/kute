@@ -236,3 +236,23 @@ func TestRunNowResultNote(t *testing.T) {
 		t.Error("an ordinary failure must stay on the controller's own result line")
 	}
 }
+
+func TestSuspendConfirmNoteAndModalDetail(t *testing.T) {
+	s := cronSummary(batchv1.AllowConcurrent)
+	_, action := SuspendAction("ns", "nightly", s, true, cronNow)
+	will := SuspendWillRunLine(action.Scope)
+	danger := SuspendDangerNote(s, cronNow)
+	if got := SuspendConfirmNote(action.Scope, s, cronNow); got != will+"   "+danger {
+		t.Errorf("SuspendConfirmNote = %q", got)
+	}
+	if got := SuspendModalDetail(action.Scope, s, cronNow); got != will+"\n"+danger {
+		t.Errorf("SuspendModalDetail = %q, want the danger note on its own line", got)
+	}
+	unknown := resources.CronJobSummary{}
+	if got := SuspendConfirmNote(action.Scope, unknown, cronNow); got != will {
+		t.Errorf("SuspendConfirmNote without a summary = %q, want the bare will-run line", got)
+	}
+	if got := SuspendModalDetail(action.Scope, unknown, cronNow); got != will {
+		t.Errorf("SuspendModalDetail without a summary = %q, want the bare will-run line", got)
+	}
+}

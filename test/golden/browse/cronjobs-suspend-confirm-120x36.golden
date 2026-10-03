@@ -15,6 +15,7 @@
          │                                                                                                    │         
          │   ✕ Suspend nightly?                                                                PROD CONTEXT   │         
          │   will run: kubectl patch cronjob/nightly --type merge -p '{"spec":{"suspend":true}}' -n default   │         
+         │   no active jobs right now · future scheduled runs stop                                            │         
          │                                                                                                    │         
          │   type "nightly" to confirm                                                                        │         
          │   █  0/7                                                                                           │         
@@ -22,7 +23,6 @@
          │   ↵ suspend (when name matches)   esc cancel                                                       │         
          │                                                                                                    │         
          ╰────────────────────────────────────────────────────────────────────────────────────────────────────╯         
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
