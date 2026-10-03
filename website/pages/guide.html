@@ -636,6 +636,14 @@
         </tbody>
       </table>
 
+      <h3>Job attempts <span class="dim">(<kbd>↵</kbd> on a Job)</span></h3>
+      <table class="keyref">
+        <tbody>
+          <tr><td><kbd>d</kbd></td><td>diff vs attempt 1 — compare the selected attempt with the first <span class="dim">(two or more attempts)</span></td></tr>
+          <tr><td><kbd>f</kbd></td><td>failed only — narrow an Indexed Job's index list to its failed indexes, and back</td></tr>
+        </tbody>
+      </table>
+
       <h3>CronJob schedule editor</h3>
       <table class="keyref">
         <tbody>
@@ -666,7 +674,7 @@
           <tr><td><kbd>p</kbd></td><td>profile — general / sysadmin / netadmin</td></tr>
           <tr><td><kbd>e</kbd></td><td>entrypoint <span class="dim">(copy mode)</span> — replaces the command, which is what stops the crash loop</td></tr>
           <tr><td><kbd>s</kbd></td><td>share processes <span class="dim">(copy mode)</span> — toggle sharing the original's process namespace</td></tr>
-          <tr><td><kbd>ctrl-d</kbd></td><td>clean up — delete the copy or node-debug pod kute left behind, offered on exit</td></tr>
+          <tr><td><kbd>ctrl-d</kbd></td><td>clean up — offered on exit when kute left a copy or node-debug pod running: delete it, with the same confirm as any pod delete</td></tr>
           <tr><td><kbd>esc</kbd></td><td>cancel, or keep the leftover pod instead of cleaning it up</td></tr>
         </tbody>
       </table>
@@ -680,7 +688,19 @@
           <tr><td><kbd>alt-a</kbd></td><td>apply the buffer</td></tr>
           <tr><td><kbd>D</kbd></td><td>remove key</td></tr>
           <tr><td><kbd>ctrl-x</kbd></td><td>show or re-mask the value you are typing <span class="dim">(Secrets)</span></td></tr>
+          <tr><td><kbd>ctrl-v</kbd></td><td>paste (never echoed) — paste a value into the masked buffer <span class="dim">(Secrets)</span></td></tr>
           <tr><td><kbd>ctrl-r</kbd></td><td>apply + restart consumers <span class="dim">(ConfigMaps)</span></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Labels and annotations <span class="dim">(<kbd>m</kbd>)</span></h3>
+      <table class="keyref">
+        <tbody>
+          <tr><td><kbd>tab</kbd></td><td>switch between the labels and annotations grids</td></tr>
+          <tr><td><kbd>↵</kbd></td><td>edit the value under the cursor</td></tr>
+          <tr><td><kbd>a</kbd></td><td>add a label or annotation</td></tr>
+          <tr><td><kbd>D</kbd></td><td>remove key · y/N — remove the selected label or annotation after a y/N <span class="dim">(keys a controller owns stay read-only)</span></td></tr>
+          <tr><td><kbd>y</kbd></td><td>copy key=value</td></tr>
         </tbody>
       </table>
 
