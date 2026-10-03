@@ -12,7 +12,19 @@ func TestParseNodeDiskSummary(t *testing.T) {
 		{
 			name: "node fs present",
 			raw:  `{"node":{"nodeName":"n1","fs":{"availableBytes":10,"capacityBytes":100,"usedBytes":42}},"pods":[{"podRef":{"name":"p"}}]}`,
-			want: NewNodeDisk(42, 100, 10, 0, 0),
+			want: NewNodeDisk(90, 100, 10, 0, 0),
+		},
+		{
+			// usedBytes (statfs total−free) leaves out the 5 root-reserved
+			// blocks; capacity−available is what nodefs.available tracks.
+			name: "root-reserved blocks count as used",
+			raw:  `{"node":{"fs":{"availableBytes":15,"capacityBytes":100,"usedBytes":80}}}`,
+			want: NewNodeDisk(85, 100, 15, 0, 0),
+		},
+		{
+			name: "usedBytes is the fallback without available",
+			raw:  `{"node":{"fs":{"capacityBytes":100,"usedBytes":42}}}`,
+			want: NewNodeDisk(42, 100, 0, 0, 0),
 		},
 		{
 			name: "imagefs on its own disk",
@@ -25,7 +37,7 @@ func TestParseNodeDiskSummary(t *testing.T) {
 			want: NewNodeDisk(40, 100, 60, 0, 0),
 		},
 		{name: "fs missing", raw: `{"node":{"nodeName":"n1"}}`, wantErr: true},
-		{name: "used missing", raw: `{"node":{"fs":{"capacityBytes":100}}}`, wantErr: true},
+		{name: "used and available missing", raw: `{"node":{"fs":{"capacityBytes":100}}}`, wantErr: true},
 		{name: "not json", raw: `<html>`, wantErr: true},
 	}
 	for _, tt := range tests {

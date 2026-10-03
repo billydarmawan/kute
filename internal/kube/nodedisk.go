@@ -21,10 +21,10 @@ var ErrNodeStatsForbidden = errors.New("forbidden: get nodes/proxy")
 // the one the DiskPressure (nodefs) eviction signal watches. metrics-server
 // carries no disk figure at all, so this is the only live source.
 //
+// Both rows are filesystem fill (capacity minus available) — the figure
+// the kubelet's nodefs.available/imagefs.available eviction signals watch.
 // ImageUsedBytes/ImageCapacityBytes describe imagefs — the container
-// runtime's image and writable-layer store — as filesystem fill (capacity
-// minus available), the figure the kubelet's imagefs.available eviction
-// signal watches. They are zero when the kubelet reports no imagefs.
+// runtime's image and writable-layer store. They are zero when the kubelet reports no imagefs.
 type NodeDisk struct {
 	UsedBytes     int64
 	CapacityBytes int64
@@ -115,15 +115,23 @@ func parseNodeDiskSummary(raw []byte) (NodeDisk, error) {
 		return NodeDisk{}, fmt.Errorf("decode kubelet stats summary: %w", err)
 	}
 	fs := summary.Node.Fs
-	if fs == nil || fs.UsedBytes == nil || fs.CapacityBytes == nil {
+	if fs == nil || fs.CapacityBytes == nil || (fs.UsedBytes == nil && fs.AvailableBytes == nil) {
 		return NodeDisk{}, errors.New("kubelet stats summary carries no node filesystem figures")
 	}
-	var available, imageCapacity, imageAvailable int64
+	// used is capacity minus available, as for imagefs, rather than the
+	// summary's own usedBytes: that one is statfs total−free and so leaves
+	// out the root-reserved blocks (5% on a default ext4), reading that many
+	// points below the nodefs.available eviction signal this row tracks.
+	// usedBytes is only the fallback for a summary without available.
+	var used, available, imageCapacity, imageAvailable int64
 	if fs.AvailableBytes != nil {
 		available = int64(*fs.AvailableBytes)
+		used = int64(*fs.CapacityBytes) - available
+	} else {
+		used = int64(*fs.UsedBytes)
 	}
 	if rt := summary.Node.Runtime; rt != nil && rt.ImageFs != nil && rt.ImageFs.CapacityBytes != nil && rt.ImageFs.AvailableBytes != nil {
 		imageCapacity, imageAvailable = int64(*rt.ImageFs.CapacityBytes), int64(*rt.ImageFs.AvailableBytes)
 	}
-	return NewNodeDisk(int64(*fs.UsedBytes), int64(*fs.CapacityBytes), available, imageCapacity, imageAvailable), nil
+	return NewNodeDisk(used, int64(*fs.CapacityBytes), available, imageCapacity, imageAvailable), nil
 }
