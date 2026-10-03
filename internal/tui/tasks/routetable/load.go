@@ -169,12 +169,20 @@ func ingressBackendRow(ctx context.Context, lister resources.RawLister, ns strin
 		svcName := b.Service.Name
 		state := resources.ResolveServiceBackend(ctx, lister, ns, svcName)
 		glyph, class := state.Glyph()
+		portText, declared := backendPortText(ctx, lister, ns, svcName, b.Service.Port)
+		endpoints := formatEndpoints(state)
+		if state.Exists && !declared {
+			// The Service exists but doesn't serve this port: the
+			// controller has nowhere to send the traffic, however many
+			// pods are ready.
+			glyph, class, endpoints = "▲", resources.StatusWarn, "no such port"
+		}
 		return routeRow{
 			backendNS: ns, backendName: svcName,
-			backendText:   svcName + ":" + backendPortText(ctx, lister, ns, svcName, b.Service.Port),
+			backendText:   svcName + ":" + portText,
 			glyph:         glyph,
 			class:         class,
-			endpointsText: formatEndpoints(state),
+			endpointsText: endpoints,
 		}, true
 	case b.Resource != nil:
 		return routeRow{
@@ -204,31 +212,40 @@ func compactExpiry(full string) string {
 }
 
 // backendPortText resolves an Ingress path's backend port to its numeric
-// display form: Number is used directly; a named port is looked up against
-// the Service's own declared ports (falling back to the bare name if the
-// Service can't be read, rather than erroring the whole row).
-func backendPortText(ctx context.Context, lister resources.RawLister, ns, svcName string, port networkingv1.ServiceBackendPort) string {
+// display form — a named port through the Service's own declared ports —
+// and reports whether the Service declares it. A Service that can't be read
+// (or names no ports to check against) counts as declaring it, falling back
+// to the port as written rather than erroring the whole row.
+func backendPortText(ctx context.Context, lister resources.RawLister, ns, svcName string, port networkingv1.ServiceBackendPort) (text string, declared bool) {
+	text = port.Name
 	if port.Number != 0 {
-		return strconv.Itoa(int(port.Number))
-	}
-	if port.Name == "" {
-		return "-"
+		text = strconv.Itoa(int(port.Number))
+	} else if port.Name == "" {
+		return "-", true
 	}
 	objs, err := lister.ListRaw(ctx, kube.KindService, ns)
-	if err == nil {
-		for _, obj := range objs {
-			svc, ok := obj.(*corev1.Service)
-			if !ok || svc.Name != svcName {
-				continue
+	if err != nil {
+		return text, true
+	}
+	for _, obj := range objs {
+		svc, ok := obj.(*corev1.Service)
+		if !ok || svc.Name != svcName {
+			continue
+		}
+		if len(svc.Spec.Ports) == 0 {
+			return text, true
+		}
+		for _, sp := range svc.Spec.Ports {
+			if port.Number != 0 && sp.Port == port.Number {
+				return text, true
 			}
-			for _, sp := range svc.Spec.Ports {
-				if sp.Name == port.Name {
-					return strconv.Itoa(int(sp.Port))
-				}
+			if port.Number == 0 && sp.Name == port.Name {
+				return strconv.Itoa(int(sp.Port)), true
 			}
 		}
+		return text, false
 	}
-	return port.Name
+	return text, true
 }
 
 // TLSSecretLister is implemented by a lister that can hand back just the

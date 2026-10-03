@@ -145,12 +145,22 @@ func (r *backendResolver) resolveUncached(namespace, name string) BackendState {
 	return BackendState{Exists: true, Ready: ready, Total: total}
 }
 
-// podReady reports whether every one of pod's containers is Ready — the
-// same ContainerStatuses-based readiness projectPod's own RDY column
-// computes (projections.go), rather than Status.Conditions' PodReady entry:
-// this repo's demo fixtures (and, in practice, kubelet's own container
-// statuses) are the reliable signal either way.
+// podReady reports whether pod would be a ready endpoint of its Service:
+// not terminating (the endpoints controller drops a pod once it has a
+// deletionTimestamp, though its phase stays Running through the grace
+// period), and Ready per its PodReady condition — which, unlike the
+// containers alone, also folds in readiness gates. A pod with no PodReady
+// condition (this repo's demo fixtures) falls back to every container
+// being Ready, the same ContainerStatuses read projectPod's RDY column uses.
 func podReady(pod *corev1.Pod) bool {
+	if pod.DeletionTimestamp != nil {
+		return false
+	}
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
 	if len(pod.Status.ContainerStatuses) == 0 {
 		return false
 	}

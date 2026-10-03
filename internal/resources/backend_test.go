@@ -93,3 +93,26 @@ func TestResolveServiceBackendNilLister(t *testing.T) {
 		t.Fatalf("expected zero-value state for a nil lister, got %+v", state)
 	}
 }
+
+// TestResolveServiceBackendReadinessFollowsEndpoints pins the "ready
+// endpoints" count to what the endpoints controller would publish: a
+// terminating pod is never ready, and a failing readiness gate (PodReady
+// False with every container ready) keeps a pod out.
+func TestResolveServiceBackendReadinessFollowsEndpoints(t *testing.T) {
+	sel := map[string]string{"app": "web"}
+	terminating := readyPod("web-old", "default", sel, true)
+	now := metav1.Now()
+	terminating.DeletionTimestamp = &now
+	gated := readyPod("web-gated", "default", sel, true)
+	gated.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}
+	ready := readyPod("web-ok", "default", sel, true)
+	ready.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindService: {serviceWithSelector("web", "default", sel)},
+		kube.KindPod:     {terminating, gated, ready},
+	}}
+	state := ResolveServiceBackend(t.Context(), lister, "default", "web")
+	if state.Ready != 1 || state.Total != 3 {
+		t.Fatalf("Ready/Total = %d/%d, want 1/3", state.Ready, state.Total)
+	}
+}

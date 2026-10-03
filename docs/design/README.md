@@ -301,7 +301,7 @@ The file in this bundle (`Kute Spec.dc.html`, plus its runtime `support.js`) is 
 - `same as` strip shows the equivalent `kubectl auth can-i` (10a's idiom). `↵` opens the binding's YAML — the answer is always inspectable. Keybar pill `WHO CAN`.
 
 ### 23a — Ingress routing table (`↵` on an ingress)
-- **Not a describe page** — one row per host+path → `service:port`, the join raw YAML makes you do in your head. Backends resolve live from the watch: green ● service exists + ready endpoints; red ✕ `service not found` (inline, never a tooltip); yellow ▲ `0 ready`.
+- **Not a describe page** — one row per host+path → `service:port`, the join raw YAML makes you do in your head. Backends resolve live from the watch: green ● service exists + ready endpoints; red ✕ `service not found` (inline, never a tooltip); yellow ▲ `0 ready`, or `no such port` when the Service exists but declares no port by that number or name. A pod counts as ready by its `Ready` condition (readiness gates included), never while terminating.
 - The ingress **list** earns its keep first: NAME · CLASS · HOSTS · TLS (●/–) · BACKENDS (`3 ok · 1 broken`) · AGE. Strip counts unhealthy-first.
 - TLS column shows cert expiry from the referenced secret (yellow <30d, red expired); a strip above the keybar names each secret — `↵` there jumps to it (21a's secret semantics apply).
 - `↵` on a route → backend Service (12a/12b's goto machinery, pre-filled — one `esc` back returns to this routing table); `y` copies the full URL. Keybar pill `ROUTES`.

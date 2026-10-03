@@ -1190,3 +1190,43 @@ func TestParentSummaryAggregatesParentsAndFlagsStaleOrNonGateway(t *testing.T) {
 		t.Fatalf("service parent = %+v, want accepted, labelled service/web, no gateway jump target", got)
 	}
 }
+
+// TestLoadIngressBackendPortTheServiceLacksIsFlagged pins 23a's backend
+// cell for a port the Service doesn't declare: ▲ no such port, not a green
+// row, whether the Ingress names the port by number or by name.
+func TestLoadIngressBackendPortTheServiceLacksIsFlagged(t *testing.T) {
+	sel := map[string]string{"app": "web"}
+	svc := serviceWithSelector("web", "default", sel)
+	svc.Spec.Ports = []corev1.ServicePort{{Name: "http", Port: 80}}
+	for _, port := range []networkingv1.ServiceBackendPort{{Number: 8080}, {Name: "grpc"}} {
+		ing := testIngress()
+		ing.Spec.Rules[0].HTTP.Paths = ing.Spec.Rules[0].HTTP.Paths[:1]
+		ing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port = port
+		lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+			kube.KindIngress: {ing},
+			kube.KindService: {svc},
+			kube.KindPod:     {readyPod("web-1", "default", sel, true)},
+		}}
+		m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+		m.SetSize(120, 36)
+		m = step(t, m, m.Init()())
+		if len(m.rows) != 1 || m.rows[0].glyph != "▲" || m.rows[0].endpointsText != "no such port" {
+			t.Fatalf("port %+v: rows = %+v, want ▲ no such port", port, m.rows)
+		}
+	}
+
+	// A declared named port still resolves to its number, green.
+	ing := testIngress()
+	ing.Spec.Rules[0].HTTP.Paths = ing.Spec.Rules[0].HTTP.Paths[:1]
+	ing.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port = networkingv1.ServiceBackendPort{Name: "http"}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindIngress: {ing}, kube.KindService: {svc},
+		kube.KindPod: {readyPod("web-1", "default", sel, true)},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	if len(m.rows) != 1 || m.rows[0].glyph != "●" || m.rows[0].backendText != "web:80" {
+		t.Fatalf("declared named port: rows = %+v, want ● web:80", m.rows)
+	}
+}
