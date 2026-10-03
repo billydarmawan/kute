@@ -36,6 +36,7 @@ func (m *Model) Reload() tea.Cmd {
 	if m.lister == nil {
 		return nil
 	}
+	m.loadEpoch++
 	return m.load()
 }
 
@@ -48,6 +49,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
 		if msg.Kind == m.kind && m.lister != nil {
+			m.loadEpoch++
 			return m, m.load()
 		}
 	case kube.ConnStateMsg:
@@ -68,6 +70,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
+	if msg.epoch != m.loadEpoch {
+		return m, nil
+	}
 	if msg.err != nil {
 		m.state = tui.TaskStateError
 		if kube.IsPermissionError(msg.err) {
@@ -96,7 +101,9 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	m.lines = strings.Split(text, "\n")
 	m.copyText = copyText
 	m.resourceVersion = msg.resourceVersion
-	m.managedFieldsLines = splitManagedFieldsLines(msg.managedFieldsYAML)
+	if !msg.keepManagedFields {
+		m.managedFieldsLines = splitManagedFieldsLines(msg.managedFieldsYAML)
+	}
 	if m.folded == nil {
 		m.folded = defaultFolds(m.lines)
 		if len(m.managedFieldsLines) > 0 {

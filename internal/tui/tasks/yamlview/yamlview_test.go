@@ -337,3 +337,71 @@ func TestManagedFieldsFallBackToTheCachedObject(t *testing.T) {
 		t.Fatal("expected managedFields read back from the cached object when no live reader is wired")
 	}
 }
+
+// mutableYAML is a YAMLReader whose text/resourceVersion a test can move.
+type mutableYAML struct {
+	text, rv string
+}
+
+func (f *mutableYAML) GetYAML(context.Context, kube.ResourceKind, string, string) (string, string, error) {
+	return f.text, f.rv, nil
+}
+
+// TestChangeEventsRefetchManagedFieldsOnlyWhenTheObjectMoved: every change
+// event for the kind — any object of it — reloads this screen, so the live
+// managedFields GET must be skipped while this object's resourceVersion
+// hasn't moved, or a busy cluster turns into a stream of GETs.
+func TestChangeEventsRefetchManagedFieldsOnlyWhenTheObjectMoved(t *testing.T) {
+	lister := &fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {testPod("worker-0", "default")},
+	}}
+	yaml := &mutableYAML{text: fixtureYAML, rv: "1"}
+	managed := &fakeManagedFields{yaml: "- manager: kubectl\n  operation: Apply\n"}
+	m := New(Config{
+		Session: newSession(), Lister: lister, YAML: yaml, ManagedFields: managed,
+		Kind: kube.KindPod, Namespace: "default", Name: "worker-0",
+	})
+	m.SetSize(120, 40)
+	m = step(t, m, m.Init()())
+
+	for range 5 {
+		m = step(t, m, kube.ResourceChangedMsg{Kind: kube.KindPod})
+	}
+	if managed.calls != 1 {
+		t.Fatalf("GetManagedFields called %d times across unrelated change events, want 1", managed.calls)
+	}
+	if len(m.managedFieldsLines) == 0 {
+		t.Fatal("a skipped refetch dropped the managedFields already on screen")
+	}
+
+	yaml.rv = "2"
+	m = step(t, m, kube.ResourceChangedMsg{Kind: kube.KindPod})
+	if managed.calls != 2 || m.resourceVersion != "2" {
+		t.Fatalf("after a resourceVersion bump: calls = %d, rv = %q; want 2, \"2\"", managed.calls, m.resourceVersion)
+	}
+}
+
+// TestAnOlderLoadNeverOverwritesANewerOne: loads race, so one issued before
+// a later change event must be dropped if it lands last.
+func TestAnOlderLoadNeverOverwritesANewerOne(t *testing.T) {
+	lister := &fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {testPod("worker-0", "default")},
+	}}
+	yaml := &mutableYAML{text: fixtureYAML, rv: "1"}
+	m := New(Config{
+		Session: newSession(), Lister: lister, YAML: yaml,
+		Kind: kube.KindPod, Namespace: "default", Name: "worker-0",
+	})
+	m.SetSize(120, 40)
+	m = step(t, m, m.Init()())
+
+	_, older := m.Update(kube.ResourceChangedMsg{Kind: kube.KindPod})
+	olderMsg := older()
+	yaml.text, yaml.rv = fixtureYAML+"# newer\n", "2"
+	_, newer := m.Update(kube.ResourceChangedMsg{Kind: kube.KindPod})
+	m = step(t, m, newer())
+	m = step(t, m, olderMsg)
+	if m.resourceVersion != "2" {
+		t.Fatalf("resourceVersion = %q after the older load landed last, want 2", m.resourceVersion)
+	}
+}

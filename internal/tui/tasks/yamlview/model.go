@@ -101,16 +101,26 @@ type Model struct {
 	// header badge's real connection state (never a hardcoded "live").
 	conn kube.ConnState
 
+	// loadEpoch is bumped on every reload, so only the newest load()'s
+	// result is applied.
+	loadEpoch int
+
 	state    tui.TaskState
 	feedback string
 	spinner  spinner.Model
 }
 
-// loadedMsg carries one load()'s result.
+// loadedMsg carries one load()'s result. epoch is the loadEpoch it was
+// issued under — an older load landing after a newer one is dropped.
+// keepManagedFields means the object's resourceVersion hadn't moved since
+// the last load, so no live managedFields fetch was made and the ones on
+// screen still hold.
 type loadedMsg struct {
+	epoch             int
 	text              string
 	resourceVersion   string
 	managedFieldsYAML string
+	keepManagedFields bool
 	err               error
 }
 
