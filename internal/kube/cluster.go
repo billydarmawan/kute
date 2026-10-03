@@ -694,7 +694,10 @@ func (c *Cluster) noteReachedIfGen(gen int) bool {
 // so the namespace a read actually used is the key regardless of mode. c.mu
 // must be held. KindTLSSecret (tlssecrets.go) is scoped the same way.
 func (c *Cluster) scopeKeyForLocked(kind ResourceKind, namespace string) scopeKey {
-	if kind == KindHelmRelease || kind == KindTLSSecret {
+	if kind == KindHelmRelease {
+		return scopeKey{kind, c.helmScopeLocked(namespace)}
+	}
+	if kind == KindTLSSecret {
 		return scopeKey{kind, namespace}
 	}
 	return scopeKey{kind, c.cacheScopeLocked(kind, namespace)}

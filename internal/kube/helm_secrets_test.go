@@ -254,3 +254,40 @@ func TestHelmReleaseSecretsAfterStop(t *testing.T) {
 		t.Fatalf("issued %d API actions after Stop, want 0", got-before)
 	}
 }
+
+// TestNamespacedReleaseReadReusesTheSyncedAllNamespacesCache: once the
+// all-namespaces release cache has filled it already holds every namespace's
+// revisions, so a namespaced read must be served from it — not issue a
+// second LIST (and start a second watch) for objects already in memory.
+func TestNamespacedReleaseReadReusesTheSyncedAllNamespacesCache(t *testing.T) {
+	c, cs := newLazyTestCluster(
+		secretOfType("sh.helm.release.v1.web.v1", "default", HelmReleaseSecretType),
+		secretOfType("sh.helm.release.v1.api.v1", "other", HelmReleaseSecretType),
+	)
+	defer c.Stop()
+	if err := c.Start(t.Context()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if _, err := c.ListHelmReleaseSecrets(t.Context(), ""); err != nil {
+		t.Fatalf("ListHelmReleaseSecrets: %v", err)
+	}
+	waitFor(t, "the all-namespaces release cache to fill", func() bool {
+		return c.KindSynced(KindHelmRelease, "")
+	})
+	before := len(secretListNamespaces(cs))
+
+	objs, err := c.ListHelmReleaseSecrets(t.Context(), "default")
+	if err != nil {
+		t.Fatalf("ListHelmReleaseSecrets: %v", err)
+	}
+	if len(objs) != 1 {
+		t.Fatalf("namespaced read returned %d release Secrets, want default's one", len(objs))
+	}
+	if !c.KindSynced(KindHelmRelease, "default") || !c.KindStarted(KindHelmRelease, "default") {
+		t.Fatal("the namespaced read is served by a synced cache, so KindSynced/KindStarted must say so")
+	}
+	if got := secretListNamespaces(cs)[before:]; len(got) != 0 {
+		t.Fatalf("namespaced read issued Secret lists %q — the all-namespaces cache already holds them", got)
+	}
+}

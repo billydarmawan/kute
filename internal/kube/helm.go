@@ -691,12 +691,22 @@ var helmReleaseFieldSelector = fields.OneTermEqualSelector("type", string(HelmRe
 // `helm list -n <ns>` answers in seconds. All-namespaces mode (namespace "")
 // still reads cluster-wide: you asked for every namespace, same as the
 // Secrets list itself.
+//
+// The one exception runs the other way: once the all-namespaces cache has
+// filled, it already holds every namespace's releases, so a namespaced read
+// with no cache of its own is served from it (helmScopeLocked) rather than
+// LISTing the same objects a second time.
+//
+// Namespaced caches are never stopped before the next context switch: each
+// namespace read keeps its watch and its revisions in memory until then
+// (docs/lazy-informers.md §5.5).
 func (c *Cluster) ensureHelmSecrets(namespace string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.stopCh == nil {
 		return
 	}
+	namespace = c.helmScopeLocked(namespace)
 	if c.helmInformers[namespace] != nil {
 		return
 	}
@@ -742,6 +752,22 @@ func (c *Cluster) ensureHelmSecrets(namespace string) {
 	c.health.noteListBurst()
 }
 
+// helmScopeLocked is the release cache that answers for namespace: its own
+// if one was ever started, else the all-namespaces cache once that has
+// synced, else namespace's own (to be started). Stable for the life of a
+// context — a synced informer stays synced and a started one stays in the
+// map — so a read, its KindSynced and its KindError always agree on the
+// cache. c.mu must be held.
+func (c *Cluster) helmScopeLocked(namespace string) string {
+	if namespace == "" || c.helmInformers[namespace] != nil {
+		return namespace
+	}
+	if all := c.helmInformers[""]; all != nil && all.HasSynced() {
+		return ""
+	}
+	return namespace
+}
+
 // ListHelmReleaseSecrets returns the helm.sh/release.v1 Secrets in namespace
 // ("" for all), from a cache that holds only those. Callers decode them with
 // DecodeHelmReleases; this deliberately returns Secrets rather than releases
@@ -749,16 +775,17 @@ func (c *Cluster) ensureHelmSecrets(namespace string) {
 func (c *Cluster) ListHelmReleaseSecrets(ctx context.Context, namespace string) ([]runtime.Object, error) {
 	c.ensureHelmSecrets(namespace)
 	c.mu.Lock()
-	f := c.helmFactories[namespace]
+	f := c.helmFactories[c.helmScopeLocked(namespace)]
 	c.mu.Unlock()
 	if f == nil {
 		// No cluster to read from (a stopped Cluster); an empty result plus
 		// KindSynced reporting settled is how every other read degrades.
 		return nil, nil
 	}
-	// The factory is already scoped to namespace, so its cluster-wide List is
-	// this namespace's releases — but the namespaced path stays for the
-	// all-namespaces cache, which really does hold every namespace's.
+	// A namespace's own factory is already scoped to it, so its cluster-wide
+	// List is this namespace's releases — but the namespaced path stays for
+	// the all-namespaces cache, which really does hold every namespace's and
+	// may be the one serving this read.
 	lister := f.Core().V1().Secrets().Lister()
 	return listNamespaced(lister.List, lister.Secrets, namespace, labels.Everything())
 }

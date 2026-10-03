@@ -540,6 +540,15 @@ instead of claiming the cluster is empty (`browse`, `helmhistory`, `events`, `ti
 `whocan`). The stall is a status, not a verdict: the reflector keeps retrying, a success
 clears it, and the informer's own change event reloads the screen.
 
+Per-namespace caches accumulate. One is started per namespace actually read — the Helm
+list, `h`/`↵` into a release — and none is stopped before the next context switch, so each
+namespace visited keeps its watch and its full gzipped revisions in memory until then. The
+one way that cost isn't paid twice: once the all-namespaces cache has synced it already holds
+every namespace's releases, so a namespaced read that has no cache of its own is served from
+it (`Cluster.helmScopeLocked`, which `scopeKeyForLocked` shares so `KindSynced`/`KindError`
+answer for the same cache), rather than LISTing the same objects again. Stopping idle
+namespaced caches is not done.
+
 `internal/kube/helm.go`, `cluster.go`, `dynamic.go`, `health.go`, `internal/app/app.go`,
 `internal/tui/kindsync.go`, `internal/tui/tasks/browse/{aux,update}.go`,
 `internal/tui/tasks/{helmhistory,events,timeline,whocan}/update.go`
