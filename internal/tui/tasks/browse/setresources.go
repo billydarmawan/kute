@@ -643,8 +643,15 @@ func (m *Model) commitSetResources(t setResourcesTarget) tea.Cmd {
 	kind, namespace, name := t.kind, t.namespace, t.name
 	container := t.activeContainer().Name
 	edits := t.edits()
+	// A dry-run commits nothing, so unlike the real apply it parents on the
+	// cluster context and carries the screen's timeout: a context switch or
+	// quit abandons it instead of letting it land on another cluster.
+	timeout := m.timeout
+	parent := m.session.ClusterContext()
 	return func() tea.Msg {
-		err := mutator.SetResources(context.Background(), kind, namespace, name, container, edits, true)
+		ctx, cancel := context.WithTimeout(parent, timeout)
+		defer cancel()
+		err := mutator.SetResources(ctx, kind, namespace, name, container, edits, true)
 		return dryRunSetResourcesMsg{target: t, err: err}
 	}
 }

@@ -88,6 +88,9 @@ type fakeMutator struct {
 	// SetImage stays a pure recorder.
 	setImageObjs map[kube.ResourceKind][]runtime.Object
 	err          error
+
+	// setResourcesDryRunCtx is the context the last dry-run SetResources ran under.
+	setResourcesDryRunCtx context.Context
 }
 
 func (f *fakeMutator) DeleteResource(_ context.Context, _ kube.ResourceKind, _ string, name string) error {
@@ -182,7 +185,10 @@ func setContainerImage(obj runtime.Object, container, image string, initContaine
 		}
 	}
 }
-func (f *fakeMutator) SetResources(_ context.Context, _ kube.ResourceKind, namespace, name, container string, _ kube.ResourceEdits, dryRun bool) error {
+func (f *fakeMutator) SetResources(ctx context.Context, _ kube.ResourceKind, namespace, name, container string, _ kube.ResourceEdits, dryRun bool) error {
+	if dryRun {
+		f.setResourcesDryRunCtx = ctx
+	}
 	if f.err != nil {
 		return f.err
 	}

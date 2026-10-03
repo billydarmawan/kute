@@ -346,6 +346,9 @@ func TestSetResourcesCommitsThroughMutatorNonProd(t *testing.T) {
 	if mut.dryRun {
 		t.Fatal("expected the last recorded call to be the real (non-dry-run) apply")
 	}
+	if _, ok := mut.setResourcesDryRunCtx.Deadline(); !ok {
+		t.Fatal("the dry-run ran without a deadline; want the cluster context with the screen's timeout")
+	}
 	if m.pendingSetResources == nil {
 		t.Fatal("expected the panel to remain open after apply")
 	}
