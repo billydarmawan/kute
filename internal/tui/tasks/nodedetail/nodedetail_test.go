@@ -634,3 +634,26 @@ func TestReloadKeepsTheSelectedPodAcrossNamespaces(t *testing.T) {
 		t.Fatalf("selection moved to %s/%s after a reload, want %s/postgres-0", got.pod.Namespace, got.pod.Name, want)
 	}
 }
+
+// TestStaleLoadReplyNeverOverwritesANewerOne: loads race, so a slower reply
+// to an older load must not put its snapshot back over a newer one.
+func TestStaleLoadReplyNeverOverwritesANewerOne(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {testNode("node-a")},
+		kube.KindPod:  {schedPod("default", "old", "node-a", "64Mi")},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, NodeName: "node-a"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	older := m.startLoad()
+	newer := m.startLoad()
+	olderReply := older()
+	lister.objs[kube.KindPod] = []runtime.Object{schedPod("default", "new", "node-a", "64Mi")}
+	m = step(t, m, newer())
+	m = step(t, m, olderReply)
+
+	if len(m.allPods) != 1 || m.allPods[0].pod.Name != "new" {
+		t.Fatalf("a stale reply overwrote the newer snapshot: %+v", m.allPods)
+	}
+}

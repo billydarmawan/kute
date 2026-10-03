@@ -53,7 +53,11 @@ func (m Model) scheduleReload(epoch int) tea.Cmd {
 // read here: load runs on every Pod or Node watch event anywhere in the
 // cluster, and metrics-server is polled on the sync interval only
 // (loadMetrics). applyLoaded overlays the last poll's reading instead.
+//
+// The reply carries m.loadSeq, which the caller bumps (startLoad) — Init
+// runs on a value copy and uses New's seq directly.
 func (m Model) load() tea.Cmd {
+	seq := m.loadSeq
 	lister := m.lister
 	nodeName := m.nodeName
 	timeout := m.timeout
@@ -64,12 +68,12 @@ func (m Model) load() tea.Cmd {
 
 		node, err := findNode(ctx, lister, nodeName)
 		if err != nil {
-			return loadedMsg{err: err}
+			return loadedMsg{seq: seq, err: err}
 		}
 
 		podObjs, err := lister.ListRaw(ctx, kube.KindPod, "")
 		if err != nil {
-			return loadedMsg{err: err}
+			return loadedMsg{seq: seq, err: err}
 		}
 
 		podDesc, _ := resources.DefaultRegistry().Descriptor(kube.KindPod)
@@ -101,6 +105,7 @@ func (m Model) load() tea.Cmd {
 		})
 
 		return loadedMsg{
+			seq:         seq,
 			node:        node,
 			allocated:   allocated,
 			allocatable: nodeAllocatable(node),
@@ -109,6 +114,12 @@ func (m Model) load() tea.Cmd {
 			drainImpact: drainImpact,
 		}
 	}
+}
+
+// startLoad issues a load newer than every one already in flight.
+func (m *Model) startLoad() tea.Cmd {
+	m.loadSeq++
+	return m.load()
 }
 
 func findNode(ctx context.Context, lister resources.RawLister, name string) (*corev1.Node, error) {

@@ -105,7 +105,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyDisk(msg)
 	case reloadDueMsg:
 		if msg.epoch == m.reloadEpoch {
-			return m, m.load()
+			return m, m.startLoad()
 		}
 	case spinner.TickMsg:
 		if m.state != tui.TaskStateLoading {
@@ -129,12 +129,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The panel's will-run strip is this result's surface.
 			m.actions.DismissResult()
 			if msg.Err == nil {
-				return m, m.load()
+				return m, m.startLoad()
 			}
 			return m, nil
 		}
 		if msg.Err == nil {
-			return m, m.load()
+			return m, m.startLoad()
 		}
 	case execResultMsg:
 		if msg.err != nil {
@@ -168,6 +168,10 @@ type execResultMsg struct{ err error }
 type editResultMsg struct{ err error }
 
 func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
+	if msg.seq < m.appliedSeq {
+		return m, nil
+	}
+	m.appliedSeq = msg.seq
 	if msg.err != nil && !errors.Is(msg.err, errNodeNotFound) {
 		m.state = tui.TaskStateError
 		if kube.IsPermissionError(msg.err) {

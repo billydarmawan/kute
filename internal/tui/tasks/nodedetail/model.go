@@ -218,6 +218,12 @@ type Model struct {
 	// arriving after a newer one's already in flight — mirrors browse's own
 	// reloadEpoch.
 	reloadEpoch int
+	// loadSeq numbers every load issued (startLoad) and appliedSeq is the
+	// newest one applied, so a slower reply to an older load can never put
+	// its snapshot back over a newer one — loads race, and the slowest
+	// reply is not necessarily the oldest. Mirrors overview's own pair.
+	loadSeq    int
+	appliedSeq int
 
 	// metricsEpoch identifies the live usage-poll chain. Exactly one tick is
 	// ever in flight: Init and Reload arm a chain (bumping this), and each
@@ -270,6 +276,7 @@ type Model struct {
 // loadedMsg carries one load()'s result: the node itself plus its pods
 // (already sorted unhealthy-first then name) and their summed requests.
 type loadedMsg struct {
+	seq         int
 	node        *corev1.Node
 	allocated   allocation
 	allocatable allocation
@@ -343,6 +350,7 @@ func New(cfg Config) Model {
 		loadStartedAt: time.Now(),
 		spinner:       components.NewSpinner(),
 		metricsEpoch:  1,
+		loadSeq:       1,
 	}
 }
 
