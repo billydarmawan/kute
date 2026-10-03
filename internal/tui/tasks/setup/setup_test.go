@@ -1,8 +1,10 @@
 package setup
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -463,5 +465,58 @@ func TestNoConfigTitleNamesWhatWentWrong(t *testing.T) {
 		if _, isLookup := errors.AsType[*kube.ConfigLookupError](tc.err); !isLookup && !strings.Contains(view, tc.err.Error()) {
 			t.Errorf("%v: LOOKED IN box lacks the real message:\n%s", tc.err, view)
 		}
+	}
+}
+
+// TestSwitchContextListSkipsCredentialPluginContexts pins 4c's version of
+// 7a's credential-plugin rule: opening the screen must not run a sibling's
+// exec/auth-provider plugin (a browser login or SSO prompt per context), so
+// such a context reads "not probed" — and ↵ on it still switches.
+func TestSwitchContextListSkipsCredentialPluginContexts(t *testing.T) {
+	var probed [][]string
+	origProbe, origPlugin := probeContexts, credentialPluginContexts
+	t.Cleanup(func() { probeContexts, credentialPluginContexts = origProbe, origPlugin })
+	probeContexts = func(_ context.Context, names []string) <-chan kube.ProbeResult {
+		probed = append(probed, slices.Clone(names))
+		ch := make(chan kube.ProbeResult, len(names))
+		for _, n := range names {
+			ch <- kube.ProbeResult{Name: n, Latency: 4 * time.Millisecond}
+		}
+		close(ch)
+		return ch
+	}
+	credentialPluginContexts = func() map[string]bool { return map[string]bool{"eks-prod": true} }
+
+	var switched string
+	m := New(Config{
+		Session:         &tui.Session{Theme: tui.Dark()},
+		State:           Unreachable,
+		ClusterName:     "microk8s-cluster",
+		OtherContexts:   []string{"eks-prod", "kind-local"},
+		SwitchToContext: func(name string) tea.Cmd { switched = name; return func() tea.Msg { return nil } },
+	})
+	m.SetSize(120, 36)
+	for cmd := m.Init(); cmd != nil; {
+		msg := cmd()
+		if _, done := msg.(switchProbesDoneMsg); done {
+			break
+		}
+		_, cmd = m.Update(msg)
+	}
+
+	if want := [][]string{{"kind-local"}}; !slices.EqualFunc(probed, want, slices.Equal) {
+		t.Fatalf("probed %v, want only the static-credential sibling %v", probed, want)
+	}
+	body := plain(m.Render())
+	for _, want := range []string{"eks-prod (not probed)", "kind-local (reachable · 4ms)"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected %q in the SWITCH CONTEXT list:\n%s", want, body)
+		}
+	}
+	if m.switchSel != 1 {
+		t.Fatalf("switchSel = %d, want 1 (eks-prod)", m.switchSel)
+	}
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || switched != "eks-prod" {
+		t.Fatalf("↵ on a not-probed context should switch to it, got %q", switched)
 	}
 }

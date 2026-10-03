@@ -33,14 +33,50 @@ type switchProbesDoneMsg struct{ gen int }
 // inside the returned Cmd rather than in Init itself, which is called on the
 // program goroutine — the same reason tui/context.go's probeContextsCmd
 // does (02 H1).
+//
+// A context whose user mints credentials through an exec or auth-provider
+// plugin is not probed: it streams back as Skipped ("○ not probed") instead,
+// the rule 7a's palette applies on open — probing it runs that plugin, a
+// browser login per OIDC context or an SSO prompt per AWS profile, for a
+// context the user may never pick. It stays selectable, and ↵ on it switches
+// as for any other row. Reading the kubeconfig happens here too, off the
+// program goroutine.
 func probeSwitchContextsCmd(ctx context.Context, gen int, names []string) tea.Cmd {
 	if len(names) == 0 {
 		return nil
 	}
 	return func() tea.Msg {
-		return waitForSwitchProbe(gen, kube.ProbeContexts(ctx, names))()
+		plugin := credentialPluginContexts()
+		out := make(chan kube.ProbeResult, len(names))
+		probe := make([]string, 0, len(names))
+		for _, name := range names {
+			if plugin[name] {
+				out <- kube.ProbeResult{Name: name, Skipped: true}
+				continue
+			}
+			probe = append(probe, name)
+		}
+		if len(probe) == 0 {
+			close(out)
+			return waitForSwitchProbe(gen, out)()
+		}
+		results := probeContexts(ctx, probe)
+		go func() {
+			defer close(out)
+			for res := range results {
+				out <- res
+			}
+		}()
+		return waitForSwitchProbe(gen, out)()
 	}
 }
+
+// probeContexts and credentialPluginContexts are seams so tests can stand in
+// a fake prober and kubeconfig classification.
+var (
+	probeContexts            = kube.ProbeContexts
+	credentialPluginContexts = kube.CredentialPluginContexts
+)
 
 // waitForSwitchProbe reads one result off ch, tagged with gen — mirrors
 // tui/context.go's waitForProbe exactly (same reasoning: the closure only

@@ -246,6 +246,8 @@ func (m Model) switchContextLines(theme tui.Theme, bw int) []string {
 			fg = lipgloss.NewStyle().Foreground(theme.Bad)
 		case switchToneWarn:
 			fg = lipgloss.NewStyle().Foreground(theme.Warn)
+		case switchToneFaint:
+			fg = lipgloss.NewStyle().Foreground(theme.TextFaint)
 		}
 		name := lipgloss.NewStyle().Foreground(theme.TextSecondary)
 		dim := lipgloss.NewStyle().Foreground(theme.TextGhost)
@@ -292,6 +294,7 @@ const (
 	switchToneGood
 	switchToneBad
 	switchToneWarn
+	switchToneFaint
 )
 
 // switchRowStatus renders one SWITCH CONTEXT row's glyph/status text/tone:
@@ -301,7 +304,8 @@ const (
 // refused" string wraps this compact row ugly, unlike the mockup's
 // illustrative one-word "timeout") — every other context reads its own
 // probes entry: "probing…" before a result lands, "reachable · Nms" on
-// success, "unreachable" on error (docs/design README.md §4c).
+// success, "unreachable" on error, "not probed" for a credential-plugin
+// context left alone (docs/design README.md §4c).
 func switchRowStatus(row switchContextRow, probe kube.ProbeResult, needsCreds bool) (glyph, status string, tone switchTone) {
 	if row.current {
 		// needsCreds swaps the current row's one word, for the same reason
@@ -315,6 +319,8 @@ func switchRowStatus(row switchContextRow, probe kube.ProbeResult, needsCreds bo
 		return tui.GlyphFailed, "current · unreachable", switchToneBad
 	}
 	switch {
+	case probe.Skipped:
+		return tui.GlyphCompleted, "not probed", switchToneFaint
 	case probe.Name == "" && probe.Err == nil && probe.Latency == 0:
 		return tui.GlyphProbing, "probing…", switchToneWarn
 	case probe.Err != nil:
