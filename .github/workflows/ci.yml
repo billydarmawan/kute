@@ -134,6 +134,20 @@ jobs:
           # Keep in step with release.yml's version by hand.
           version: "2.17.1"
           args: check
+      # release.yml runs scripts/release-notes.sh only on a tag, so a change
+      # to it, to cliff.toml or to git-cliff's --context output would
+      # otherwise first fail (or ship a malformed changelog.json into 28b)
+      # mid-release. Run the current script and config against the last
+      # tag, checked out in a worktree since --current needs HEAD at a tag,
+      # and check the shape tasks/update decodes.
+      - name: Generate changelog.json for the last tag
+        run: |
+          set -euo pipefail
+          tag=$(git describe --tags --abbrev=0)
+          git worktree add --detach "${RUNNER_TEMP}/last-tag" "${tag}"
+          (cd "${RUNNER_TEMP}/last-tag" && "${GITHUB_WORKSPACE}/scripts/release-notes.sh" "${tag}")
+          jq -e 'type == "array" and all(.[]; (.type | IN("new", "fix", "perf")) and (.text | type == "string" and length > 0))' \
+            .release/changelog.json
       # `check` validates the config's shape, not that the tools it shells
       # out to exist: syft missing from PATH renders identically until a tag
       # is pushed. A snapshot build runs the sbom pipe for real. Signing is
