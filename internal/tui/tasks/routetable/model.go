@@ -141,6 +141,7 @@ type Model struct {
 	// hostnames/rule-count strip and the resolved parent-listener detail line
 	// (§23b's below-table "parent" strip).
 	parentText         string
+	parentHasStatus    bool
 	parentAttached     bool
 	parentGatewayNS    string
 	parentGatewayName  string
@@ -189,6 +190,7 @@ type loadedMsg struct {
 	rows             []routeRow
 
 	parentText         string
+	parentHasStatus    bool
 	parentAttached     bool
 	parentGatewayNS    string
 	parentGatewayName  string

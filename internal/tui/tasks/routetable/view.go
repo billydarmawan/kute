@@ -170,7 +170,7 @@ func (m Model) routeSummaryLine(theme tui.Theme, width int) string {
 	dim := lipgloss.NewStyle().Foreground(theme.TextDim)
 
 	left := secondary.Render(fmt.Sprintf("%s · %d rules", m.routeHostText, m.routeRuleCount))
-	if m.parentGatewayName != "" {
+	if m.parentHasStatus {
 		glyph, glyphStyle := "✓", lipgloss.NewStyle().Foreground(theme.Good)
 		if !m.parentAttached {
 			glyph, glyphStyle = "✕", lipgloss.NewStyle().Foreground(theme.Bad)

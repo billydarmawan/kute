@@ -107,6 +107,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	m.tlsFacts = msg.tlsFacts
 	m.rows = msg.rows
 	m.parentText = msg.parentText
+	m.parentHasStatus = msg.parentHasStatus
 	m.parentAttached = msg.parentAttached
 	m.parentGatewayNS = msg.parentGatewayNS
 	m.parentGatewayName = msg.parentGatewayName

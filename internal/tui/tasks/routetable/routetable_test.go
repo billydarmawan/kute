@@ -1153,3 +1153,40 @@ func TestRouteMatchTextRendersEveryMatchShape(t *testing.T) {
 		}
 	}
 }
+
+// TestParentSummaryAggregatesParentsAndFlagsStaleOrNonGateway pins 23b's
+// parent strip across status.parents: a second, rejecting parent is not
+// hidden behind the first accepted one; a verdict for an older generation
+// says it's stale; and a GAMMA Service parent never becomes p's Gateway.
+func TestParentSummaryAggregatesParentsAndFlagsStaleOrNonGateway(t *testing.T) {
+	parent := func(kind, name, status string, observed int64) any {
+		ref := map[string]any{"name": name}
+		if kind != "" {
+			ref["kind"] = kind
+		}
+		return map[string]any{"parentRef": ref, "conditions": []any{map[string]any{
+			"type": "Accepted", "status": status, "message": "nope", "observedGeneration": observed,
+		}}}
+	}
+	route := func(gen int64, parents ...any) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"name": "r", "namespace": "default", "generation": gen},
+			"status":   map[string]any{"parents": parents},
+		}}
+	}
+
+	got := parentSummary(route(1, parent("", "public", "True", 1), parent("", "internal", "False", 1)))
+	if got.attached || got.gatewayName != "internal" || !strings.Contains(got.text, "gw/internal · not accepted: nope · 1/2 parents accepted") {
+		t.Fatalf("mixed parents = %+v, want the rejecting parent named and 1/2 counted", got)
+	}
+
+	got = parentSummary(route(3, parent("", "public", "True", 2)))
+	if !got.attached || !strings.HasSuffix(got.text, "· status stale") {
+		t.Fatalf("stale parent = %+v, want accepted but marked stale", got)
+	}
+
+	got = parentSummary(route(1, parent("Service", "web", "True", 1)))
+	if !got.hasStatus || !got.attached || got.gatewayName != "" || !strings.HasPrefix(got.text, "service/web") {
+		t.Fatalf("service parent = %+v, want accepted, labelled service/web, no gateway jump target", got)
+	}
+}

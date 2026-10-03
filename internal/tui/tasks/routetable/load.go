@@ -377,10 +377,10 @@ func (m Model) loadRoute() tea.Cmd {
 		}
 
 		rows := routeRowsFromRoute(ctx, lister, ns, u)
-		parentText, attached, parentNS, parentName, sectionName := parentSummary(ns, u)
+		parent := parentSummary(u)
 		listenerText, certsPending := "", false
-		if parentName != "" {
-			listenerText, certsPending = resolveParentListenerDetail(ctx, lister, parentNS, parentName, sectionName)
+		if parent.gatewayName != "" {
+			listenerText, certsPending = resolveParentListenerDetail(ctx, lister, parent.gatewayNS, parent.gatewayName, parent.sectionName)
 		}
 
 		hostnames, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "hostnames")
@@ -392,8 +392,8 @@ func (m Model) loadRoute() tea.Cmd {
 
 		return loadedMsg{
 			flavor: flavorRoute, rows: rows,
-			parentText: parentText, parentAttached: attached,
-			parentGatewayNS: parentNS, parentGatewayName: parentName,
+			parentText: parent.text, parentHasStatus: parent.hasStatus, parentAttached: parent.attached,
+			parentGatewayNS: parent.gatewayNS, parentGatewayName: parent.gatewayName,
 			parentListenerText: listenerText,
 			routeHostText:      hostText, routeRuleCount: len(rulesRaw),
 			certsPending: certsPending,
@@ -695,50 +695,62 @@ func routeHeaderMatchSummary(pathMatch map[string]any) string {
 	return strings.Join(parts, ", ")
 }
 
-// parentSummary resolves status.parents' first Accepted condition into the
-// docs/design README.md §23b parent strip text ("gw/public › https:443 ·
-// accepted" — the leading ✓/✕ glyph is the view's own span, styled off
-// attached) plus the Gateway identity 'p'/the below-table listener lookup
-// need.
-func parentSummary(routeNamespace string, u *unstructured.Unstructured) (text string, attached bool, gatewayNS, gatewayName, sectionName string) {
-	parents, _, _ := unstructured.NestedSlice(u.Object, "status", "parents")
-	for _, p := range parents {
-		pm, ok := p.(map[string]any)
-		if !ok {
-			continue
-		}
-		parentName, _, _ := unstructured.NestedString(pm, "parentRef", "name")
-		parentNS, hasNS, _ := unstructured.NestedString(pm, "parentRef", "namespace")
-		if !hasNS || parentNS == "" {
-			parentNS = routeNamespace
-		}
-		section, _, _ := unstructured.NestedString(pm, "parentRef", "sectionName")
+// parentInfo is a route's status.parents summary for 23b's parent strip.
+type parentInfo struct {
+	text      string // "gw/public › https · accepted" (glyph is the view's)
+	hasStatus bool   // any parent reported an Accepted condition
+	attached  bool   // every reporting parent accepted the route
+	// gatewayNS/gatewayName identify the parent 'p' jumps to and the
+	// listener lookup reads — set only for a Gateway parent, never for a
+	// GAMMA mesh route's Service parent.
+	gatewayNS, gatewayName, sectionName string
+}
 
-		conds, _, _ := unstructured.NestedSlice(pm, "conditions")
-		for _, c := range conds {
-			cm, ok := c.(map[string]any)
-			if !ok {
-				continue
-			}
-			if typ, _, _ := unstructured.NestedString(cm, "type"); typ != "Accepted" {
-				continue
-			}
-			label := "gw/" + parentName
-			if section != "" {
-				label += " › " + section
-			}
-			if st, _, _ := unstructured.NestedString(cm, "status"); st == "True" {
-				return label + " · accepted", true, parentNS, parentName, section
-			}
-			msg, _, _ := unstructured.NestedString(cm, "message")
-			text := label + " · not accepted"
-			if msg != "" {
-				text += ": " + msg
-			}
-			return text, false, parentNS, parentName, section
+// parentSummary resolves status.parents into the docs/design README.md §23b
+// parent strip text ("gw/public › https:443 · accepted" — the leading ✓/✕
+// glyph is the view's own span, styled off attached) plus the Gateway
+// identity 'p'/the below-table listener lookup need. The strip names one
+// parent — the first one rejecting the route, else the first — and counts
+// the rest ("1/2 parents accepted"); a verdict written for an older
+// generation of the route is marked stale rather than read as current.
+func parentSummary(u *unstructured.Unstructured) parentInfo {
+	parents := resources.RouteParents(u)
+	if len(parents) == 0 {
+		return parentInfo{text: "no parent status yet"}
+	}
+	primary, accepted, stale := parents[0], 0, false
+	foundRejected := false
+	for _, p := range parents {
+		stale = stale || p.Stale
+		if p.Accepted {
+			accepted++
+		} else if !foundRejected {
+			primary, foundRejected = p, true
 		}
 	}
-	return "no parent status yet", false, "", "", ""
+	text := primary.Label()
+	if primary.Section != "" {
+		text += " › " + primary.Section
+	}
+	if primary.Accepted {
+		text += " · accepted"
+	} else {
+		text += " · not accepted"
+		if primary.Message != "" {
+			text += ": " + primary.Message
+		}
+	}
+	if len(parents) > 1 {
+		text += fmt.Sprintf(" · %d/%d parents accepted", accepted, len(parents))
+	}
+	if stale {
+		text += " · status stale"
+	}
+	info := parentInfo{text: text, hasStatus: true, attached: accepted == len(parents)}
+	if primary.Kind == "Gateway" {
+		info.gatewayNS, info.gatewayName, info.sectionName = primary.Namespace, primary.Name, primary.Section
+	}
+	return info
 }
 
 // loadGateway resolves 23b's Gateway flavor: one row per spec.listeners

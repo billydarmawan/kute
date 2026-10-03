@@ -242,20 +242,93 @@ func projectHTTPRoute(dk kube.DiscoveredKind) func(obj runtime.Object) Row {
 	}
 }
 
-// httpRouteAttachedCell scans status.parents for the first Accepted
+// httpRouteAttachedCell reads every status.parents entry's Accepted
 // condition, rendering the design's exact copy: green "✓ gw/public" when
-// accepted, red "✕ not accepted" (plus the condition's own message, the
-// design's "verbatim" requirement) otherwise — including when the route has
-// no status.parents at all yet (a brand-new route before the controller has
-// reconciled it).
+// every parent accepted the route ("+N" naming further parents), red
+// "✕ not accepted" (plus the first rejecting parent's own message, the
+// design's "verbatim" requirement; "✕ 1/2 accepted" when only some did)
+// otherwise — including when the route has no status.parents at all yet (a
+// brand-new route before the controller has reconciled it). A status the
+// controller wrote for an older generation of the route says so.
 func httpRouteAttachedCell(u *unstructured.Unstructured) (text string, class StatusClass) {
-	parents, _, _ := unstructured.NestedSlice(u.Object, "status", "parents")
-	for _, p := range parents {
+	parents := RouteParents(u)
+	if len(parents) == 0 {
+		return "✕ not accepted", StatusFail
+	}
+	accepted, stale := 0, false
+	var rejected *RouteParent
+	for i := range parents {
+		stale = stale || parents[i].Stale
+		if parents[i].Accepted {
+			accepted++
+		} else if rejected == nil {
+			rejected = &parents[i]
+		}
+	}
+	if rejected == nil {
+		text, class = "✓ "+parents[0].Label(), StatusOK
+		if len(parents) > 1 {
+			text += fmt.Sprintf(" +%d", len(parents)-1)
+		}
+	} else {
+		text, class = "✕ not accepted", StatusFail
+		if len(parents) > 1 {
+			text = fmt.Sprintf("✕ %d/%d accepted", accepted, len(parents))
+		}
+		if rejected.Message != "" {
+			text += ": " + rejected.Message
+		}
+	}
+	if stale {
+		text += " (stale)"
+	}
+	return text, class
+}
+
+// RouteParent is one Gateway API route status.parents entry that carries an
+// Accepted condition — the controller's verdict for one parentRef.
+type RouteParent struct {
+	Kind      string // parentRef.kind, defaulted to "Gateway"
+	Namespace string // parentRef.namespace, defaulted to the route's own
+	Name      string
+	Section   string // parentRef.sectionName, "" when unset
+	Accepted  bool
+	Message   string // the Accepted condition's message
+	// Stale is true when the condition's observedGeneration is older than
+	// the route's metadata.generation — the controller hasn't caught up with
+	// the latest spec, so the verdict may no longer hold.
+	Stale bool
+}
+
+// Label renders the parent as "gw/<name>" for a Gateway, else
+// "<kind>/<name>" (a GAMMA mesh route's Service parent).
+func (p RouteParent) Label() string {
+	if p.Kind == "Gateway" {
+		return "gw/" + p.Name
+	}
+	return strings.ToLower(p.Kind) + "/" + p.Name
+}
+
+// RouteParents lists every status.parents entry of a Gateway API route that
+// has an Accepted condition, in status order.
+func RouteParents(u *unstructured.Unstructured) []RouteParent {
+	raw, _, _ := unstructured.NestedSlice(u.Object, "status", "parents")
+	generation := u.GetGeneration()
+	var out []RouteParent
+	for _, p := range raw {
 		pm, ok := p.(map[string]any)
 		if !ok {
 			continue
 		}
-		parentName, _, _ := unstructured.NestedString(pm, "parentRef", "name")
+		rp := RouteParent{Kind: "Gateway", Namespace: u.GetNamespace()}
+		rp.Name, _, _ = unstructured.NestedString(pm, "parentRef", "name")
+		if kind, _, _ := unstructured.NestedString(pm, "parentRef", "kind"); kind != "" {
+			rp.Kind = kind
+		}
+		if ns, _, _ := unstructured.NestedString(pm, "parentRef", "namespace"); ns != "" {
+			rp.Namespace = ns
+		}
+		rp.Section, _, _ = unstructured.NestedString(pm, "parentRef", "sectionName")
 		conds, _, _ := unstructured.NestedSlice(pm, "conditions")
 		for _, c := range conds {
 			cm, ok := c.(map[string]any)
@@ -265,17 +338,16 @@ func httpRouteAttachedCell(u *unstructured.Unstructured) (text string, class Sta
 			if typ, _, _ := unstructured.NestedString(cm, "type"); typ != "Accepted" {
 				continue
 			}
-			if st, _, _ := unstructured.NestedString(cm, "status"); st == "True" {
-				return "✓ gw/" + parentName, StatusOK
-			}
-			msg, _, _ := unstructured.NestedString(cm, "message")
-			if msg == "" {
-				return "✕ not accepted", StatusFail
-			}
-			return "✕ not accepted: " + msg, StatusFail
+			st, _, _ := unstructured.NestedString(cm, "status")
+			rp.Accepted = st == "True"
+			rp.Message, _, _ = unstructured.NestedString(cm, "message")
+			observed, _, _ := unstructured.NestedInt64(cm, "observedGeneration")
+			rp.Stale = observed > 0 && generation > 0 && observed < generation
+			out = append(out, rp)
+			break
 		}
 	}
-	return "✕ not accepted", StatusFail
+	return out
 }
 
 // crdColumns is the 14b CRDs list's fixed column set — every CRD, whatever

@@ -242,6 +242,32 @@ func TestHTTPRouteDescriptorAttachedColumn(t *testing.T) {
 	}
 }
 
+// TestHTTPRouteAttachedCellAggregatesParents pins the ATTACHED cell across
+// every status.parents entry, not just the first: a second parent's
+// rejection fails the row, and a verdict for an older generation is marked.
+func TestHTTPRouteAttachedCellAggregatesParents(t *testing.T) {
+	u := httpRouteInstance("r", "prod", "public", "True", "")
+	parents, _, _ := unstructured.NestedSlice(u.Object, "status", "parents")
+	parents = append(parents, map[string]any{
+		"parentRef":  map[string]any{"name": "internal"},
+		"conditions": []any{map[string]any{"type": "Accepted", "status": "False", "message": "no listener"}},
+	})
+	_ = unstructured.SetNestedSlice(u.Object, parents, "status", "parents")
+	if text, class := httpRouteAttachedCell(u); class != StatusFail || text != "✕ 1/2 accepted: no listener" {
+		t.Fatalf("mixed parents = %q/%s, want ✕ 1/2 accepted: no listener", text, class)
+	}
+
+	u = httpRouteInstance("r", "prod", "public", "True", "")
+	u.SetGeneration(2)
+	_ = unstructured.SetNestedField(u.Object, []any{map[string]any{
+		"parentRef":  map[string]any{"name": "public"},
+		"conditions": []any{map[string]any{"type": "Accepted", "status": "True", "observedGeneration": int64(1)}},
+	}}, "status", "parents")
+	if text, class := httpRouteAttachedCell(u); class != StatusOK || text != "✓ gw/public (stale)" {
+		t.Fatalf("stale parent = %q/%s, want ✓ gw/public (stale)", text, class)
+	}
+}
+
 func TestBuildDiscoveredRegistryHTTPRouteGetsAttachedDescriptor(t *testing.T) {
 	reg, _ := BuildDiscoveredRegistry([]kube.DiscoveredKind{httpRouteDiscoveredKind()}, nil)
 	d, ok := reg.Descriptor(kube.KindHTTPRoute)
