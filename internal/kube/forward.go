@@ -405,20 +405,47 @@ func (r clientsetPodResolver) ResolveForwardPort(ctx context.Context, namespace,
 	return PodTargetPort(got, target, protocol)
 }
 
+// firstRunningPod picks the pod a Service/Deployment forward dials: a
+// Running, non-terminating pod, Ready ones first — the same test
+// ForwardPodAvailable applies, so a reconnect after a pod delete never
+// re-resolves to the dying pod (its phase stays Running through the grace
+// period) only to be closed again on its next event. With no such pod it
+// errors rather than hand back a Pending or Failed pod the dial can't use;
+// the forward's reconnect loop retries.
 func (r clientsetPodResolver) firstRunningPod(ctx context.Context, namespace string, sel labels.Selector) (string, error) {
 	pods, err := r.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel.String()})
 	if err != nil {
 		return "", err
 	}
+	running := ""
 	for _, p := range pods.Items {
-		if p.Status.Phase == corev1.PodRunning {
+		if p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning {
+			continue
+		}
+		if podConditionTrue(&p, corev1.PodReady) {
 			return p.Name, nil
 		}
+		if running == "" {
+			running = p.Name
+		}
+	}
+	if running != "" {
+		return running, nil
 	}
 	if len(pods.Items) > 0 {
-		return pods.Items[0].Name, nil
+		return "", fmt.Errorf("no running pod matches the target's selector")
 	}
 	return "", fmt.Errorf("no pods match the target's selector")
+}
+
+// podConditionTrue reports whether pod carries condition t with status True.
+func podConditionTrue(pod *corev1.Pod, t corev1.PodConditionType) bool {
+	for _, c := range pod.Status.Conditions {
+		if c.Type == t {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 // PortForwardCommandString renders the kubectl invocation dialing pod
