@@ -1,10 +1,7 @@
 package tui
 
 import (
-	"strings"
 	"testing"
-
-	"github.com/mattn/go-runewidth"
 )
 
 func TestNormalizeSize(t *testing.T) {
@@ -36,35 +33,5 @@ func TestBodyHeight(t *testing.T) {
 				t.Fatalf("BodyHeight(%d) = %d, want %d", tt.height, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestTruncate(t *testing.T) {
-	t.Parallel()
-
-	got := Truncate("abcdefgh", 5)
-	want := "ab..."
-	if got != want {
-		t.Fatalf("Truncate() = %q, want %q", got, want)
-	}
-}
-
-func TestTruncateAndPadLineAreDisplayWidthSafe(t *testing.T) {
-	t.Parallel()
-
-	got := Truncate("CPU ███░░", 8)
-	if strings.ContainsRune(got, '\uFFFD') {
-		t.Fatalf("Truncate produced replacement rune: %q", got)
-	}
-	if width := runewidth.StringWidth(got); width > 8 {
-		t.Fatalf("Truncate width = %d, want <= 8 for %q", width, got)
-	}
-
-	padded := PadLine("● Running", 12)
-	if strings.ContainsRune(padded, '\uFFFD') {
-		t.Fatalf("PadLine produced replacement rune: %q", padded)
-	}
-	if width := runewidth.StringWidth(padded); width != 12 {
-		t.Fatalf("PadLine width = %d, want 12 for %q", width, padded)
 	}
 }

@@ -7,7 +7,7 @@ no           Allow          –           6 (default)
 ACTIVE    HISTORY KEPT              LAST SCHEDULE    CONTROLLER                 
 0         3 succeeded · 1 failed    never            –                          
                                                                                 
-JOBS  associated with this cronjob · newest first · 0 retained · history limi...
+JOBS  associated with this cronjob · newest first · 0 retained · history limits…
       NAME             SOURCE                 START   DURATION         OUTCOME  
 ────────────────────────────────────────────────────────────────────────────────
   No resources found                                                            

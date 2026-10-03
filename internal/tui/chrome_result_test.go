@@ -35,7 +35,7 @@ func TestKeybarFailedResult(t *testing.T) {
 			if strings.Contains(text, "logs") {
 				t.Fatalf("keybar = %q, the error replaces the hint groups", text)
 			}
-			if ansi.StringWidth(text) != 100 || !strings.Contains(text, "...") {
+			if ansi.StringWidth(text) != 100 || !strings.Contains(text, "…") {
 				t.Fatalf("keybar = %q, want a truncated full-width line", text)
 			}
 			if !strings.Contains(text, "? help") {

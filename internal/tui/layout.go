@@ -1,11 +1,5 @@
 package tui
 
-import (
-	"strings"
-
-	"github.com/charmbracelet/x/ansi"
-)
-
 const (
 	DefaultWidth  = 80
 	DefaultHeight = 24
@@ -36,35 +30,6 @@ func BodyHeight(height int) int {
 	}
 
 	return available
-}
-
-// Truncate shortens value to a visible width of width, ignoring any ANSI
-// escape sequences so colored strings measure by their rendered width.
-func Truncate(value string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if ansi.StringWidth(value) <= width {
-		return value
-	}
-	if width <= 3 {
-		return ansi.Truncate(value, width, "")
-	}
-
-	return ansi.Truncate(value, width, "...")
-}
-
-// PadLine right-pads value to a visible width of width. Width is measured with
-// ANSI escapes stripped, so already-colored, full-width lines pass through
-// unchanged instead of being miscounted and clipped.
-func PadLine(value string, width int) string {
-	value = Truncate(value, width)
-	cellWidth := ansi.StringWidth(value)
-	if cellWidth >= width {
-		return value
-	}
-
-	return value + strings.Repeat(" ", width-cellWidth)
 }
 
 func ChromeWidth(width int) int {

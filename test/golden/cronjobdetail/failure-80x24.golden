@@ -11,7 +11,7 @@ ACTIVE    HISTORY KEPT              LAST SCHEDULE    CONTROLLER
 ▌ Job has reached the specified backoff limit                                   
 ▌ 3 pod failures · exit 1 · l logs of the last failed pod                       
                                                                                 
-JOBS  associated with this cronjob · newest first · 3 retained · history limi...
+JOBS  associated with this cronjob · newest first · 3 retained · history limits…
       NAME             SOURCE                 START   DURATION         OUTCOME  
 ────────────────────────────────────────────────────────────────────────────────
 ▎ ◐   nightly-293106…  schedule 09:13        2m ago         2m         running  

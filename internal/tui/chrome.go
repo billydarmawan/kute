@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kute-dev/kute/internal/kube"
+	"github.com/kute-dev/kute/internal/tui/components"
 )
 
 func fitBody(content string, width, height int) string {
@@ -19,7 +20,7 @@ func fitBody(content string, width, height int) string {
 		lines = append(lines, "")
 	}
 	for i := range lines {
-		lines[i] = PadLine(lines[i], width)
+		lines[i] = components.Pad(lines[i], width)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -313,7 +314,7 @@ func Frame(width, height int, s Screen) string {
 	strips := s.Strips(width)
 	stripLines := make([]string, len(strips))
 	for i, line := range strips {
-		stripLines[i] = PadLine(line, width)
+		stripLines[i] = components.Pad(line, width)
 	}
 	kb := s.Keybar()
 	if r, ok := s.(ActionResulter); ok && kb.Result.Empty() {
@@ -368,7 +369,7 @@ func insetChromeLine(left, right string, width int) string {
 		line += strings.Repeat(" ", gap) + right
 	}
 	margin := strings.Repeat(" ", FrameInset)
-	return PadLine(margin+line, width)
+	return components.Pad(margin+line, width)
 }
 
 // renderHeaderV2 returns the header band's frameHeaderLines lines: just the
@@ -592,7 +593,7 @@ func renderFailedKeybar(k Keybar, pill string, renderHints func([]KeyHint) strin
 			avail = inner - lipgloss.Width(pill)
 		}
 	}
-	text := Truncate(GlyphFailed+" "+singleLine(k.Result.Text), max(avail, 0))
+	text := components.Truncate(GlyphFailed+" "+singleLine(k.Result.Text), max(avail, 0))
 	return insetChromeLine(pill+lipgloss.NewStyle().Foreground(theme.Bad).Render(text), right, width)
 }
 
