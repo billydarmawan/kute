@@ -520,3 +520,55 @@ func TestSwitchContextListSkipsCredentialPluginContexts(t *testing.T) {
 		t.Fatalf("↵ on a not-probed context should switch to it, got %q", switched)
 	}
 }
+
+// TestRetryReprobesSwitchContextList pins 4c's r refreshing the SWITCH
+// CONTEXT list too, like 7a's: a sibling probed unreachable at open has to be
+// able to read reachable later without leaving the screen, and a drain still
+// streaming from the earlier run must not overwrite the new one.
+func TestRetryReprobesSwitchContextList(t *testing.T) {
+	latency := 4 * time.Millisecond
+	runs := 0
+	origProbe, origPlugin := probeContexts, credentialPluginContexts
+	t.Cleanup(func() { probeContexts, credentialPluginContexts = origProbe, origPlugin })
+	probeContexts = func(_ context.Context, names []string) <-chan kube.ProbeResult {
+		runs++
+		ch := make(chan kube.ProbeResult, len(names))
+		for _, n := range names {
+			ch <- kube.ProbeResult{Name: n, Latency: latency}
+		}
+		close(ch)
+		return ch
+	}
+	credentialPluginContexts = func() map[string]bool { return nil }
+
+	drain := func(m *Model, cmd tea.Cmd) {
+		for cmd != nil {
+			msg := cmd()
+			if _, done := msg.(switchProbesDoneMsg); done {
+				return
+			}
+			_, cmd = m.Update(msg)
+		}
+	}
+	m := New(Config{
+		Session:       &tui.Session{Theme: tui.Dark()},
+		State:         Unreachable,
+		ClusterName:   "microk8s-cluster",
+		OtherContexts: []string{"kind-local"},
+		RetryNow:      func() {},
+	})
+	m.SetSize(120, 36)
+	drain(&m, m.Init())
+	staleGen := m.probeGen
+
+	latency = 9 * time.Millisecond
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "r"})
+	drain(&m, cmd)
+	if runs != 2 {
+		t.Fatalf("probe runs = %d, want 2 (open, then r)", runs)
+	}
+	m.Update(switchProbeMsg{gen: staleGen, res: kube.ProbeResult{Name: "kind-local", Latency: time.Second}})
+	if body := plain(m.Render()); !strings.Contains(body, "kind-local (reachable · 9ms)") {
+		t.Errorf("SWITCH CONTEXT list after r should show the re-probe's result:\n%s", body)
+	}
+}

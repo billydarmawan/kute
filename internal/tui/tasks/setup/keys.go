@@ -87,7 +87,11 @@ func (m *Model) doRetry(path string) (tea.Model, tea.Cmd) {
 	switch {
 	case path == "" && m.state == Unreachable && m.retryNow != nil:
 		m.retryNow()
-		return m, nil
+		// The siblings' reachability is as stale as the current context's:
+		// re-probe them under a fresh gen, so the previous run's drain can't
+		// land on top of this one's results.
+		m.probeGen++
+		return m, probeSwitchContextsCmd(m.session.Context(), m.probeGen, m.otherContexts)
 	case m.reconnect != nil:
 		m.retrying = true
 		m.retryErr = nil
