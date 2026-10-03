@@ -270,8 +270,8 @@
       </ul>
 
       <h3>Config and secrets</h3>
-      <p><code>↵</code> on a ConfigMap or a Secret opens its data as a key/value table. Short values are edited in place with <code>↵</code>; a long ConfigMap value opens in a buffer you can edit properly and apply with <code>alt-a</code>. <code>a</code> adds a key, <code>D</code> removes one, and on a ConfigMap <code>ctrl-r</code> applies your change <em>and</em> restarts every workload that consumes it, which is the step that is easy to forget.</p>
-      <p>Secret values are masked everywhere by default: in the table, in the will-run line, and in the result message. <code>ctrl-x</code> toggles the mask on the value you are typing. Nothing decoded is written to disk or to a log, and leaving the screen re-masks everything.</p>
+      <p><code>↵</code> on a ConfigMap or a Secret opens its data as a key/value table. Short values are edited in place with <code>↵</code>; a long ConfigMap value opens in a buffer you can edit properly and apply with <code>alt+a</code>. <code>a</code> adds a key, <code>D</code> removes one, and on a ConfigMap <code>ctrl+r</code> applies your change <em>and</em> restarts every workload that consumes it, which is the step that is easy to forget.</p>
+      <p>Secret values are masked everywhere by default: in the table, in the will-run line, and in the result message. <code>ctrl+x</code> toggles the mask on the value you are typing. Nothing decoded is written to disk or to a log, and leaving the screen re-masks everything.</p>
 
       <div class="term reveal" role="img" aria-label="kute's YAML view with secret decode: values masked by default, the cursor key revealed in place with a colored gutter bar, decoded in memory only">
         <div class="term-header">
@@ -475,7 +475,7 @@
       <div class="friction-list">
         <div class="friction-item"><span class="tier rev">reversible</span> cordon runs straight away — you can uncordon with the same key</div>
         <div class="friction-item"><span class="tier del">delete, restart, rollback, drain</span> a <code>y/N</code> in the keybar, under the command that is about to run — no modal in the way; drain asks it on a small confirm card, in every context</div>
-        <div class="friction-item"><span class="tier prod">prod, force delete, namespace / CRD / node delete</span> type the object's name to confirm; force delete (<code>ctrl-k</code> on a pod's delete confirm) and deleting a Namespace, CRD or Node always ask this, everywhere</div>
+        <div class="friction-item"><span class="tier prod">prod, force delete, namespace / CRD / node delete</span> type the object's name to confirm; force delete (<code>ctrl+k</code> on a pod's delete confirm) and deleting a Namespace, CRD or Node always ask this, everywhere</div>
       </div>
       <p>In a production context, the <code>y/N</code> for delete, rollout restart and rollout rollback becomes a type-the-name confirmation too, and edits, image and resource changes and debug launches — which run straight away elsewhere — ask a <code>y/N</code> first. A red border is used for exactly one thing in kute — a confirmation that will destroy something — so if you see red, stop and read.</p>
 
@@ -492,7 +492,7 @@
             </div>
             <div class="term-modal-body">
               <div>Owner: <span class="owner">Deployment/nebula-qa — will be recreated</span></div>
-              <div>Grace period: <span style="color:var(--text)">30s</span> &nbsp; <span style="color:var(--text-faint)">force delete: <span class="key" style="color:var(--accent-hi)">ctrl-k</span> (grace 0)</span></div>
+              <div>Grace period: <span style="color:var(--text)">30s</span> &nbsp; <span style="color:var(--text-faint)">force delete: <span class="key" style="color:var(--accent-hi)">ctrl+k</span> (grace 0)</span></div>
               <div class="type-row">type the pod name to confirm: nebula-qa-9k2<span class="cursor">▎</span></div>
               <div class="progress">14/16</div>
             </div>
@@ -504,7 +504,7 @@
       </div>
 
       <h3>Marking a context as production</h3>
-      <p>kute never guesses from a name — a context called <code>prod-eks</code> gets no special treatment unless you say so. Open the context palette with <code>c</code>, put the cursor on a context and press <code>ctrl-p</code> to mark or unmark it. That writes the <code>prodContexts</code> list in your <a href="#configuration">config file</a>, which every kute session on that machine then reads.</p>
+      <p>kute never guesses from a name — a context called <code>prod-eks</code> gets no special treatment unless you say so. Open the context palette with <code>c</code>, put the cursor on a context and press <code>ctrl+p</code> to mark or unmark it. That writes the <code>prodContexts</code> list in your <a href="#configuration">config file</a>, which every kute session on that machine then reads.</p>
 
       <h3>When the cluster goes away</h3>
       <p>Losing the connection mid-incident does not blank the screen. What kute last saw stays browsable, dimmed, with an age stamp and a countdown to the next retry — stale data you can read beats an empty screen you cannot. Actions that would write are hidden until the connection is back.</p>
@@ -597,7 +597,7 @@
           <tr><td><kbd>pgdown</kbd></td><td>page down through pod detail</td></tr>
           <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>related — open a numbered RELATED link in pod detail</td></tr>
           <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>previous / next pod, without leaving pod detail</td></tr>
-          <tr><td><kbd>ctrl-k</kbd> <span class="dim">on a delete confirm</span></td><td>force delete (grace period 0) — always asks for the typed name</td></tr>
+          <tr><td><kbd>ctrl+k</kbd> <span class="dim">on a delete confirm</span></td><td>force delete (grace period 0) — always asks for the typed name</td></tr>
         </tbody>
       </table>
 
@@ -649,9 +649,9 @@
         <tbody>
           <tr><td><kbd>↵</kbd></td><td>apply the new schedule</td></tr>
           <tr><td><kbd>tab</kbd></td><td>timezone — move to the timezone field, where the cluster supports it</td></tr>
-          <tr><td><kbd>ctrl-t</kbd></td><td>copy the will-run command</td></tr>
-          <tr><td><kbd>ctrl-z</kbd></td><td>undo — put back the schedule you just replaced</td></tr>
-          <tr><td><kbd>ctrl-y</kbd></td><td>full yaml edit — everything else, in <code>$EDITOR</code></td></tr>
+          <tr><td><kbd>ctrl+t</kbd></td><td>copy the will-run command</td></tr>
+          <tr><td><kbd>ctrl+z</kbd></td><td>undo — put back the schedule you just replaced</td></tr>
+          <tr><td><kbd>ctrl+y</kbd></td><td>full yaml edit — everything else, in <code>$EDITOR</code></td></tr>
         </tbody>
       </table>
 
@@ -659,7 +659,7 @@
       <table class="keyref">
         <tbody>
           <tr><td><kbd>C</kbd></td><td>cordon / uncordon</td></tr>
-          <tr><td><kbd>ctrl-d</kbd></td><td>drain</td></tr>
+          <tr><td><kbd>ctrl+d</kbd></td><td>drain</td></tr>
           <tr><td><kbd>x</kbd> <span class="dim">or, in node detail,</span> <kbd>s</kbd></td><td>debug — opens a panel for a root shell on the node, with a preview of the command before it runs</td></tr>
         </tbody>
       </table>
@@ -674,7 +674,7 @@
           <tr><td><kbd>p</kbd></td><td>profile — general / sysadmin / netadmin</td></tr>
           <tr><td><kbd>e</kbd></td><td>entrypoint <span class="dim">(copy mode)</span> — replaces the command, which is what stops the crash loop</td></tr>
           <tr><td><kbd>s</kbd></td><td>share processes <span class="dim">(copy mode)</span> — toggle sharing the original's process namespace</td></tr>
-          <tr><td><kbd>ctrl-d</kbd></td><td>clean up — offered on exit when kute left a copy or node-debug pod running: delete it, with the same confirm as any pod delete</td></tr>
+          <tr><td><kbd>ctrl+d</kbd></td><td>clean up — offered on exit when kute left a copy or node-debug pod running: delete it, with the same confirm as any pod delete</td></tr>
           <tr><td><kbd>esc</kbd></td><td>cancel, or keep the leftover pod instead of cleaning it up</td></tr>
         </tbody>
       </table>
@@ -685,11 +685,11 @@
           <tr><td><kbd>a</kbd></td><td>add key</td></tr>
           <tr><td><kbd>↵</kbd></td><td>edit the value under the cursor</td></tr>
           <tr><td><kbd>e</kbd></td><td>open a long value in a buffer editor <span class="dim">(ConfigMaps)</span></td></tr>
-          <tr><td><kbd>alt-a</kbd></td><td>apply the buffer</td></tr>
+          <tr><td><kbd>alt+a</kbd></td><td>apply the buffer</td></tr>
           <tr><td><kbd>D</kbd></td><td>remove key</td></tr>
-          <tr><td><kbd>ctrl-x</kbd></td><td>show or re-mask the value you are typing <span class="dim">(Secrets)</span></td></tr>
-          <tr><td><kbd>ctrl-v</kbd></td><td>paste (never echoed) — paste a value into the masked buffer <span class="dim">(Secrets)</span></td></tr>
-          <tr><td><kbd>ctrl-r</kbd></td><td>apply + restart consumers <span class="dim">(ConfigMaps)</span></td></tr>
+          <tr><td><kbd>ctrl+x</kbd></td><td>show or re-mask the value you are typing <span class="dim">(Secrets)</span></td></tr>
+          <tr><td><kbd>ctrl+v</kbd></td><td>paste (never echoed) — paste a value into the masked buffer <span class="dim">(Secrets)</span></td></tr>
+          <tr><td><kbd>ctrl+r</kbd></td><td>apply + restart consumers <span class="dim">(ConfigMaps)</span></td></tr>
         </tbody>
       </table>
 
@@ -768,7 +768,7 @@
       <table class="keyref">
         <tbody>
           <tr><td><kbd>r</kbd></td><td>retry — reconnect</td></tr>
-          <tr><td><kbd>ctrl-r</kbd> <span class="dim">in the context palette</span></td><td>re-probe contexts</td></tr>
+          <tr><td><kbd>ctrl+r</kbd> <span class="dim">in the context palette</span></td><td>re-probe contexts</td></tr>
           <tr><td><kbd>w</kbd></td><td>who-can — who is allowed to do this</td></tr>
         </tbody>
       </table>
