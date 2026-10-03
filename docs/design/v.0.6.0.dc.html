@@ -80,7 +80,7 @@
         <div style="padding: 4px 14px 0; color: #55556e; font-size: 11px; letter-spacing: 0.06em;">THE THREE VERBS — ALL PLAIN API CALLS, NO ARGOCD BINARY, NO SSO</div>
         <div style="display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 2px 14px; padding: 4px 14px 8px; font-size: 12px;">
           <span style="color: #55556e;">r refresh</span><span style="color: #9a9ab2;">kubectl annotate application/nva-frontend -n argocd argocd.argoproj.io/refresh=normal --overwrite</span>
-          <span style="color: #55556e;">S sync</span><span style="color: #9a9ab2;">kubectl patch application/nva-frontend -n argocd --type merge -p '{"operation":{"sync":{"revision":"main"}}}'</span>
+          <span style="color: #55556e;">S sync</span><span style="color: #9a9ab2;">kubectl patch application/nva-frontend --type merge -p '{"operation":{"initiatedBy":{"automated":false,"username":"&lt;you&gt;"},"sync":{"revision":"main"}}}' -n argocd</span>
           <span style="color: #55556e;">u url</span><span style="color: #9a9ab2;">copies https://argocd.nva.dev/applications/argocd/nva-frontend — the deep link, when the dashboard is the right tool</span>
         </div>
       </div>
