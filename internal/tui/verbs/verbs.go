@@ -775,7 +775,7 @@ func ConfirmPrompt(question string) string {
 var All = append([]Verb{
 	Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, PodDebug, DebugCleanup, Edit, Events,
 	Namespace, Context, AllNamespaces, JumpNamespace, ToggleGroup, PageUp, PageDown, Help, Retry, WhoCan,
-	HelmValues, EnvMounts, HelmHistory, HelmPods, Mark, MarkAll,
+	HelmValues, EnvMounts, HelmHistory, HelmPods, Timeline, Mark, MarkAll,
 	LogPause, LogFollow, LogNextWarning, LogNextError, LogToggleWrap, LogToggleTime,
 	LogCycleSince, LogCycleContainer, LogCopyView,
 	FluxReconcile, FluxSuspend, FluxSource,
