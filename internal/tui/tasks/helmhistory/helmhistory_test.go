@@ -297,6 +297,89 @@ func TestRollbackToSelectedRevisionConfirmsAndExecutes(t *testing.T) {
 	}
 }
 
+// TestRollbackRefusedOnTheCurrentRevision: R on index 0 would only write a
+// new revision identical to the live one, so it is refused inline and the
+// keybar shows the hint disabled.
+func TestRollbackRefusedOnTheCurrentRevision(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindSecret: {
+			revisionSecret("production", "postgresql", "superseded", 1),
+			revisionSecret("production", "postgresql", "deployed", 2),
+		},
+	}}
+	mut := &fakeMutator{}
+	m := New(Config{Session: newSession(), Lister: lister, Mutator: mut, Namespace: "production", Name: "postgresql"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if !rollbackHint(t, m).Disabled {
+		t.Fatal("expected R disabled on the current revision")
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+	if m.actions.Active() {
+		t.Fatal("expected no confirm on the current revision")
+	}
+	if res := m.ActionResult(); !res.Failed || !strings.Contains(res.Text, "current revision") {
+		t.Fatalf("expected an inline refusal, got %+v", res)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if mut.name != "" {
+		t.Fatalf("HelmRollback must not run, got rev=%d", mut.revision)
+	}
+	m.moveSelection(1)
+	if rollbackHint(t, m).Disabled {
+		t.Fatal("expected R enabled on an earlier revision")
+	}
+}
+
+// TestRollbackConfirmNamesTheTargetsStatus: a failed target is said in the
+// confirm — the PROD modal's title and the inline confirm key both.
+func TestRollbackConfirmNamesTheTargetsStatus(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindSecret: {
+			revisionSecret("production", "postgresql", "superseded", 1),
+			revisionSecret("production", "postgresql", "failed", 2),
+			revisionSecret("production", "postgresql", "deployed", 3),
+		},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Mutator: &fakeMutator{}, Namespace: "production", Name: "postgresql"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m.moveSelection(1)
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+	pending := m.actions.Pending()
+	if pending == nil || pending.Label != "Rollback postgresql to revision 2 · failed — not a known-good revision?" {
+		t.Fatalf("unexpected confirm label: %+v", pending)
+	}
+	if got := m.Keybar().Groups[0][0].Label; got != "confirm · revision 2 is failed" {
+		t.Fatalf("inline confirm key label = %q", got)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "esc"})
+
+	m.moveSelection(1)
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+	if pending := m.actions.Pending(); pending == nil || pending.Label != "Rollback postgresql to revision 1 · superseded?" {
+		t.Fatalf("unexpected confirm label: %+v", pending)
+	}
+	if got := m.Keybar().Groups[0][0].Label; got != "confirm" {
+		t.Fatalf("inline confirm key label = %q, want plain confirm", got)
+	}
+}
+
+func rollbackHint(t *testing.T, m Model) tui.KeyHint {
+	t.Helper()
+	for _, g := range m.Keybar().Groups {
+		for _, h := range g {
+			if h.Key == verbs.Rollback.Key {
+				return h
+			}
+		}
+	}
+	t.Fatal("no rollback hint on the keybar")
+	return tui.KeyHint{}
+}
+
 // TestRollbackInProdRequiresTypedName pins §18a's "Rollback inherits 8b
 // friction": in a PROD context 'R' opens the type-the-release-name modal,
 // a bare 'y' types into it rather than confirming, and only the matching

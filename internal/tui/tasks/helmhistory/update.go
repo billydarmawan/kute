@@ -158,6 +158,14 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.moveSelection(-max(1, m.tableDataRows()/2))
 	case verbs.Rollback.Key:
 		if m.mutator != nil && m.state == tui.TaskStateReady {
+			if m.selected == 0 {
+				// Rolling back to the live revision only writes a new
+				// revision identical to it.
+				if rev, ok := m.selectedRevision(); ok {
+					m.actions.Refuse(fmt.Sprintf("revision %d is the current revision · pick an earlier one to roll back to", rev.Revision))
+				}
+				return m, nil
+			}
 			if rev, ok := m.selectedRevision(); ok {
 				return m, m.beginRollback(rev)
 			}
@@ -236,7 +244,7 @@ func clamp(v, lo, hi int) int {
 func (m *Model) beginRollback(rev kube.HelmRelease) tea.Cmd {
 	return m.actions.Begin(actions.Request{Verb: verbs.Rollback, Prod: m.isProd()}, tui.TaskAction{
 		ID:    fmt.Sprintf("rollback-%s/%s-r%d", m.namespace, m.name, rev.Revision),
-		Label: fmt.Sprintf("Rollback %s to revision %d?", m.name, rev.Revision),
+		Label: rollbackLabel(m.name, rev),
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindHelmRelease),
 			ResourceName: m.name,
@@ -246,4 +254,24 @@ func (m *Model) beginRollback(rev kube.HelmRelease) tea.Cmd {
 			Revision:     rev.Revision,
 		},
 	})
+}
+
+// rollbackLabel names the target and its status, so the confirm says what
+// it rolls back *to* — and warns when that revision was never a good
+// release (a failed or pending one is often what prompted the rollback).
+func rollbackLabel(name string, rev kube.HelmRelease) string {
+	label := fmt.Sprintf("Rollback %s to revision %d", name, rev.Revision)
+	if rev.Status != "" {
+		label += " · " + rev.Status
+	}
+	if !knownGoodRevision(rev) {
+		label += " — not a known-good revision"
+	}
+	return label + "?"
+}
+
+// knownGoodRevision: superseded and deployed are the statuses helm gives a
+// revision that actually went live.
+func knownGoodRevision(rev kube.HelmRelease) bool {
+	return rev.Status == "superseded" || rev.Status == "deployed"
 }

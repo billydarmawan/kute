@@ -1,6 +1,8 @@
 package helmhistory
 
 import (
+	"strconv"
+
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
@@ -14,7 +16,14 @@ func (m Model) Keybar() tui.Keybar {
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierInline {
 			note, shortNote := m.actions.Prompt(), ""
+			confirm := tui.KeyHint{Key: "y", Label: "confirm"}
 			if pending := m.actions.Pending(); pending != nil && pending.Scope.Verb == "rollback" {
+				// The rail stays up under the inline confirm, so the
+				// selected row already names the target; a target that never
+				// went live gets said on the confirm key itself.
+				if rev, ok := m.selectedRevision(); ok && rev.Revision == pending.Scope.Revision && !knownGoodRevision(rev) {
+					confirm.Label = "confirm · revision " + strconv.Itoa(rev.Revision) + " is " + rev.Status
+				}
 				// 18a: "shell out to helm with a will run line" — kept short
 				// deliberately, same reasoning as browse's own rollbackPrompt
 				// (insetChromeLine drops the whole RightNote rather than
@@ -27,7 +36,7 @@ func (m Model) Keybar() tui.Keybar {
 			return tui.Keybar{
 				Pill:           tui.ModeConfirm,
 				PillText:       "CONFIRM",
-				Groups:         [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}},
+				Groups:         [][]tui.KeyHint{{confirm, {Key: "esc", Label: "cancel"}}},
 				RightNote:      note,
 				RightNoteShort: shortNote,
 			}
@@ -55,7 +64,10 @@ func (m Model) Keybar() tui.Keybar {
 
 	groups := [][]tui.KeyHint{{{Key: "↑↓", Label: "move"}}}
 	if m.mutator != nil && !verbs.Rollback.HiddenWhileOffline(m.conn.Offline()) {
-		groups = append(groups, []tui.KeyHint{verbs.Rollback.Hint()})
+		hint := verbs.Rollback.Hint()
+		// The current revision is no rollback target (update.go refuses it).
+		hint.Disabled = m.selected == 0
+		groups = append(groups, []tui.KeyHint{hint})
 	}
 
 	// 4a's offline treatment (docs/design README.md §52, §301): mutating
