@@ -142,6 +142,32 @@ func TestReportFallsBackToTempDir(t *testing.T) {
 	}
 }
 
+// TestReportNeverWritesThroughAPlantedSymlink: the report's name is
+// predictable, and the temp-dir fallback is shared, so a symlink planted at
+// that name must not be followed and its target truncated (14 L5). The
+// report lands under a fresh name beside it instead.
+func TestReportNeverWritesThroughAPlantedSymlink(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(victim, []byte("precious"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, "kute-crash-"+fixedNow()().Format("20060102-150405")+".log")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	sink, _ := Open(Options{CrashDir: dir, Snapshot: testSnapshot, Now: fixedNow()})
+	path := sink.Report(Crash{Cause: "update", Value: "boom"})
+	if got, _ := os.ReadFile(victim); string(got) != "precious" {
+		t.Fatalf("report wrote through the symlink: victim now %q", got)
+	}
+	if filepath.Dir(path) != dir || !strings.HasPrefix(filepath.Base(path), "kute-crash-") {
+		t.Fatalf("Report() = %q, want a fresh kute-crash-* file in %s", path, dir)
+	}
+	if body, _ := os.ReadFile(path); !strings.Contains(string(body), "boom") {
+		t.Fatalf("report at %s missing the panic value:\n%s", path, body)
+	}
+}
+
 func TestFooterNamesTheFactsTheBugFormAsksFor(t *testing.T) {
 	sink, _ := Open(Options{
 		Build:    Build{Version: "0.3.0", Commit: "abc1234"},

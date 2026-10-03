@@ -1,7 +1,9 @@
 package diag
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -78,7 +80,7 @@ func (s *Sink) Report(c Crash) string {
 // falling back to the OS temp dir when that directory can't be created —
 // a crash report the user can't find is barely better than none.
 func (s *Sink) writeReportFile(body string) string {
-	name := "kute-crash-" + s.opts.Now().Format("20060102-150405") + ".log"
+	stamp := "kute-crash-" + s.opts.Now().Format("20060102-150405")
 	dirs := []string{s.opts.CrashDir, os.TempDir()}
 	for _, dir := range dirs {
 		if dir == "" {
@@ -87,15 +89,35 @@ func (s *Sink) writeReportFile(body string) string {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			continue
 		}
-		path := filepath.Join(dir, name)
-		// 0600, for the same reason the log file is: context, cluster and
-		// namespace names.
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		f, err := createReportFile(dir, stamp)
+		if err != nil {
 			continue
 		}
-		return path
+		_, werr := f.WriteString(body)
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			_ = os.Remove(f.Name())
+			continue
+		}
+		return f.Name()
 	}
 	return ""
+}
+
+// createReportFile creates <stamp>.log in dir exclusively (O_EXCL, 0600 —
+// for the same reason the log file is: context, cluster and namespace
+// names). Never opening an existing path matters on the shared temp-dir
+// fallback, where another user could have planted a symlink at that
+// predictable name; when it is taken (that, or a second crash in the same
+// second) a randomised <stamp>-*.log is created instead.
+func createReportFile(dir, stamp string) (*os.File, error) {
+	f, err := os.OpenFile(filepath.Join(dir, stamp+".log"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return os.CreateTemp(dir, stamp+"-*.log")
+	}
+	return f, err
 }
 
 func (s *Sink) render(c Crash) string {

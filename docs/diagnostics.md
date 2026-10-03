@@ -39,6 +39,9 @@ exists; nothing else reads it.
 Any panic writes `kute-crash-<timestamp>.log` to `$XDG_STATE_HOME/kute/`
 (`~/.local/state/kute/` by default), falling back to the OS temp dir if that
 can't be written — a report the user can't find is barely better than none.
+The file is created exclusively (`O_EXCL`, `0600`), never opened if it already
+exists, so a symlink planted at that predictable name in a shared temp dir is
+not followed; a taken name gets a random suffix instead.
 With `--log-file` the same report is appended to the log too, so one
 attachment carries both the crash and the log that led to it.
 
