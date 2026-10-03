@@ -814,3 +814,26 @@ func TestRootModelConfirmingTaskGetsNAndQ(t *testing.T) {
 		t.Fatalf("expected the confirm to receive n/q, got %v", got)
 	}
 }
+
+// TestRegistryRebuildsOnlyWhenColumnsArrive: 14b's CRD informer delivers one
+// add per CRD on its initial sync, none of which changes anything the kind
+// registry is built from. Only the printer-columns signal may rebuild it.
+func TestRegistryRebuildsOnlyWhenColumnsArrive(t *testing.T) {
+	t.Parallel()
+	sess := testSession()
+	sess.Cluster = &kube.Cluster{}
+	sess.Registry = resources.DefaultRegistry()
+	sentinel := kube.ResourceKind("Sentinel")
+	sess.Registry.Register(resources.Descriptor{Kind: sentinel})
+	model := tui.NewWithSession(&screenTask{name: "browse-view"}, sess)
+
+	updated, _ := model.Update(kube.ResourceChangedMsg{Kind: kube.KindCustomResourceDefinition})
+	if _, ok := sess.Registry.Descriptor(sentinel); !ok {
+		t.Fatal("an ordinary CRD object event rebuilt the kind registry")
+	}
+
+	updated.(tui.Model).Update(kube.ResourceChangedMsg{Kind: kube.KindCustomResourceDefinition, ColumnsArrived: true})
+	if _, ok := sess.Registry.Descriptor(sentinel); ok {
+		t.Fatal("printer columns arriving did not rebuild the kind registry")
+	}
+}

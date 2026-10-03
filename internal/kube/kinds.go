@@ -369,6 +369,12 @@ type ResourceChangedMsg struct {
 	// cluster-wide cache (every cache in a plain kute), the namespace for a
 	// per-namespace one (--namespace-scoped, Helm releases, TLS Secrets).
 	Namespace string
+	// ColumnsArrived marks the one KindCustomResourceDefinition event that
+	// changes the kind registry: a custom kind's printer columns, fetched on
+	// its first read, have just landed. Ordinary CRD object adds and updates
+	// from 14b's informer leave it false, so the root shell doesn't rebuild
+	// the whole registry once per CRD during that informer's initial sync.
+	ColumnsArrived bool
 }
 
 // Affects reports whether this change can alter a read of its kind at

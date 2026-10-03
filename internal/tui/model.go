@@ -892,12 +892,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// is rebuilt on its next refresh rather than here, so an event storm
 		// costs nothing while nobody is typing.
 		m.gotoCorpus = nil
-		// A CRD change means the kind registry itself may be stale — most
-		// often because a custom kind's printer columns have just arrived
-		// (they're fetched per-kind on first read, not at connect). Rebuild
-		// and let the message carry on to the task, which re-reads its own
-		// descriptor.
-		if msg.Kind == kube.KindCustomResourceDefinition && m.session != nil && m.session.Cluster != nil {
+		// A custom kind's printer columns have just arrived (they're fetched
+		// per-kind on first read, not at connect), so the kind registry is
+		// stale. Rebuild and let the message carry on to the task, which
+		// re-reads its own descriptor. Only on that signal: an ordinary CRD
+		// object event changes nothing the registry is built from, and 14b's
+		// informer delivers one per CRD on its initial sync.
+		if msg.ColumnsArrived && m.session != nil && m.session.Cluster != nil {
 			m.session.Registry, m.session.Groups = resources.BuildDiscoveredRegistry(m.session.Cluster.DiscoveredKinds(), m.session.Cluster)
 			m.refreshGotoPaletteCorpus()
 		}

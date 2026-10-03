@@ -338,8 +338,24 @@ func (c *Cluster) notifyScope(gen int, kind ResourceKind, scope string) {
 	if !c.noteReachedIfGen(gen) {
 		return
 	}
+	c.send(ResourceChangedMsg{Kind: kind, Namespace: scope})
+}
+
+// notifyColumnsArrived announces that a custom kind's printer columns have
+// landed — the CRD event that rebuilds the registry (see
+// ResourceChangedMsg.ColumnsArrived). Dropped for a stale gen, like notify.
+func (c *Cluster) notifyColumnsArrived(gen int) {
+	if !c.generationCurrent(gen) {
+		return
+	}
+	c.send(ResourceChangedMsg{Kind: KindCustomResourceDefinition, ColumnsArrived: true})
+}
+
+// send delivers msg without blocking; a full buffer drops it and the next
+// resync/refresh reconciles.
+func (c *Cluster) send(msg ResourceChangedMsg) {
 	select {
-	case c.events <- ResourceChangedMsg{Kind: kind, Namespace: scope}:
+	case c.events <- msg:
 	default:
 	}
 }

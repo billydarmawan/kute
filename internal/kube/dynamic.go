@@ -325,7 +325,7 @@ func (c *Cluster) ensurePrinterColumns(kind ResourceKind) {
 			// registry from the old one's CRD. notify itself already drops a
 			// stale gen, but fetchPrinterColumns' own write is what has to
 			// stay honest — see its doc comment.
-			c.notify(gen, KindCustomResourceDefinition)
+			c.notifyColumnsArrived(gen)
 		}
 	}()
 }

@@ -512,3 +512,38 @@ func TestCuratedKindsFetchNoCRD(t *testing.T) {
 		}
 	})
 }
+
+// TestPrinterColumnsArrivalIsFlagged: the one CRD event that changes the kind
+// registry is printer columns landing, and it must say so — the root shell
+// rebuilds the registry only on ColumnsArrived, not on every CRD object event.
+func TestPrinterColumnsArrivalIsFlagged(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		crd := crdObject("widgets", "example.com", "Widget", []map[string]any{{"name": "Phase", "type": "string", "jsonPath": ".status.phase"}})
+		dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+			map[schema.GroupVersionResource]string{crdGVR: "CustomResourceDefinitionList"}, crd)
+		c := newDiscoveryTestCluster(
+			[]*metav1.APIResourceList{
+				{GroupVersion: "example.com/v1", APIResources: []metav1.APIResource{{Name: "widgets", Kind: "Widget", Namespaced: true}}},
+			},
+			crdMeta("widgets.example.com"),
+		)
+		c.dynClient = dyn
+		c.events = make(chan ResourceChangedMsg, 4)
+		c.refreshDiscovery(t.Context(), c.generation, c.clientset)
+		if got := len(c.DiscoveredKinds()); got != 1 {
+			t.Fatalf("precondition: discovered %d kinds, want 1", got)
+		}
+
+		c.ensurePrinterColumns(c.DiscoveredKinds()[0].RegistryKind())
+		synctest.Wait()
+
+		select {
+		case got := <-c.events:
+			if got != (ResourceChangedMsg{Kind: KindCustomResourceDefinition, ColumnsArrived: true}) {
+				t.Fatalf("columns arrival sent %+v, want a ColumnsArrived CRD event", got)
+			}
+		default:
+			t.Fatal("printer columns arrived without announcing it")
+		}
+	})
+}
