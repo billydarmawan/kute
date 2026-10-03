@@ -452,6 +452,7 @@ func (m *Model) applyRowsLoaded(msg rowsLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	if msg.err != nil {
 		m.pendingFollow = ""
+		m.now = time.Now() // the error card's "last successful list … ago"
 		m.state = tui.TaskStateError
 		if kube.IsPermissionError(msg.err) {
 			m.state = tui.TaskStatePermissionDenied

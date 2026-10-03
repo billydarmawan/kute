@@ -56,7 +56,7 @@ The file in this bundle (`Kute Spec.dc.html`, plus its runtime `support.js`) is 
 ### 4b — RBAC / API error on one kind (403)
 - Header stays green/connected — the error is scoped to the kind, not the app.
 - **Body:** centered card (bg `#16121a`, border `#3a2a30`, radius): title `403 Forbidden` (red, bold) + `secrets.v1 · list` (dim). Verbatim message with entity names highlighted in yellow: `User "dev-readonly" cannot list resource "secrets" in namespace "nva-stage"`. Below a divider, recovery actions each on one line: `g jump to another kind — everything else still works`, `c switch context — prod-eks grants secrets:list`, `y copy error — paste to your cluster admin`, `r retry`.
-- Under the card: `last successful list: never · RBAC errors are not retried automatically` in `#44445c`.
+- Under the card: `last successful list: never · RBAC errors are not retried automatically` in `#44445c` — `never` only when this kind/namespace has never listed; after a good list it reads `last successful list: 10:24:31 (94s ago)`.
 - **No auto-retry on 4xx** — auto-retry is reserved for network failures (4a).
 - **Namespace-scoped hint:** when a namespace is known (a kind/namespace is already selected) and the session isn't already running `--namespace-scoped`, one more line names it — `kute --namespace-scoped=<ns> may see more, if that namespace grants it` — since a cluster-wide 403 is exactly the shape a namespace-bound identity (a `Role`, not a `ClusterRole`) hits on a plain launch (`docs/lazy-informers.md §5.6`). Omitted for a session already scoped, or before any namespace is known.
 

@@ -1331,8 +1331,9 @@ func (m Model) cacheKey(kind kube.ResourceKind, namespace string) browseCacheKey
 // to the interim NAME/AGE pair — is recognisably stale rather than a set of
 // rows whose cells land under the wrong headers.
 type cachedRows struct {
-	rows    []resources.Row
-	columns int
+	rows      []resources.Row
+	columns   int
+	fetchedAt time.Time // when rows were listed — restored with them
 }
 
 // cachedRowsFor returns rowCache's snapshot for kind/namespace, if any —
@@ -1341,11 +1342,16 @@ type cachedRows struct {
 // now in force is no hit at all: showing it would mean rendering cells under
 // headers they don't belong to.
 func (m Model) cachedRowsFor(kind kube.ResourceKind, namespace string) ([]resources.Row, bool) {
+	entry, ok := m.cachedEntryFor(kind, namespace)
+	return entry.rows, ok
+}
+
+func (m Model) cachedEntryFor(kind kube.ResourceKind, namespace string) (cachedRows, bool) {
 	entry, ok := m.rowCache[m.cacheKey(kind, namespace)]
 	if !ok || entry.columns != len(m.desc.Columns) {
-		return nil, false
+		return cachedRows{}, false
 	}
-	return entry.rows, true
+	return entry, true
 }
 
 // cacheCurrentRows snapshots m.rows into rowCache under the current
@@ -1359,7 +1365,7 @@ func (m *Model) cacheCurrentRows() {
 		m.rowCache = make(map[browseCacheKey]cachedRows)
 	}
 	cp := slices.Clone(m.rows)
-	m.rowCache[m.cacheKey(m.kind, m.namespace)] = cachedRows{rows: cp, columns: m.rowColumns}
+	m.rowCache[m.cacheKey(m.kind, m.namespace)] = cachedRows{rows: cp, columns: m.rowColumns, fetchedAt: m.fetchedAt}
 }
 
 // dropStaleShapedRows clears any loaded rows that were projected against a
@@ -1444,8 +1450,13 @@ func (m *Model) resetAndLoad() tea.Cmd {
 	// (applyRowsLoaded clears cachedView).
 	m.cachedView = false
 	m.rowColumns = 0
-	if cached, ok := m.cachedRowsFor(m.kind, m.namespace); ok && len(cached) > 0 {
-		m.rows = cached
+	// fetchedAt belongs to the rows on screen: a fresh kind/namespace has
+	// never been listed (4a/4b's "last successful list: never"), a cached
+	// one was listed when its snapshot was.
+	m.fetchedAt = time.Time{}
+	if cached, ok := m.cachedEntryFor(m.kind, m.namespace); ok && len(cached.rows) > 0 {
+		m.rows = cached.rows
+		m.fetchedAt = cached.fetchedAt
 		m.rowColumns = len(m.desc.Columns) // cachedRowsFor only hits on a shape match
 		m.cachedView = true
 		m.recomputeVisible()

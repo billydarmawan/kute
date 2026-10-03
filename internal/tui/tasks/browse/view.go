@@ -776,8 +776,20 @@ func (m Model) loadErrorBody(width, height int) string {
 		Padding(1, 2).
 		Width(min(72, max(width-8, 20)))
 	card := components.Card(strings.Join(lines, "\n"), cardStyle, width, height-2)
-	footer := footerNote.Render("last successful list: never · retrying in the background")
+	footer := footerNote.Render(m.lastListNote() + " · retrying in the background")
 	return card + "\n" + components.Pad(strings.Repeat(" ", max((width-lipgloss.Width(footer))/2, 0))+footer, width)
+}
+
+// lastListNote is 4a/4b's footer claim about this list's last successful
+// read: "never" only when it genuinely never succeeded (m.fetchedAt is
+// cleared on every kind/namespace/context switch), else when and how long
+// ago — a reload that fails after a good one must not deny it happened.
+func (m Model) lastListNote() string {
+	if m.fetchedAt.IsZero() {
+		return "last successful list: never"
+	}
+	age := max(m.now.Sub(m.fetchedAt), 0)
+	return fmt.Sprintf("last successful list: %s (%ds ago)", m.fetchedAt.Format("15:04:05"), int(age.Round(time.Second).Seconds()))
 }
 
 // quotedEntity matches a "..."-quoted span in an RBAC message ("dev-readonly",
@@ -851,7 +863,7 @@ func (m Model) permissionDeniedBody(width, height int) string {
 		Padding(1, 2).
 		Width(min(60, max(width-8, 20)))
 	card := components.Card(strings.Join(lines, "\n"), cardStyle, width, height-2)
-	footer := footerNote.Render("last successful list: never · RBAC errors are not retried automatically")
+	footer := footerNote.Render(m.lastListNote() + " · RBAC errors are not retried automatically")
 	return card + "\n" + components.Pad(strings.Repeat(" ", max((width-lipgloss.Width(footer))/2, 0))+footer, width)
 }
 

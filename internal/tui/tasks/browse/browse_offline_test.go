@@ -307,3 +307,25 @@ func TestOfflineRetryKeyWinsOverRowVerbs(t *testing.T) {
 		t.Fatal("offline 'r' opened the set-resources panel instead of retrying")
 	}
 }
+
+// TestErrorCardsReportLastSuccessfulList: after a good list, a failing
+// reload's 4a/4b footer says when that list landed instead of "never"; a
+// kind that has never listed still says "never".
+func TestErrorCardsReportLastSuccessfulList(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindPod: {pod("default", "api-1")}}}
+	m := New(Config{Session: newSession(), Lister: lister})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	if m.fetchedAt.IsZero() {
+		t.Fatal("precondition: a successful list should stamp fetchedAt")
+	}
+	m = step(t, m, rowsLoadedMsg{epoch: m.reloadEpoch, kind: m.kind, namespace: m.namespace, columns: len(m.desc.Columns), err: errors.New("connection refused")})
+	if body := plain(m.Render()); strings.Contains(body, "last successful list: never") || !strings.Contains(body, "last successful list: "+m.fetchedAt.Format("15:04:05")) {
+		t.Fatalf("error card should report the earlier successful list:\n%s", body)
+	}
+	updated, _ := m.Update(tui.GotoKindMsg{Kind: kube.KindConfigMap}) // before its load lands
+	m = *updated.(*Model)
+	if !m.fetchedAt.IsZero() {
+		t.Fatal("a never-listed kind inherited the previous kind's fetchedAt")
+	}
+}
