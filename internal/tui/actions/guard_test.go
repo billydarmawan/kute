@@ -6,8 +6,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // TestEveryControllerScreenRendersResults is review 10 H1's guard: a
@@ -220,4 +223,204 @@ func TestConfirmPolicyOnlyResolvedByBegin(t *testing.T) {
 			t.Errorf("%s is allow-listed but no longer calls verbs.Resolve — drop it from resolveOutsideBegin", file)
 		}
 	}
+}
+
+// neverConfirms are the controller screens with no confirm to route: every
+// verb they Begin (keyed by its verbs.X identifier) resolves TierNone in
+// every context, in both directions, so the controller never goes Active.
+// TestEveryControllerScreenRoutesConfirmKeys checks that claim against
+// verbs.Resolve and against the verbs each package actually Begins — Begin
+// a tiered verb there and the screen must route through HandleConfirmKey.
+var neverConfirms = map[string]map[string]verbs.Verb{
+	"fluxtree":        {"FluxReconcile": verbs.FluxReconcile, "FluxSuspend": verbs.FluxSuspend},
+	"fluxdetail":      {"FluxReconcile": verbs.FluxReconcile, "FluxSuspend": verbs.FluxSuspend},
+	"cronjobschedule": {"CronJobSetSchedule": verbs.CronJobSetSchedule, "CronJobScheduleUndo": verbs.CronJobScheduleUndo},
+}
+
+// routerOnly are the Controller methods only HandleConfirmKey may call: a
+// screen calling one is hand-routing confirm keys again.
+var routerOnly = []string{"Confirm", "HandleTypeKey", "EscalateForceDelete"}
+
+// confirmKeyLiterals are the y/N answers as bare strings — a screen
+// matching one is a hand-written confirm router.
+var confirmKeyLiterals = map[string]bool{`"y"`: true, `"n"`: true, `"Y"`: true, `"N"`: true}
+
+// TestEveryControllerScreenRoutesConfirmKeys is review 10 L5's guard: the
+// y/N, type-the-name and force-delete routing lived as a dozen hand-copied
+// switches with literal keys and hand-built {y confirm}{esc cancel} hints,
+// which is how ctrl+k came to be advertised under one key and handled under
+// another, and how one screen came to advertise n where the rest say esc.
+// Every controller screen must (1) hand its confirm keys to
+// HandleConfirmKey, (2) never call the router's own Confirm/HandleTypeKey/
+// EscalateForceDelete, (3) never match a bare "y"/"n" (a bespoke gate uses
+// verbs.ConfirmAccept/ConfirmDecline/ConfirmCancel); and no task screen may
+// (4) hand-build a "confirm" key hint (Controller.ConfirmHints or
+// verbs.ConfirmHints). Screens that only match "y" as a copy key (yamlview,
+// update) embed no controller, so (3) leaves them alone.
+func TestEveryControllerScreenRoutesConfirmKeys(t *testing.T) {
+	root := filepath.Join("..", "tasks")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		pkg := parsePackage(t, filepath.Join(root, name))
+		for _, where := range confirmHintLiterals(pkg) {
+			t.Errorf("%s: %s hand-builds a confirm key hint — use Controller.ConfirmHints or verbs.ConfirmHints", name, where)
+		}
+		fields := controllerFields(pkg)
+		if len(fields) == 0 {
+			continue
+		}
+		checked++
+		if allowed, ok := neverConfirms[name]; ok {
+			checkNeverConfirms(t, name, pkg, allowed)
+		} else if !callsMethod(pkg, fields, "HandleConfirmKey") {
+			t.Errorf("%s embeds actions.Controller (%v) but never routes keys to HandleConfirmKey() — "+
+				"its confirm would be a hand-written router", name, fields)
+		}
+		for _, method := range routerOnly {
+			if callsMethod(pkg, fields, method) {
+				t.Errorf("%s calls the controller's %s() directly — route confirm keys through HandleConfirmKey()", name, method)
+			}
+		}
+		for _, where := range confirmKeyMatches(pkg) {
+			t.Errorf("%s: %s matches a bare y/n key — use HandleConfirmKey, or verbs.ConfirmAccept/ConfirmDecline/ConfirmCancel in a bespoke gate", name, where)
+		}
+	}
+	if checked < 10 {
+		t.Fatalf("only %d controller screens found — has internal/tui/tasks moved?", checked)
+	}
+}
+
+// checkNeverConfirms verifies a neverConfirms entry: every verb the
+// package Begins is listed, and each listed verb resolves TierNone
+// everywhere.
+func checkNeverConfirms(t *testing.T, name string, pkg []*ast.File, allowed map[string]verbs.Verb) {
+	t.Helper()
+	for _, v := range allowed {
+		for _, prod := range []bool{false, true} {
+			for _, reverse := range []bool{false, true} {
+				if p := verbs.Resolve(v, verbs.Target{Reverse: reverse}, prod); p.Tier != TierNone {
+					t.Errorf("%s is in neverConfirms but %s resolves tier %v (prod=%v reverse=%v) — "+
+						"route its keys through HandleConfirmKey and drop it from the list", name, v.ID, p.Tier, prod, reverse)
+				}
+			}
+		}
+	}
+	begun := requestedVerbs(pkg)
+	if len(begun) == 0 {
+		t.Errorf("%s is in neverConfirms but Begins no verb — has its Request{Verb: …} moved?", name)
+	}
+	for _, verb := range begun {
+		if _, ok := allowed[verb]; !ok {
+			t.Errorf("%s is in neverConfirms but Begins verbs.%s, which isn't listed — "+
+				"route its keys through HandleConfirmKey, or list the verb if it never confirms", name, verb)
+		}
+	}
+}
+
+// requestedVerbs names every verbs.X a Request{Verb: …} literal carries.
+func requestedVerbs(pkg []*ast.File) []string {
+	var out []string
+	for _, f := range pkg {
+		ast.Inspect(f, func(n ast.Node) bool {
+			cl, ok := n.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			if sel, ok := cl.Type.(*ast.SelectorExpr); !ok || sel.Sel.Name != "Request" {
+				return true
+			}
+			for _, elt := range cl.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if k, ok := kv.Key.(*ast.Ident); !ok || k.Name != "Verb" {
+					continue
+				}
+				if sel, ok := kv.Value.(*ast.SelectorExpr); ok {
+					if x, ok := sel.X.(*ast.Ident); ok && x.Name == "verbs" {
+						out = append(out, sel.Sel.Name)
+					}
+				}
+			}
+			return true
+		})
+	}
+	return out
+}
+
+// inFuncs runs visit over every function body in pkg, naming the function.
+func inFuncs(pkg []*ast.File, visit func(fn string, n ast.Node)) {
+	for _, f := range pkg {
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				visit(fn.Name.Name, n)
+				return true
+			})
+		}
+	}
+}
+
+// confirmKeyMatches finds a bare "y"/"n" in a switch case or an ==/!=
+// comparison.
+func confirmKeyMatches(pkg []*ast.File) []string {
+	var out []string
+	inFuncs(pkg, func(fn string, n ast.Node) {
+		var exprs []ast.Expr
+		switch n := n.(type) {
+		case *ast.CaseClause:
+			exprs = n.List
+		case *ast.BinaryExpr:
+			if n.Op == token.EQL || n.Op == token.NEQ {
+				exprs = []ast.Expr{n.X, n.Y}
+			}
+		}
+		for _, e := range exprs {
+			if lit, ok := e.(*ast.BasicLit); ok && lit.Kind == token.STRING && confirmKeyLiterals[lit.Value] {
+				out = append(out, fn+"'s "+lit.Value)
+			}
+		}
+	})
+	return out
+}
+
+// confirmHintLiterals finds a composite literal with a Label: "confirm…"
+// field — a hand-built tui.KeyHint for a confirm's accept key.
+func confirmHintLiterals(pkg []*ast.File) []string {
+	var out []string
+	inFuncs(pkg, func(fn string, n ast.Node) {
+		cl, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return
+		}
+		for _, elt := range cl.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			if k, ok := kv.Key.(*ast.Ident); !ok || k.Name != "Label" {
+				continue
+			}
+			lit, ok := kv.Value.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				continue
+			}
+			if v, err := strconv.Unquote(lit.Value); err == nil && strings.HasPrefix(v, "confirm") {
+				out = append(out, fn+"'s {Label: "+lit.Value+"}")
+			}
+		}
+	})
+	return out
 }
