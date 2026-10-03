@@ -275,6 +275,15 @@ type InputMasker interface {
 	MasksInput() bool
 }
 
+// ClusterlessScreen is implemented by the 4c/10b setup screen, the root
+// shown when there's no cluster to navigate. The shell leaves its goto and
+// namespace keys alone there: nothing on it can act on a GotoKindMsg or
+// SwitchNamespaceMsg, so a pick would be silently dropped. The context
+// palette stays — switching context is how setup recovers.
+type ClusterlessScreen interface {
+	Clusterless() bool
+}
+
 // Transient is implemented by a Task that hands its place in the navigation
 // stack to the task it swaps itself out for. tasks/objectdetail's 14d
 // redirect is the case that needs it: an object with neither conditions nor
@@ -1142,6 +1151,12 @@ func (m Model) handleShellKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 			// (mvp-tasks.md/CLAUDE.md: "j/k ≡ ↑↓ everywhere").
 			_, resource := wc.WhoCanQuery()
 			return true, m, m.openResourcePalette(resource)
+		}
+	}
+	if cl, ok := m.task.(ClusterlessScreen); ok && cl.Clusterless() {
+		switch msg.String() {
+		case "g", ":", "n":
+			return false, m, nil
 		}
 	}
 	switch msg.String() {

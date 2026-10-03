@@ -16,6 +16,13 @@ import (
 // attempt held on its way here.
 type RetryFailedMsg = tui.ClusterRebuildFailedMsg
 
+// Clusterless marks setup as a screen with no cluster to navigate
+// (tui.ClusterlessScreen), so the root shell doesn't open the goto or
+// namespace palette over it.
+func (m Model) Clusterless() bool { return true }
+
+var _ tui.ClusterlessScreen = Model{}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, ok := tui.RoutePaste(msg, m.pasteTarget()); ok {
 		return m, cmd
