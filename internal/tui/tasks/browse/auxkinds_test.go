@@ -20,14 +20,16 @@ import (
 // recordingLister notes every kind read, so a test can assert what a screen
 // warmed rather than what it rendered.
 type recordingLister struct {
-	mu    sync.Mutex
-	kinds []kube.ResourceKind
-	inner fakeLister
+	mu     sync.Mutex
+	kinds  []kube.ResourceKind
+	scopes []string // namespace of each read, parallel to kinds
+	inner  fakeLister
 }
 
 func (l *recordingLister) ListRaw(ctx context.Context, kind kube.ResourceKind, ns string) ([]runtime.Object, error) {
 	l.mu.Lock()
 	l.kinds = append(l.kinds, kind)
+	l.scopes = append(l.scopes, ns)
 	l.mu.Unlock()
 	return l.inner.ListRaw(ctx, kind, ns)
 }
@@ -505,5 +507,28 @@ func TestCRDListReloadsOnInstanceEvents(t *testing.T) {
 	before = m.reloadEpoch
 	if _, cmd := m.Update(kube.ResourceChangedMsg{Kind: kube.KindCronJob}); cmd != nil || m.reloadEpoch != before {
 		t.Fatal("a built-in kind's change has nothing to do with the CRDs list")
+	}
+}
+
+// TestPrefetchAuxKindsWarmsTheScopeTheReadUses: the Nodes list reads Pods
+// cluster-wide (auxScope), so its prefetch must warm "" — not the active
+// namespace, which under --namespace-scoped starts a cache nothing reads.
+func TestPrefetchAuxKindsWarmsTheScopeTheReadUses(t *testing.T) {
+	lister := &recordingLister{}
+	m := New(Config{Session: newSession(), Lister: lister})
+	m.kind = kube.KindNode
+	m.namespace = "team-a"
+	cmd := m.prefetchAuxKinds()
+	if cmd == nil {
+		t.Fatal("Nodes has Pod as an aux kind; expected a prefetch")
+	}
+	cmd()
+	for i, kind := range lister.kinds {
+		if kind == kube.KindPod && lister.scopes[i] != "" {
+			t.Fatalf("prefetched Pods in %q, want the cluster-wide scope the Nodes read uses", lister.scopes[i])
+		}
+	}
+	if !lister.read(kube.KindPod) {
+		t.Fatal("Pods were not prefetched")
 	}
 }

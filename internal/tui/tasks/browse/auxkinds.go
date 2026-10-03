@@ -172,12 +172,19 @@ func (m Model) prefetchAuxKinds() tea.Cmd {
 	if len(kinds) == 0 || m.lister == nil {
 		return nil
 	}
-	lister, namespace := m.lister, m.namespace
+	// Warm the same cache each aux read will use (auxScope: a Nodes list
+	// reads Pods cluster-wide), not the active namespace's — under
+	// --namespace-scoped that would start a cache nothing reads.
+	scopes := make([]string, len(kinds))
+	for i, kind := range kinds {
+		scopes[i] = m.auxScope(kind)
+	}
+	lister := m.lister
 	parent := m.session.ClusterContext()
 	return func() tea.Msg {
-		for _, kind := range kinds {
+		for i, kind := range kinds {
 			// Warming a cache; a failure just means the read happens later.
-			_, _ = lister.ListRaw(parent, kind, namespace)
+			_, _ = lister.ListRaw(parent, kind, scopes[i])
 		}
 		return nil
 	}
