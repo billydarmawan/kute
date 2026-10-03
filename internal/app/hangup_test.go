@@ -16,7 +16,7 @@ func TestQuitOnHangupQuitsTheProgram(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no SIGHUP on Windows")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	quit := make(chan struct{})
 	quitOnHangup(ctx, func() { close(quit) })
