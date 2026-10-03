@@ -585,7 +585,9 @@ func imageHistory(ctx context.Context, lister resources.RawLister, kind kube.Res
 	seen := make(map[string]bool, len(entries))
 	out := make([]imageHistoryEntry, 0, min(len(entries), maxEntries))
 	for _, e := range entries {
-		if seen[e.tag] {
+		// A digest-only sighting has no tag to pick: the rail sets
+		// repo:<tag>, so it can't express that image at all.
+		if e.tag == "" || seen[e.tag] {
 			continue
 		}
 		seen[e.tag] = true
@@ -854,11 +856,17 @@ func imageRepo(image string) string {
 }
 
 // tagOf splits image into its tag, defaulting to "latest" — Docker's own
-// implicit default — when the name before any digest carries no explicit tag.
+// implicit default — when the ref carries neither a tag nor a digest. A
+// digest-only ref ("repo@sha256:…") has no tag at all and returns "": it
+// pins content, not "latest", and treating it as latest would offer
+// "repo:latest" — a different image — as history.
 func tagOf(image string) string {
-	name, _, _ := strings.Cut(image, "@")
+	name, digest, hasDigest := strings.Cut(image, "@")
 	repo := imageRepo(name)
 	if len(repo) == len(name) {
+		if hasDigest && digest != "" {
+			return ""
+		}
 		return "latest"
 	}
 	return name[len(repo)+1:]

@@ -289,6 +289,37 @@ func TestDigestPinnedImageTagEditDropsOldDigest(t *testing.T) {
 	}
 }
 
+// A digest-only ref has no tag: it must not read as "latest", or another
+// panel's history would offer repo:latest — a different image — for it.
+func TestDigestOnlyImageContributesNoLatestHistory(t *testing.T) {
+	const digest = "sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028"
+	if got := tagOf("busybox@" + digest); got != "" {
+		t.Fatalf("tagOf(digest-only) = %q, want \"\"", got)
+	}
+	if got := tagOf("busybox"); got != "latest" {
+		t.Fatalf("tagOf(untagged) = %q, want latest", got)
+	}
+	if got := tagOf("registry:5000/busybox:1.37@" + digest); got != "1.37" {
+		t.Fatalf("tagOf(tag+digest) = %q, want 1.37", got)
+	}
+
+	pinned := twoContainerDeployment("default", "pinned", "busybox@"+digest)
+	m := newSetImageModel(t, &fakeMutator{}, map[kube.ResourceKind][]runtime.Object{
+		kube.KindDeployment: {twoContainerDeployment("default", "worker", "busybox:1.37"), pinned},
+	}, false)
+	for i, d := range m.display {
+		if d.kind == rowKindData && d.row.row.Name == "worker" {
+			m.selected = i
+		}
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "i"})
+	for _, e := range m.pendingSetImage.history {
+		if e.tag == "latest" || e.tag == "" {
+			t.Fatalf("history offers %q from a digest-only sighting: %+v", e.tag, m.pendingSetImage.history)
+		}
+	}
+}
+
 func TestIIsTypeableInsideSetImageEditor(t *testing.T) {
 	m := newSetImageModel(t, &fakeMutator{}, map[kube.ResourceKind][]runtime.Object{
 		kube.KindDeployment: {twoContainerDeployment("default", "worker", "worker:1.0")},
