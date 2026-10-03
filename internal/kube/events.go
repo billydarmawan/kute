@@ -75,10 +75,10 @@ func (c *Cluster) NamespaceEvents(ctx context.Context, namespace string) ([]Even
 	out := make([]Event, 0, len(objs))
 	for _, obj := range objs {
 		if ev, ok := obj.(*corev1.Event); ok {
-			out = append(out, eventFromObject(ev))
+			out = append(out, EventFromObject(ev))
 		}
 	}
-	sortEventsNewestFirst(out)
+	SortEventsNewestFirst(out)
 	return out, nil
 }
 
@@ -105,13 +105,13 @@ func filterEventsByInvolvedObject(events []*corev1.Event, kind, name string) []E
 		if ev.InvolvedObject.Kind != kind || ev.InvolvedObject.Name != name {
 			continue
 		}
-		out = append(out, eventFromObject(ev))
+		out = append(out, EventFromObject(ev))
 	}
-	sortEventsNewestFirst(out)
+	SortEventsNewestFirst(out)
 	return out
 }
 
-// sortEventsNewestFirst orders by LastSeen descending, the informer cache's
+// SortEventsNewestFirst orders by LastSeen descending, the informer cache's
 // list order (map-backed, so not deterministic across reloads) otherwise
 // leaving ties to an unstable sort's ordering — which visibly "glitched"
 // 9b, flipping two same-second events (e.g. a container's Pulling/Started
@@ -119,7 +119,7 @@ func filterEventsByInvolvedObject(events []*corev1.Event, kind, name string) []E
 // fixes that and, for causally-linked events like Pulling→Started, surfaces
 // the one that actually happened later; Reason and Message are the final,
 // fully deterministic fallbacks.
-func sortEventsNewestFirst(events []Event) {
+func SortEventsNewestFirst(events []Event) {
 	slices.SortFunc(events, func(a, b Event) int {
 		return cmp.Or(
 			b.LastSeen.Compare(a.LastSeen),
@@ -130,7 +130,10 @@ func sortEventsNewestFirst(events []Event) {
 	})
 }
 
-func eventFromObject(ev *corev1.Event) Event {
+// EventFromObject projects a corev1.Event — the one projection both the
+// real Cluster and kube/fake use, so the demo and tests see the same
+// Series/EventTime/CreationTimestamp fallbacks a live cluster does.
+func EventFromObject(ev *corev1.Event) Event {
 	last := ev.LastTimestamp.Time
 	if last.IsZero() {
 		last = ev.EventTime.Time
@@ -220,7 +223,7 @@ func DedupeEvents(events []Event) []EventGroup {
 		out = append(out, *groups[k])
 	}
 	// LastSeen-tied groups need a deterministic tiebreak too, same reasoning
-	// as sortEventsNewestFirst — EventGroup has no FirstSeen to fall back on
+	// as SortEventsNewestFirst — EventGroup has no FirstSeen to fall back on
 	// (it folds many occurrences), so Reason/Object is the best available.
 	slices.SortFunc(out, func(a, b EventGroup) int {
 		return cmp.Or(

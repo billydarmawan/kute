@@ -248,7 +248,7 @@ func rolloutReplicaSetImage(rs *appsv1.ReplicaSet) string {
 // Second-granularity ties are common (a restart and its BackOff event, a
 // rollout and its ScalingReplicaSet) and informer list order is
 // map-random, so ties break on the entry's own fields to keep rows from
-// swapping on every reload — the same fix sortEventsNewestFirst made for 9b.
+// swapping on every reload — the same fix SortEventsNewestFirst made for 9b.
 func MergeTimeline(sources ...[]TimelineEntry) []TimelineEntry {
 	var out []TimelineEntry
 	for _, s := range sources {

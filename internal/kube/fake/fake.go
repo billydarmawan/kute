@@ -1320,23 +1320,11 @@ func (c *Cluster) ObjectEvents(ctx context.Context, namespace string, kind kube.
 		if !ok || ev.InvolvedObject.Kind != kind.APIKind() || ev.InvolvedObject.Name != name {
 			continue
 		}
-		out = append(out, kube.Event{
-			Type:             ev.Type,
-			Reason:           ev.Reason,
-			Message:          ev.Message,
-			Object:           ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
-			ObjectAPIVersion: ev.InvolvedObject.APIVersion,
-			Namespace:        ev.Namespace,
-			Count:            max32(ev.Count, 1),
-			FirstSeen:        ev.FirstTimestamp.Time,
-			LastSeen:         ev.LastTimestamp.Time,
-			// Carried through because §32a's revision rows live in the
-			// event's annotations, not its message — dropping them here
-			// makes those rows silently vanish under the fake.
-			Annotations: ev.Annotations,
-		})
+		// The real projection, so Series/EventTime fallbacks and the
+		// deterministic tie order behave the same under --demo and tests.
+		out = append(out, kube.EventFromObject(ev))
 	}
-	slices.SortFunc(out, func(a, b kube.Event) int { return b.LastSeen.Compare(a.LastSeen) })
+	kube.SortEventsNewestFirst(out)
 	return out, nil
 }
 
@@ -1351,31 +1339,10 @@ func (c *Cluster) NamespaceEvents(ctx context.Context, namespace string) ([]kube
 		if !ok {
 			continue
 		}
-		out = append(out, kube.Event{
-			Type:             ev.Type,
-			Reason:           ev.Reason,
-			Message:          ev.Message,
-			Object:           ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
-			ObjectAPIVersion: ev.InvolvedObject.APIVersion,
-			Namespace:        ev.Namespace,
-			Count:            max32(ev.Count, 1),
-			FirstSeen:        ev.FirstTimestamp.Time,
-			LastSeen:         ev.LastTimestamp.Time,
-			// Carried through because §32a's revision rows live in the
-			// event's annotations, not its message — dropping them here
-			// makes those rows silently vanish under the fake.
-			Annotations: ev.Annotations,
-		})
+		out = append(out, kube.EventFromObject(ev))
 	}
-	slices.SortFunc(out, func(a, b kube.Event) int { return b.LastSeen.Compare(a.LastSeen) })
+	kube.SortEventsNewestFirst(out)
 	return out, nil
-}
-
-func max32(v, floor int32) int32 {
-	if v == 0 {
-		return floor
-	}
-	return v
 }
 
 // --- pod metrics ---

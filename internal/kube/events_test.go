@@ -146,7 +146,7 @@ func TestEventFromObjectFallsBackThroughTimestamps(t *testing.T) {
 		Type:    "Normal",
 		Message: "assigned to node-1",
 	}
-	got := eventFromObject(ev)
+	got := EventFromObject(ev)
 	if got.Count != 1 {
 		t.Fatalf("Count = %d, want 1 default", got.Count)
 	}
@@ -181,7 +181,7 @@ func TestEventFromObjectPrefersSeriesOverEventTime(t *testing.T) {
 		EventTime:      metav1.NewMicroTime(firstOccurrence),
 		Series:         &corev1.EventSeries{Count: 42, LastObservedTime: metav1.NewMicroTime(lastObserved)},
 	}
-	got := eventFromObject(ev)
+	got := EventFromObject(ev)
 	if !got.LastSeen.Equal(lastObserved) {
 		t.Fatalf("LastSeen = %v, want Series.LastObservedTime %v (not EventTime's first-occurrence %v)", got.LastSeen, lastObserved, firstOccurrence)
 	}
@@ -202,7 +202,7 @@ func TestEventFromObjectSeriesNilKeepsLegacyFields(t *testing.T) {
 		LastTimestamp:  metav1.NewTime(last),
 		Count:          3,
 	}
-	got := eventFromObject(ev)
+	got := EventFromObject(ev)
 	if !got.LastSeen.Equal(last) {
 		t.Fatalf("LastSeen = %v, want LastTimestamp %v", got.LastSeen, last)
 	}
@@ -219,7 +219,7 @@ func TestEventKeepsInvolvedObjectAPIVersion(t *testing.T) {
 	ev := &corev1.Event{InvolvedObject: corev1.ObjectReference{
 		APIVersion: FluxGroupHelm + "/v2", Kind: "HelmRelease", Name: "podinfo",
 	}}
-	got := eventFromObject(ev)
+	got := EventFromObject(ev)
 	if got.ObjectAPIVersion != FluxGroupHelm+"/v2" {
 		t.Fatalf("ObjectAPIVersion = %q", got.ObjectAPIVersion)
 	}
@@ -234,7 +234,7 @@ func TestEventKeepsInvolvedObjectAPIVersion(t *testing.T) {
 func TestForObjectUIDDropsAPredecessorsEvents(t *testing.T) {
 	t.Parallel()
 	ev := &corev1.Event{InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "db-0", UID: "old"}}
-	projected := eventFromObject(ev)
+	projected := EventFromObject(ev)
 	if projected.ObjectUID != "old" {
 		t.Fatalf("ObjectUID = %q, want involvedObject.uid", projected.ObjectUID)
 	}

@@ -647,6 +647,31 @@ func TestObjectEventsFiltersByInvolvedObject(t *testing.T) {
 	}
 }
 
+// The fake projects events exactly as the real cluster does: an
+// events.k8s.io-native event's last occurrence lives in Series, not in the
+// legacy LastTimestamp/Count, which it never sets.
+func TestNamespaceEventsReadSeriesLikeTheRealCluster(t *testing.T) {
+	t.Parallel()
+	first := time.Now().Add(-3 * time.Hour)
+	last := time.Now().Add(-time.Minute)
+	c := New("default", "dev")
+	c.Seed(kube.KindEvent, &corev1.Event{
+		ObjectMeta:     metav1.ObjectMeta{Name: "ev-series", Namespace: "default"},
+		InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "api"},
+		Reason:         "BackOff",
+		EventTime:      metav1.NewMicroTime(first),
+		Series:         &corev1.EventSeries{Count: 42, LastObservedTime: metav1.NewMicroTime(last)},
+	})
+
+	got, err := c.NamespaceEvents(t.Context(), "default")
+	if err != nil {
+		t.Fatalf("NamespaceEvents: %v", err)
+	}
+	if len(got) != 1 || got[0].Count != 42 || !got[0].LastSeen.Equal(last) {
+		t.Fatalf("NamespaceEvents = %+v, want Count 42 last seen at the series' last observation", got)
+	}
+}
+
 func TestSwitchNamespaceAndContext(t *testing.T) {
 	t.Parallel()
 	c := New("default", "dev")
