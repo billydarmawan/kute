@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -133,5 +134,10 @@ func getJSON(ctx context.Context, client *http.Client, url string, out any) erro
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("update: GET %s: unexpected status %s", url, resp.Status)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(out)
 }
+
+// maxResponseBytes caps one release-feed or changelog.json body. Both are a
+// few KiB; a body that never ends (a misbehaving proxy, a hostile mirror)
+// must not be decoded into memory without bound.
+const maxResponseBytes = 1 << 20

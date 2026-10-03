@@ -3,6 +3,7 @@ package update
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -113,5 +114,22 @@ func TestGitHubCheckerChangelogEmptyURL(t *testing.T) {
 	entries, err := c.Changelog(t.Context(), Release{})
 	if err != nil || entries != nil {
 		t.Fatalf("Changelog with no asset = (%v, %v), want (nil, nil)", entries, err)
+	}
+}
+
+// TestGitHubCheckerLatestBoundsTheBody: a body larger than any real release
+// document is refused rather than decoded into memory without bound
+// (14 L11c).
+func TestGitHubCheckerLatestBoundsTheBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name": "v0.2.1", "body": "`))
+		_, _ = w.Write([]byte(strings.Repeat("x", 2*maxResponseBytes)))
+		_, _ = w.Write([]byte(`"}`))
+	}))
+	defer srv.Close()
+
+	c := GitHubChecker{Repo: "kute-dev/kute", BaseURL: srv.URL}
+	if _, err := c.Latest(t.Context()); err == nil {
+		t.Fatal("Latest decoded a body past maxResponseBytes, want an error")
 	}
 }
