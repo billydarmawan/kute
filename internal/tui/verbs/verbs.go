@@ -46,6 +46,12 @@ type Verb struct {
 	// overlay's SCOPE/LIST/RESOURCE columns (helpScopeKeys/helpListKeys/
 	// helpResourceKeys).
 	Global bool
+	// Presses are the key presses (tea.KeyPressMsg.String()) that fire the
+	// verb when Key is a display spelling rather than a press — "↵" is
+	// pressed as "enter", "[/]" as "[" or "]". Empty means Key is itself
+	// the press. Handlers match through Matches, so the hint and the
+	// handler read the same entry.
+	Presses []string
 }
 
 // ScaleUpKey and ScaleDownKey are the two key presses behind Scale's
@@ -59,6 +65,23 @@ const (
 // Hint renders the verb as a keybar key/label pair.
 func (v Verb) Hint() tui.KeyHint {
 	return tui.KeyHint{Key: v.Key, Label: v.Label}
+}
+
+// HintAs renders the verb under a screen's own label for it — the same key,
+// named for what it does here ("esc" clears a filter, cancels a buffer,
+// discards an edit). The key still comes from the registry, so it can't
+// drift from the handler that matches it.
+func (v Verb) HintAs(label string) tui.KeyHint {
+	return tui.KeyHint{Key: v.Key, Label: label}
+}
+
+// Matches reports whether press (a tea.KeyPressMsg.String()) fires v: one
+// of its Presses, or Key itself when it has none.
+func (v Verb) Matches(press string) bool {
+	if len(v.Presses) == 0 {
+		return press == v.Key
+	}
+	return slices.Contains(v.Presses, press)
 }
 
 // AppliesTo reports whether the verb is offered for kind. A nil Kinds list
@@ -86,7 +109,7 @@ func (v Verb) HiddenWhileOffline(offline bool) bool {
 var (
 	Goto   = Verb{ID: "goto", Key: "g", Label: "goto", Global: true}
 	Filter = Verb{ID: "filter", Key: "/", Label: "filter", Global: true}
-	Open   = Verb{ID: "open", Key: "↵", Label: "open"}
+	Open   = Verb{ID: "open", Key: "↵", Label: "open", Presses: []string{"enter"}}
 	// Logs' Kinds includes CronJob as well as Pod (0.8.0 plan §36a: "l opens
 	// logs for the newest useful Pod of the selected row's most recent
 	// associated Job — active or terminal, succeeded or failed") — a
@@ -212,6 +235,31 @@ var (
 	LogCycleSince     = Verb{ID: "log-cycle-since", Key: "s", Label: "since"}
 	LogCycleContainer = Verb{ID: "log-cycle-container", Key: "tab", Label: "cycle container"}
 	LogCopyView       = Verb{ID: "log-copy-view", Key: "Y", Label: "copy view"}
+)
+
+// Shared navigation vocabulary — the keys every screen means the same way
+// (CLAUDE.md: "j/k ≡ ↑↓ everywhere; esc always walks back exactly one
+// level"). A screen names what the move or the step back reaches with
+// HintAs ("↑↓ field", "esc discard"); the key itself always comes from
+// here. Handlers that need a direction (↑ vs ↓, [ vs ]) still switch on
+// the individual presses — Presses lists them.
+var (
+	Move = Verb{ID: "move", Key: "↑↓", Label: "move", Presses: []string{"up", "down", "j", "k"}}
+	// Back is esc — out of a buffer, a filter, a picker or the screen.
+	Back = Verb{ID: "back", Key: "esc", Label: "back"}
+	// NextPanel is tab spelled as the ↹ glyph the design spec draws for a
+	// focus move (§19a's "↹ next panel", §24a's "↹ container", §26a's
+	// "↹ key ↔ value").
+	NextPanel = Verb{ID: "next-panel", Key: tui.GlyphTab, Label: "next panel", Presses: []string{"tab"}}
+	// Siblings steps to the previous/next object of the same kind without
+	// leaving a detail screen.
+	Siblings = Verb{ID: "siblings", Key: "[/]", Label: "next/prev", Presses: []string{"[", "]"}}
+	// Search opens a screen's own in-buffer search (8a) — '/', the same
+	// press as Filter on a list.
+	Search = Verb{ID: "search", Key: "/", Label: "search"}
+	// Quit is the shell-less screens' quit chord (4c/10b's setup screen,
+	// shown before any cluster exists to give the root shell's q).
+	Quit = Verb{ID: "quit", Key: "ctrl+q", Label: "quit"}
 )
 
 // Mutating verbs — every write path funnels through kube.Mutator, gated by
@@ -715,7 +763,7 @@ func ConfirmPrompt(question string) string {
 
 // All is every registered verb, for the help overlay's fixed SCOPE/GLOBAL
 // columns and for ByID lookups.
-var All = []Verb{
+var All = append([]Verb{
 	Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, PodDebug, DebugCleanup, Edit, Events,
 	Namespace, Context, AllNamespaces, JumpNamespace, ToggleGroup, PageUp, PageDown, Help, Retry, WhoCan,
 	HelmValues, EnvMounts, HelmHistory, HelmPods, Mark, MarkAll,
@@ -734,7 +782,8 @@ var All = []Verb{
 	Forward, StopForward, RestartForward, StopAllForwards, CopyForwardURL, CopyServiceClusterIP, CopyServiceExternalIP,
 	CopyRouteURL, OpenParentGateway, CopyRouteYAML, FocusTLSStrip, OpenTLSSecret,
 	ConfirmAccept, ConfirmDecline, ConfirmCancel, ConfirmSubmit,
-}
+	Move, Back, NextPanel, Siblings, Search, Quit,
+}, screenVerbs...)
 
 // ByID looks up a registered verb by its stable ID.
 func ByID(id string) (Verb, bool) {

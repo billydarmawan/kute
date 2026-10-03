@@ -59,6 +59,11 @@ func BuildUpdateChip(theme Theme, session *Session) ConnBadge {
 	return ConnBadge{Text: "↑ " + v, Style: lipgloss.NewStyle().Foreground(theme.Warn)}
 }
 
+// KeyWhatsNew opens 28b's what's-new panel from anywhere (the root shell's
+// handler and 28a's keybar-right hint both read it; verbs.WhatsNew registers
+// it, since tui can't import the verbs registry).
+const KeyWhatsNew = "U"
+
 // UpdateRightHints is 28a's keybar-right addition ("the keybar's right slot
 // names the key while live: `U 0.2.1 available — what's new`") — nil when
 // BuildUpdateChip would also render nothing, so callers can unconditionally
@@ -68,5 +73,5 @@ func UpdateRightHints(session *Session) []KeyHint {
 	if !ok {
 		return nil
 	}
-	return []KeyHint{{Key: "U", Label: v + " available — what's new"}}
+	return []KeyHint{{Key: KeyWhatsNew, Label: v + " available — what's new"}}
 }

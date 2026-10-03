@@ -586,6 +586,38 @@
         </tbody>
       </table>
 
+      <h3>In a detail screen</h3>
+      <table class="keyref">
+        <tbody>
+          <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>next/prev — the neighbouring Job or CronJob, without leaving its detail</td></tr>
+          <tr><td><kbd>j</kbd> <kbd>k</kbd> <span class="dim">in a custom resource's detail</span></td><td>next/prev object of the same kind</td></tr>
+          <tr><td><kbd>1</kbd> <span class="dim">in a custom resource's detail</span></td><td>owner — open the object that owns it</td></tr>
+        </tbody>
+      </table>
+
+      <h3>YAML</h3>
+      <table class="keyref">
+        <tbody>
+          <tr><td><kbd>tab</kbd></td><td>fold/unfold the block at the cursor</td></tr>
+          <tr><td><kbd>f</kbd></td><td>unfold all</td></tr>
+          <tr><td><kbd>/</kbd></td><td>search</td></tr>
+          <tr><td><kbd>Y</kbd></td><td>copy the whole document</td></tr>
+          <tr><td><kbd>x</kbd></td><td>reveal/mask the value at the cursor <span class="dim">(Secrets)</span></td></tr>
+          <tr><td><kbd>X</kbd></td><td>reveal all, after a y/N <span class="dim">(Secrets)</span></td></tr>
+          <tr><td><kbd>y</kbd></td><td>copy value — the decoded value at the cursor <span class="dim">(Secrets)</span></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Events and timeline</h3>
+      <table class="keyref">
+        <tbody>
+          <tr><td><kbd>w</kbd></td><td>warnings only, and back to all events</td></tr>
+          <tr><td><kbd>t</kbd></td><td>time window — cycle how far back the feed reaches</td></tr>
+          <tr><td><kbd>tab</kbd></td><td>expand/collapse the folded normal events; on an object's timeline, focus rail/feed</td></tr>
+          <tr><td><kbd>v</kbd></td><td>copy revision — the git revision of a revision or sync row</td></tr>
+        </tbody>
+      </table>
+
       <h3>Pods</h3>
       <table class="keyref">
         <tbody>
@@ -620,7 +652,9 @@
         <tbody>
           <tr><td><kbd>+</kbd> <kbd>−</kbd></td><td>scale <span class="dim">(Deployments and StatefulSets)</span></td></tr>
           <tr><td><kbd>i</kbd></td><td>set image <span class="dim">(CronJobs update future Jobs; running Jobs are unaffected)</span></td></tr>
+          <tr><td><kbd>ctrl+e</kbd> <span class="dim">in set image</span></td><td>full ref — edit the whole image reference, not just the tag</td></tr>
           <tr><td><kbd>r</kbd></td><td>resources — requests and limits <span class="dim">(Deployments, StatefulSets and DaemonSets)</span></td></tr>
+          <tr><td><kbd>u</kbd> <span class="dim">in resources</span></td><td>unset field — remove the request or limit under the cursor</td></tr>
           <tr><td><kbd>R</kbd></td><td>restart — roll the Deployment</td></tr>
           <tr><td><kbd>R</kbd> <span class="dim">on the timeline's revision rail</span></td><td>rollback to an earlier revision</td></tr>
         </tbody>
@@ -669,7 +703,7 @@
         <tbody>
           <tr><td><kbd>↵</kbd></td><td>start — launches the will-run command; inline <kbd>y/N</kbd> first in a production context</td></tr>
           <tr><td><kbd>m</kbd></td><td>mode — attach ephemeral / copy pod <span class="dim">(pods only; a pod that won't stay up opens straight into copy mode)</span></td></tr>
-          <tr><td><kbd>i</kbd></td><td>image — edit in place, with recent images remembered per context <span class="dim">(copy mode: the copy's pod name)</span></td></tr>
+          <tr><td><kbd>i</kbd></td><td>image — edit in place, with recent images remembered per context <span class="dim">(copy mode: copy name — the copy's pod name)</span></td></tr>
           <tr><td><kbd>t</kbd></td><td>target/container — cycle the container to attach to or copy</td></tr>
           <tr><td><kbd>p</kbd></td><td>profile — general / sysadmin / netadmin</td></tr>
           <tr><td><kbd>e</kbd></td><td>entrypoint <span class="dim">(copy mode)</span> — replaces the command, which is what stops the crash loop</td></tr>
@@ -757,6 +791,7 @@
       <h3>Port-forwards</h3>
       <table class="keyref">
         <tbody>
+          <tr><td><kbd>0</kbd>–<kbd>9</kbd> <span class="dim">in the picker</span></td><td>type local port — forward to a port of your choosing</td></tr>
           <tr><td><kbd>x</kbd></td><td>stop this forward</td></tr>
           <tr><td><kbd>r</kbd></td><td>restart this forward</td></tr>
           <tr><td><kbd>X</kbd></td><td>stop all forwards</td></tr>
@@ -770,6 +805,19 @@
           <tr><td><kbd>r</kbd></td><td>retry — reconnect</td></tr>
           <tr><td><kbd>ctrl+r</kbd> <span class="dim">in the context palette</span></td><td>re-probe contexts</td></tr>
           <tr><td><kbd>w</kbd></td><td>who-can — who is allowed to do this</td></tr>
+          <tr><td><kbd>v</kbd> <kbd>K</kbd> <span class="dim">in who-can</span></td><td>pick the verb, or pick resource kind, to ask about</td></tr>
+          <tr><td><kbd>y</kbd> <span class="dim">on an error card</span></td><td>copy error — the server's message, to paste to your cluster admin</td></tr>
+          <tr><td><kbd>e</kbd> <span class="dim">or, with no kubeconfig,</span> <kbd>k</kbd></td><td>edit kubeconfig path / enter kubeconfig path — point kute at a different file</td></tr>
+        </tbody>
+      </table>
+
+      <h3>What's new <span class="dim">(<kbd>U</kbd>)</span></h3>
+      <table class="keyref">
+        <tbody>
+          <tr><td><kbd>y</kbd></td><td>copy command — the upgrade command for how you installed kute</td></tr>
+          <tr><td><kbd>o</kbd></td><td>release notes ↗ in your browser</td></tr>
+          <tr><td><kbd>x</kbd></td><td>skip this version</td></tr>
+          <tr><td><kbd>r</kbd></td><td>re-check now <span class="dim">(when already up to date)</span></td></tr>
         </tbody>
       </table>
     </section>

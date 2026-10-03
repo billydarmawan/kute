@@ -28,6 +28,15 @@ type WhoCanScoped interface {
 	WhoCanQuery() (verb, resource string)
 }
 
+// The who-can palette keys the root shell handles on tasks/whocan's behalf.
+// They live here, not in the verbs registry, because tui can't import verbs;
+// verbs.WhoCanVerb/WhoCanResource take their Key from these, so the hint
+// whocan renders and the root shell's handler read one constant.
+const (
+	KeyWhoCanVerb     = "v"
+	KeyWhoCanResource = "K"
+)
+
 // whoCanVerbs is the fixed RBAC verb vocabulary the 'v' palette lists —
 // standard verbs plus the wildcard.
 var whoCanVerbs = []string{"get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "*"}

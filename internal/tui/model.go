@@ -1143,10 +1143,10 @@ func (m Model) handleShellKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 	}
 	if wc, ok := m.task.(WhoCanScoped); ok {
 		switch msg.String() {
-		case "v":
+		case KeyWhoCanVerb:
 			verb, _ := wc.WhoCanQuery()
 			return true, m, m.openVerbPalette(verb)
-		case "K":
+		case KeyWhoCanResource:
 			// Capital K, not lowercase k — whocan's own updateKey already
 			// binds "up"/"k" to move-selection-up, so a lowercase intercept
 			// here would permanently steal j/k movement from that one screen
@@ -1168,7 +1168,7 @@ func (m Model) handleShellKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 		return true, m, m.openPalette(palette.ScopeNamespace, "ns ›", "")
 	case "c":
 		return true, m, m.openPalette(palette.ScopeContext, "ctx ›", "")
-	case "U":
+	case KeyWhatsNew:
 		return true, m, m.openUpdatePanel()
 	case "q":
 		m.quitConfirm = true
