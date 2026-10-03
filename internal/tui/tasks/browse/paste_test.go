@@ -257,16 +257,16 @@ func TestPasteIntoBulkDeleteCountIsDigitGated(t *testing.T) {
 
 	m = step(t, m, tea.KeyPressMsg{Text: "*"})
 	m = step(t, m, tea.KeyPressMsg{Text: "D"})
-	if m.pendingBulkDelete == nil || m.pendingBulkDelete.tier != actions.TierModal {
-		t.Fatalf("expected the PROD type-the-count modal, got %+v", m.pendingBulkDelete)
+	if !m.pendingBulkDelete() || m.actions.Tier() != actions.TierModal {
+		t.Fatalf("expected the PROD type-the-count modal, got %+v", m.actions.Tier())
 	}
 
 	m = step(t, m, tea.PasteMsg{Content: "two"})
-	if got := m.pendingBulkDelete.typedInput.Value(); got != "" {
+	if got := m.actions.TypedName(); got != "" {
 		t.Fatalf("count buffer = %q, want a non-digit paste rejected", got)
 	}
 	m = step(t, m, tea.PasteMsg{Content: "2\n"})
-	if got := m.pendingBulkDelete.typedInput.Value(); got != "2" {
+	if got := m.actions.TypedName(); got != "2" {
 		t.Fatalf("count buffer = %q, want 2", got)
 	}
 	m = step(t, m, tea.KeyPressMsg{Text: "enter"})

@@ -138,7 +138,7 @@ func TypeNameModal(title, ownerLine, detailLine, target string, input textfield.
 // tag), objectsLine listing every marked object, an optional detail line
 // (grace period), the type-ahead prompt against the count's digit string,
 // and the key row. ↵ only executes once typed == strconv of count — screens
-// gate that themselves (browse's updateBulkDeleteKey), this component is
+// gate that themselves (browse's updateModalConfirmKey), this component is
 // purely presentational, same contract as TypeNameModal.
 func TypeCountModal(title, objectsLine, detailLine string, count int, input textfield.Model, prod bool, styles TypeModalStyles, width, height int) string {
 	target := strconv.Itoa(count)

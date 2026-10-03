@@ -92,8 +92,8 @@ func TestBulkDeleteMarkedSetCommits(t *testing.T) {
 // TestBulkDeletePartialFailureKeepsMarks injects a 403 on exactly one of the
 // marked objects' DELETEs.
 //
-// executeBulkDelete joins per-row errors rather than stopping at the first,
-// so a partial failure is a real state the screen has to report: some
+// The controller's bulk execution records per-row errors rather than
+// stopping at the first, so a partial failure is a real state the screen has to report: some
 // objects gone, one still there, and the marked set retained rather than
 // silently cleared. Nothing below the UI can produce that — the fake
 // clientset would have to be taught to fail one name — and a bulk verb that

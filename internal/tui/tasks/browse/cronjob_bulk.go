@@ -3,10 +3,9 @@
 // marked-set "cronjob-suspend" TierModal confirm renders instead of
 // delete.go's single-target typeNameConfirmModal — reusing 20a's own
 // type-the-count grammar (components.TypeCountModal) but sourced from
-// actions.Controller's structured BulkTargets payload rather than a
-// bespoke local gate like pendingBulkDelete, so the confirm→execute path
-// stays the shared executeBulk/BulkResultMsg machinery every bulk-capable
-// verb goes through. Kept in its own file: jobs.go/cronjob_actions.go both
+// actions.Controller's structured BulkTargets payload, so the
+// confirm→execute path stays the shared executeBulk/BulkResultMsg machinery
+// every bulk-capable verb (20a's delete included) goes through. Kept in its own file: jobs.go/cronjob_actions.go both
 // already carry real weight, and this is a rendering + key-routing
 // concern, not a staging one.
 package browse
@@ -26,7 +25,7 @@ import (
 // bulkCronJobSuspendWillRunLine is the TierInline (non-PROD) keybar note for
 // a marked-set suspend — names every target rather than a single kubectl
 // invocation, since one command can't represent N independent patches
-// (mirrors bulkDeleteWillRunLine's own cross-namespace fallback text).
+// (bulkDeleteWillRunLine's cross-namespace fallback is the same shape).
 func bulkCronJobSuspendWillRunLine(scope tui.TaskScope) string {
 	names := make([]string, len(scope.BulkTargets))
 	for i, t := range scope.BulkTargets {
@@ -38,8 +37,8 @@ func bulkCronJobSuspendWillRunLine(scope tui.TaskScope) string {
 // bulkCronJobSuspendConfirmModal renders the PROD type-the-count modal for a
 // marked-set suspend: title, every marked object, a note that running Jobs
 // are unaffected, and the type-ahead prompt against the count — the same
-// shape bulkDeleteConfirmModal (bulk.go) uses for delete, sourced from
-// m.actions.Pending() instead of a local pendingBulkDelete.
+// shape bulkDeleteConfirmModal (bulk.go) uses for delete, both sourced from
+// m.actions.Pending().
 func (m Model) bulkCronJobSuspendConfirmModal(width, height int) string {
 	theme := m.Theme()
 	pending := m.actions.Pending()
@@ -69,11 +68,11 @@ func (m Model) bulkCronJobSuspendConfirmModal(width, height int) string {
 	return components.TypeCountModal(title, objectsLine, "running jobs are unaffected — this only stops future scheduling", count, m.actions.TypedInput(), m.isProd(), styles, width, height)
 }
 
-// bulkTargetNamespace/bulkTargetLabels mirror bulkNamespace/bulkObjectLabels
-// (bulk.go) for a []tui.BulkTarget rather than a []resources.Row — the two
-// bulk grammars (delete's local pendingBulkDelete, suspend's
-// actions.Controller BulkTargets) carry namespace-qualified targets in
-// different shapes, so the formatting helpers aren't directly shared.
+// bulkTargetNamespace returns the targets' shared namespace and whether they
+// share one; bulkTargetLabels formats each target for a confirm modal's
+// object list — just the name when every target shares a namespace,
+// "namespace/name" when they don't. Shared by both marked-set grammars
+// (20a's delete, §36c's suspend).
 func bulkTargetNamespace(targets []tui.BulkTarget) (string, bool) {
 	if len(targets) == 0 {
 		return "", true
@@ -99,29 +98,30 @@ func bulkTargetLabels(targets []tui.BulkTarget, uniformNamespace bool) []string 
 	return labels
 }
 
-// bulkCronJobSuspendPasteTarget wraps the controller's own type-ahead buffer
-// with digit-only filtering (tui.PasteDigits) — the count grammar's own
-// rule, mirrored from bulk.go's pendingBulkDelete paste path, that
+// bulkCountPasteTarget wraps the controller's own type-ahead buffer with
+// digit-only filtering (tui.PasteDigits) — the count grammar's own rule,
+// shared by every marked-set TierModal confirm (pendingBulkCount), that
 // actions.Controller.PasteTarget can't apply on its own since it also backs
 // the unfiltered type-the-name grammar every other TierModal verb uses.
-func (m Model) bulkCronJobSuspendPasteTarget() tui.PasteTarget {
+// Pointer receiver: on a value copy the paste would land in the copy's
+// buffer, never the controller's.
+func (m *Model) bulkCountPasteTarget() tui.PasteTarget {
 	return tui.PasteDigits(m.actions.PasteTarget())
 }
 
 // pendingBulkCronJobSuspend reports whether the active confirm is a
 // marked-set "cronjob-suspend" — the one condition that routes Body()'s
 // TierModal branch, updateModalConfirmKey's enter/typing, and pasteTarget to
-// this file's bulk count grammar instead of delete.go's type-the-name one.
+// this file's bulk count modal instead of delete.go's type-the-name one.
 func (m Model) pendingBulkCronJobSuspend() bool {
 	pending := m.actions.Pending()
 	return pending != nil && pending.Scope.Verb == "cronjob-suspend" && len(pending.Scope.BulkTargets) > 0
 }
 
-// bulkCronJobSuspendCountMatches reports whether the controller's typed
-// buffer currently equals the marked count — updateModalConfirmKey's own
-// enter gate for the bulk grammar (mirrors updateBulkDeleteKey's identical
-// check against pendingBulkDelete's local buffer).
-func (m Model) bulkCronJobSuspendCountMatches() bool {
+// bulkCountMatches reports whether the controller's typed buffer currently
+// equals the marked count — updateModalConfirmKey's enter gate for every
+// marked-set TierModal confirm (pendingBulkCount).
+func (m Model) bulkCountMatches() bool {
 	pending := m.actions.Pending()
 	if pending == nil {
 		return false
@@ -129,12 +129,11 @@ func (m Model) bulkCronJobSuspendCountMatches() bool {
 	return m.actions.TypedName() == strconv.Itoa(len(pending.Scope.BulkTargets))
 }
 
-// bulkCronJobSuspendKeyIsDigit reports whether msg's Text is safe to forward
-// into the count buffer — digits only, matching the field's count semantics
-// (mirrors updateBulkDeleteKey's identical filter). Non-text control keys
-// (backspace, arrows, Home/End) carry no Text and are always allowed
-// through.
-func bulkCronJobSuspendKeyIsDigit(msg tea.KeyPressMsg) bool {
+// bulkCountKeyIsDigit reports whether msg's Text is safe to forward into the
+// count buffer — digits only, matching the field's count semantics.
+// Non-text control keys (backspace, arrows, Home/End) carry no Text and are
+// always allowed through.
+func bulkCountKeyIsDigit(msg tea.KeyPressMsg) bool {
 	for _, r := range msg.Text {
 		if r < '0' || r > '9' {
 			return false

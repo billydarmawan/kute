@@ -441,15 +441,10 @@ type Model struct {
 	// in different namespaces. nil/empty means no marks — every marks-aware
 	// render path (health strip, mode pill, table's mark column) must render
 	// zero chrome in that case (13d's rule).
-	marks map[string]bool
-	// pendingBulkDelete is non-nil while 20a's bulk-delete confirm is
-	// showing — a bespoke gate like pendingScale/pendingEdit, since a bulk
-	// action has no single ResourceName for actions.Controller's own
-	// y/N/type-name shapes to key off.
-	pendingBulkDelete *bulkDeleteTarget
-	kind              kube.ResourceKind
-	namespace         string
-	desc              resources.Descriptor
+	marks     map[string]bool
+	kind      kube.ResourceKind
+	namespace string
+	desc      resources.Descriptor
 
 	rows      []resources.Row
 	fetchedAt time.Time
@@ -1410,7 +1405,11 @@ func (m *Model) resetAndLoad() tea.Cmd {
 	m.pendingJobRerun = nil
 	// 20a: "marks are per-view and drop on kind/namespace switch."
 	m.marks = nil
-	m.pendingBulkDelete = nil
+	// A marked-set delete's confirm names the marks just dropped, so it
+	// goes with them.
+	if m.pendingBulkDelete() {
+		m.actions.Cancel()
+	}
 	// A manual column choice only means something against the kind/
 	// namespace it was picked on, so it resets here too — same lifecycle as
 	// the filter box above.

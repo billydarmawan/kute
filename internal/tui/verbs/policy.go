@@ -76,8 +76,8 @@ var cascadeDeleteKinds = []kube.ResourceKind{kube.KindNamespace, kube.KindCustom
 
 // policies is the destructive-action policy, in one place (CLAUDE.md's
 // destructive-action invariant; review 10 M1). Every confirm in the app —
-// actions.Controller.Begin, and the three bespoke gates outside it (the
-// kubectl edit/debug tty handoffs and 20a's marked-set delete) — resolves
+// actions.Controller.Begin (20a's marked-set delete included), and the
+// bespoke gates outside it (the kubectl edit/debug tty handoffs) — resolves
 // through Resolve, never through a tier picked at the call site.
 var policies = map[string]rule{
 	// Delete: inline y/N, the type-the-name modal in PROD — and always the

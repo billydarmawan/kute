@@ -694,10 +694,11 @@ func (m Model) Body(width, height int) string {
 	if m.pendingMeta != nil {
 		return m.setMetaBody(width, height)
 	}
-	if m.pendingBulkDelete != nil && m.pendingBulkDelete.tier == actions.TierModal {
-		return m.bulkDeleteConfirmModal(width, height)
-	}
 	if m.actions.Active() && m.actions.Tier() == actions.TierModal {
+		if m.pendingBulkDelete() {
+			// 20a's marked-set delete: the type-the-count modal (bulk.go).
+			return m.bulkDeleteConfirmModal(width, height)
+		}
 		if m.pendingBulkCronJobSuspend() {
 			// A marked-set suspend has no single ResourceName for
 			// typeNameConfirmModal's grammar — cronjob_bulk.go's own

@@ -167,11 +167,9 @@ func (c *Controller) SetOffline(offline bool) {
 	c.offline = offline
 }
 
-// RefuseIfOffline reports whether the connection is mid-outage, and if so
-// puts Begin's own offline refusal on the result line — for a mutating
-// confirm a screen runs outside Begin (browse's 20a marked-set delete), so
-// it is refused the same way and with the same words.
-func (c *Controller) RefuseIfOffline() bool {
+// refuseIfOffline reports whether the connection is mid-outage, and if so
+// puts Begin's offline refusal on the result line.
+func (c *Controller) refuseIfOffline() bool {
 	if !c.offline {
 		return false
 	}
@@ -278,7 +276,7 @@ func target(r Request, scope tui.TaskScope) verbs.Target {
 }
 
 func (c *Controller) begin(p verbs.Policy, action tui.TaskAction) tea.Cmd {
-	if c.RefuseIfOffline() {
+	if c.refuseIfOffline() {
 		return nil
 	}
 	if c.mutator == nil {
@@ -316,11 +314,12 @@ func (c *Controller) begin(p verbs.Policy, action tui.TaskAction) tea.Cmd {
 // plain y/N card: verbs.Resolve decides which.
 //
 // The typed-name gate is skipped outright when BulkTargets is non-empty: a
-// marked-set "cronjob-suspend" PROD confirm has no single ResourceName to
-// type (0.8.0 plan §3 Phase 5 task 8: "In PROD, use the existing
-// type-the-count bulk grammar") — the caller (browse's own bulk-count
-// modal/key routing, not this predicate) gates Confirm on the typed digit
-// count matching len(BulkTargets) before ever calling this method.
+// marked-set TierModal confirm (20a's delete, §36c's cronjob-suspend) has no
+// single ResourceName to type (0.8.0 plan §3 Phase 5 task 8: "In PROD, use
+// the existing type-the-count bulk grammar") — the caller (browse's own
+// bulk-count modal/key routing, not this predicate) gates Confirm on the
+// typed digit count matching len(BulkTargets) before ever calling this
+// method.
 func (c *Controller) Confirm() tea.Cmd {
 	if c.state != tui.TaskStateConfirming || c.pending == nil {
 		return nil
@@ -387,12 +386,12 @@ func (c *Controller) PasteTarget() tui.PasteTarget {
 // delete confirm: when the pending action is a Delete of a kind ForceDelete
 // applies to, it becomes a force-delete under verbs.Resolve(ForceDelete, …)
 // — the type-the-name modal, whether it started as an inline y/N or as
-// PROD's modal. Reports whether it escalated; anything else is left
-// untouched, so a modal's caller can hand an unclaimed chord on to its text
-// buffer.
+// PROD's modal. Reports whether it escalated; anything else — a marked-set
+// delete included, which has no force-delete form — is left untouched, so a
+// modal's caller can hand an unclaimed chord on to its text buffer.
 func (c *Controller) EscalateForceDelete(isProd bool) bool {
 	p := c.pending
-	if !c.Active() || p == nil || p.Scope.Verb != verbs.Delete.ID {
+	if !c.Active() || p == nil || p.Scope.Verb != verbs.Delete.ID || len(p.Scope.BulkTargets) > 0 {
 		return false
 	}
 	kind := kube.ResourceKind(p.Scope.ResourceKind)
@@ -469,7 +468,7 @@ func summary(label string) string {
 // only the failed rows marked) read msg.Results/msg.Failed() themselves —
 // this only drives the controller's own State()/Message().
 func (c *Controller) HandleBulkResult(msg BulkResultMsg) {
-	message := c.ReportBulkResult(msg)
+	message := c.reportBulkResult(msg)
 	failed := msg.Failed()
 	if c.stale(msg.Seq) {
 		return
@@ -486,14 +485,13 @@ func (c *Controller) HandleBulkResult(msg BulkResultMsg) {
 	c.state = tui.TaskStateError
 }
 
-// ReportBulkResult sets only the keybar outcome line (Result) for a bulk
+// reportBulkResult sets only the keybar outcome line (Result) for a bulk
 // action's per-target outcomes — green "<label> (N)" when every target
 // succeeded, red "N of M targets failed: <first error>" otherwise — and
-// returns the matching Message() text. It never touches pending/state, so a
-// bulk verb that runs its own confirm outside Begin (browse's 20a marked-set
-// delete) reports through the same line without disturbing the controller.
-// HandleBulkResult calls it for the controller's own bulk actions.
-func (c *Controller) ReportBulkResult(msg BulkResultMsg) string {
+// returns the matching Message() text. It never touches pending/state, so
+// HandleBulkResult can report a stale result without disturbing a newer
+// confirm.
+func (c *Controller) reportBulkResult(msg BulkResultMsg) string {
 	label := summary(msg.Label)
 	failed := msg.Failed()
 	var message string

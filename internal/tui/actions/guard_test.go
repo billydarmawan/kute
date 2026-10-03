@@ -150,14 +150,12 @@ func callsDismiss(pkg []*ast.File, fields map[string]bool) bool {
 // resolveOutsideBegin are the only confirms that resolve verbs.Resolve
 // themselves instead of through Controller.Begin, each because it never
 // reaches kube.Mutator through the controller: the kubectl edit/debug tty
-// handoffs (a bespoke PROD y/N before tea.ExecProcess) and 20a's marked-set
-// delete (its own type-the-count machine, review 10 M2).
+// handoffs (a bespoke PROD y/N before tea.ExecProcess).
 var resolveOutsideBegin = map[string]bool{
 	"tasks/browse/edit.go":       true,
 	"tasks/poddetail/edit.go":    true,
 	"tasks/nodedetail/edit.go":   true,
 	"tasks/debugpanel/update.go": true,
-	"tasks/browse/bulk.go":       true,
 }
 
 // TestConfirmPolicyOnlyResolvedByBegin is review 10 M1's guard: the confirm

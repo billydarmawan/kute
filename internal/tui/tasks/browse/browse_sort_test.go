@@ -279,8 +279,8 @@ func TestSortArrowRendersOnNarrowFixedColumns(t *testing.T) {
 
 // displayRowNames extracts m.display's data rows' Names in order, skipping
 // any 6b group/fold/summary lines (none expected here since these tests all
-// stay single-namespace) — bulk.go's own rowNames takes a plain
-// []resources.Row, not the display list, so this is its m.display-shaped
+// stay single-namespace) — bulk.go's own targetNames takes the marked set's
+// []tui.BulkTarget, not the display list, so this is its m.display-shaped
 // counterpart rather than a duplicate.
 func displayRowNames(m Model) []string {
 	names := make([]string, 0, len(m.display))

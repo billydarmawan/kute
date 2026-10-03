@@ -4,50 +4,24 @@
 // marks before it walks back a level. Delete is the one bulk-capable verb
 // today (verbs.Delete.Bulk) — inline y/N in non-prod contexts, the
 // type-the-count modal in PROD, same 8b tiering the single-row delete
-// already uses. Kept in its own file, browse's per-concern split convention
+// already uses, run through the same actions.Controller.Begin. Kept in its own file, browse's per-concern split convention
 // (like delete.go/scale.go/nodes.go).
 package browse
 
 import (
-	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/kute-dev/kute/internal/tui/components/textfield"
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
+	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
-
-// bulkDeleteTarget is the state pendingBulkDelete gates on while 20a's
-// confirm is showing.
-type bulkDeleteTarget struct {
-	rows []resources.Row
-	tier actions.Tier
-	// typedInput is the type-ahead buffer for a TierModal (PROD) confirm —
-	// unused for TierInline. Never rendered via its own View() (components.
-	// TypeCountModal keeps its own bespoke progress-counter look, reading
-	// Value() for the text and Position() for the caret), so it's never
-	// styled — this exists purely for HandleTypeKey-equivalent input
-	// handling (Home/End; paste arrives via pasteTarget), matching
-	// actions.Controller's own typedInput.
-	typedInput textfield.Model
-}
-
-// bulkDeleteResultMsg carries a bulk delete's per-target outcomes, in
-// marked-row order, under label ("Delete pods") — reported on the keybar's
-// result line via actions.Controller.ReportBulkResult, the same red/green
-// line every single-object mutation uses.
-type bulkDeleteResultMsg struct {
-	label   string
-	results []actions.TargetResult
-}
 
 // retainFailedMarks is the marked set left after a bulk verb ran: only the
 // targets whose call failed (0.8.0 plan §3 Phase 2 task 11: "let the caller
@@ -148,134 +122,89 @@ func (m Model) markedRows() []resources.Row {
 	return rows
 }
 
-// beginBulkDelete opens 20a's confirm for the marked set — inline y/N in
+// bulkDeleteActionPrefix prefixes a marked-set delete's TaskAction.ID, so
+// the actions.BulkResultMsg handler can tell its result from a marked-set
+// suspend's.
+const bulkDeleteActionPrefix = "bulk-delete-"
+
+// beginBulkDelete opens 20a's confirm for the marked set through
+// actions.Controller.Begin, like every single-row verb — inline y/N in
 // non-prod, the type-the-count modal in PROD, resolved by the same
 // verbs.Resolve single-row delete uses. A marked set of Namespaces,
 // CustomResourceDefinitions or Nodes therefore always gets the type-the-count modal,
 // even outside PROD: a set has no one name to type, and the count is the
 // fact a `*`-marked wipe is most likely to get wrong (§20a's PROD grammar,
-// reused rather than inventing a third confirm surface).
+// reused rather than inventing a third confirm surface). Begin owns the
+// OFFLINE refusal (docs/design README.md §4a), and executeBulk runs
+// kube.Mutator.DeleteResource once per marked row, recording each row's
+// outcome rather than stopping at the first failure.
 func (m *Model) beginBulkDelete() tea.Cmd {
 	rows := m.markedRows()
 	if len(rows) == 0 || m.mutator == nil {
 		return nil
 	}
-	// Bulk delete runs its own confirm outside actions.Controller.Begin, so
-	// it needs Begin's OFFLINE gate explicitly (docs/design README.md §4a:
-	// "delete/exec/edit verbs are disabled while offline").
-	if m.actions.RefuseIfOffline() {
-		return nil
-	}
-	tier := verbs.Resolve(verbs.Delete, verbs.Target{Kind: m.kind}, m.isProd()).Tier
-	input := textfield.New()
-	input.Prompt = ""
-	if tier == actions.TierModal {
-		input.Focus()
-	}
-	m.pendingBulkDelete = &bulkDeleteTarget{rows: rows, tier: tier, typedInput: input}
-	return nil
-}
-
-// updateBulkDeleteKey routes keys while pendingBulkDelete's confirm is
-// showing: TierModal drives the type-the-count buffer (enter only executes
-// once the typed digits equal the marked count); TierInline stays a plain
-// y/n.
-func (m *Model) updateBulkDeleteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	t := m.pendingBulkDelete
-	if t.tier == actions.TierModal {
-		switch msg.String() {
-		case "esc":
-			m.pendingBulkDelete = nil
-		case "enter":
-			if t.typedInput.Value() == strconv.Itoa(len(t.rows)) {
-				return m, m.executeBulkDelete()
-			}
-		default:
-			// Digits only, matching this field's count semantics — any
-			// keypress whose Text carries a non-digit rune is dropped,
-			// everything else (backspace, left/right, Home/End) reaches
-			// the text field.
-			for _, r := range msg.Text {
-				if r < '0' || r > '9' {
-					return m, nil
-				}
-			}
-			var cmd tea.Cmd
-			t.typedInput, cmd = t.typedInput.Update(msg)
-			return m, cmd
-		}
-		return m, nil
-	}
-	switch msg.String() {
-	case "y":
-		return m, m.executeBulkDelete()
-	case "n", "esc":
-		m.pendingBulkDelete = nil
-	}
-	return m, nil
-}
-
-// executeBulkDelete runs kube.Mutator.DeleteResource for every marked row,
-// recording each row's outcome rather than stopping at the first failure —
-// a partial failure still deletes everything it can.
-func (m *Model) executeBulkDelete() tea.Cmd {
-	t := m.pendingBulkDelete
-	mutator := m.mutator
-	kind := m.kind
-	rows := t.rows
-	label := "Delete " + lowerDisplay(m.desc.Display)
-	return func() tea.Msg {
-		results := make([]actions.TargetResult, 0, len(rows))
-		for _, r := range rows {
-			err := mutator.DeleteResource(context.Background(), kind, r.Namespace, r.Name)
-			if err != nil {
-				err = fmt.Errorf("%s: %w", r.Name, err)
-			}
-			results = append(results, actions.TargetResult{Namespace: r.Namespace, ResourceName: r.Name, Err: err})
-		}
-		return bulkDeleteResultMsg{label: label, results: results}
-	}
-}
-
-// bulkNamespace returns the marked rows' shared namespace and whether they
-// share one — a marked set can span multiple namespaces in 6b's
-// all-namespaces triage, and a single `kubectl delete ... -n ns` can't
-// represent that truthfully.
-func bulkNamespace(rows []resources.Row) (string, bool) {
-	if len(rows) == 0 {
-		return "", true
-	}
-	ns := rows[0].Namespace
-	for _, r := range rows[1:] {
-		if r.Namespace != ns {
-			return "", false
-		}
-	}
-	return ns, true
-}
-
-// rowNames extracts each row's Name, in order.
-func rowNames(rows []resources.Row) []string {
-	names := make([]string, len(rows))
+	targets := make([]tui.BulkTarget, len(rows))
 	for i, r := range rows {
-		names[i] = r.Name
+		targets[i] = tui.BulkTarget{Namespace: r.Namespace, ResourceName: r.Name}
+	}
+	return m.actions.Begin(actions.Request{Verb: verbs.Delete, Prod: m.isProd()}, tui.TaskAction{
+		ID:    bulkDeleteActionPrefix + string(m.kind),
+		Label: "Delete " + lowerDisplay(m.desc.Display),
+		Scope: tui.TaskScope{
+			ResourceKind: string(m.kind),
+			Verb:         verbs.Delete.ID,
+			IsMutating:   true,
+			BulkTargets:  targets,
+		},
+	})
+}
+
+// pendingBulkDelete reports whether the active confirm is 20a's marked-set
+// delete — Body()'s modal dispatch and the inline keybar's will-run line
+// read it.
+func (m Model) pendingBulkDelete() bool {
+	pending := m.actions.Pending()
+	return pending != nil && pending.Scope.Verb == verbs.Delete.ID && len(pending.Scope.BulkTargets) > 0
+}
+
+// pendingBulkCount reports whether the active confirm is a marked-set
+// TierModal confirm (delete or cronjob-suspend), which types the marked
+// count rather than a name: updateModalConfirmKey's enter gate and digit
+// filter and pasteTarget's digit-only paste all key off it.
+func (m Model) pendingBulkCount() bool {
+	return m.pendingBulkDelete() || m.pendingBulkCronJobSuspend()
+}
+
+// nameBulkDeleteErrors prefixes each failed target's error with its name, so
+// the result line's "N of M targets failed: <first error>" says which object
+// it was about.
+func nameBulkDeleteErrors(results []actions.TargetResult) []actions.TargetResult {
+	out := make([]actions.TargetResult, len(results))
+	for i, r := range results {
+		if r.Err != nil {
+			r.Err = fmt.Errorf("%s: %w", r.ResourceName, r.Err)
+		}
+		out[i] = r
+	}
+	return out
+}
+
+// targetNames extracts each target's ResourceName, in order.
+func targetNames(targets []tui.BulkTarget) []string {
+	names := make([]string, len(targets))
+	for i, t := range targets {
+		names[i] = t.ResourceName
 	}
 	return names
 }
 
-// bulkObjectLabels formats every marked row for the confirm modal's object
-// list — just the name when every row shares a namespace, "namespace/name"
-// when they don't (so a cross-namespace set stays unambiguous).
-func bulkObjectLabels(rows []resources.Row, uniformNamespace bool) []string {
-	labels := make([]string, len(rows))
-	for i, r := range rows {
-		if uniformNamespace {
-			labels[i] = r.Name
-		} else {
-			labels[i] = r.Namespace + "/" + r.Name
-		}
+// distinctTargetNamespaces counts the unique namespaces among targets.
+func distinctTargetNamespaces(targets []tui.BulkTarget) int {
+	seen := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		seen[t.Namespace] = struct{}{}
 	}
-	return labels
+	return len(seen)
 }
 
 // wrapLabels joins labels with ", ", wrapping to width-wide lines so the
@@ -301,30 +230,36 @@ func wrapLabels(labels []string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// bulkDeleteWillRunLine is the pendingBulkDelete keybar's RightNote while
-// TierInline: the exact kubectl invocation, naming every marked object
+// bulkDeleteWillRunLine is a marked-set delete's TierInline keybar
+// RightNote: the exact kubectl invocation, naming every marked object
 // (docs/design README.md §20a: "kubectl delete pod a b c -n <ns>") — or, for
-// a marked set spanning multiple namespaces, a plain summary rather than a
-// command that would misrepresent a single kubectl call's scope.
-func (m Model) bulkDeleteWillRunLine() string {
-	t := m.pendingBulkDelete
-	if ns, uniform := bulkNamespace(t.rows); uniform {
-		return "will run: " + kube.DeleteCommandString(m.kind, ns, rowNames(t.rows))
+// a marked set spanning multiple namespaces (a marked set can span them in
+// 6b's all-namespaces triage), a plain summary rather than a command that
+// would misrepresent a single kubectl call's scope.
+func (m Model) bulkDeleteWillRunLine(scope tui.TaskScope) string {
+	targets := scope.BulkTargets
+	if ns, uniform := bulkTargetNamespace(targets); uniform {
+		return "will run: " + kube.DeleteCommandString(m.kind, ns, targetNames(targets))
 	}
-	return fmt.Sprintf("will delete %d %s across %d namespaces", len(t.rows), lowerDisplay(m.desc.Display), distinctNamespaces(t.rows))
+	return fmt.Sprintf("will delete %d %s across %d namespaces", len(targets), lowerDisplay(m.desc.Display), distinctTargetNamespaces(targets))
 }
 
-// bulkDeleteConfirmModal renders 20a's PROD type-the-count modal: title
+// bulkDeleteConfirmModal renders 20a's type-the-count modal: title
 // ("Delete N pods?"), every marked object, the grace-period detail line, and
-// the type-ahead prompt against the count (components.TypeCountModal).
+// the type-ahead prompt against the count (components.TypeCountModal),
+// sourced from the controller's pending BulkTargets and typed buffer.
 func (m Model) bulkDeleteConfirmModal(width, height int) string {
 	theme := m.Theme()
-	t := m.pendingBulkDelete
-	count := len(t.rows)
+	pending := m.actions.Pending()
+	if pending == nil {
+		return components.CenterLines([]string{"Confirm"}, width, height)
+	}
+	targets := pending.Scope.BulkTargets
+	count := len(targets)
 	title := fmt.Sprintf("✕ Delete %d %s?", count, lowerDisplay(m.desc.Display))
 
-	_, uniform := bulkNamespace(t.rows)
-	objectsLine := wrapLabels(bulkObjectLabels(t.rows, uniform), 56)
+	_, uniform := bulkTargetNamespace(targets)
+	objectsLine := wrapLabels(bulkTargetLabels(targets, uniform), 56)
 
 	styles := components.TypeModalStyles{
 		Border:    lipgloss.NewStyle().BorderForeground(theme.ConfirmBorder).Background(theme.ConfirmHeaderBg),
@@ -339,5 +274,5 @@ func (m Model) bulkDeleteConfirmModal(width, height int) string {
 		Key:       lipgloss.NewStyle().Foreground(theme.Bad).Background(theme.ConfirmHeaderBg),
 		Label:     lipgloss.NewStyle().Foreground(theme.TextDim).Background(theme.ConfirmHeaderBg),
 	}
-	return components.TypeCountModal(title, objectsLine, "default grace period applies", count, t.typedInput, m.isProd(), styles, width, height)
+	return components.TypeCountModal(title, objectsLine, "default grace period applies", count, m.actions.TypedInput(), m.isProd(), styles, width, height)
 }

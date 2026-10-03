@@ -93,7 +93,7 @@ func TestTypeNameModalProgressCountsRunes(t *testing.T) {
 }
 
 // TestTypeCountModalCarriesCaret confirms 20a's bulk sibling threads the
-// caret too — it has its own type-ahead buffer (browse's bulkDeleteTarget).
+// caret too — a marked-set confirm types the count into the controller's buffer.
 func TestTypeCountModalCarriesCaret(t *testing.T) {
 	rendered := TypeCountModal("✕ Delete", "api-0, api-1", "", 12, modalInput("12", 0), false, modalStyles(), 60, 20)
 	if !strings.Contains(rendered, "\x1b[7m") {

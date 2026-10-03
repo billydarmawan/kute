@@ -109,17 +109,6 @@ func (m Model) Keybar() tui.Keybar {
 		// comment: the panel itself stays open underneath either way).
 		return tui.Keybar{Pill: tui.ModeBrowse, PillText: "META", Groups: m.pendingMeta.KeybarHints()}
 	}
-	if m.pendingBulkDelete != nil {
-		if m.pendingBulkDelete.tier == actions.TierInline {
-			return tui.Keybar{
-				Pill:      tui.ModeConfirm,
-				PillText:  "CONFIRM",
-				Groups:    [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}},
-				RightNote: m.bulkDeleteWillRunLine(),
-			}
-		}
-		return tui.Keybar{Pill: tui.ModeConfirm, PillText: "CONFIRM"}
-	}
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierInline {
 			note, shortNote := m.actions.Prompt(), ""
@@ -137,6 +126,12 @@ func (m Model) Keybar() tui.Keybar {
 					// documentation idiom every other mutating verb's inline
 					// confirm uses — replaces the generic verb/target prompt,
 					// which only duplicated the y/n hints already in Groups.
+					// A marked set names every target and offers no
+					// force-delete escalation.
+					if len(pending.Scope.BulkTargets) > 0 {
+						note = m.bulkDeleteWillRunLine(pending.Scope)
+						break
+					}
 					note = deleteWillRunLine(pending.Scope)
 					if verbs.ForceDelete.AppliesTo(kube.ResourceKind(pending.Scope.ResourceKind)) {
 						hints = append(hints, verbs.ForceDelete.Hint())
@@ -501,7 +496,7 @@ func singularDisplay(plural string) string {
 func (m Model) CapturingInput() bool {
 	return (m.filterActive && !m.filterListFocused) || m.actions.Active() || m.pendingEdit != nil || m.pendingStopAllForwards ||
 		m.pendingScale != nil || m.pendingSetImage != nil || m.pendingSetResources != nil || m.pendingMeta != nil ||
-		m.pendingBulkDelete != nil || m.pendingJobRerun != nil
+		m.pendingJobRerun != nil
 }
 
 // ActionResult puts the actions controller's outcome line — a failed or

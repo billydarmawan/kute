@@ -29,8 +29,8 @@ func (m *Model) pasteTarget() tui.PasteTarget {
 		if !m.typingConfirmName() {
 			return nil // inline y/N confirm: nothing to paste into
 		}
-		if m.pendingBulkCronJobSuspend() {
-			return m.bulkCronJobSuspendPasteTarget()
+		if m.pendingBulkCount() {
+			return m.bulkCountPasteTarget()
 		}
 		return m.actions.PasteTarget()
 	case m.pendingEdit != nil, m.pendingStopAllForwards:
@@ -47,11 +47,6 @@ func (m *Model) pasteTarget() tui.PasteTarget {
 		return m.setResourcesPasteTarget()
 	case m.pendingMeta != nil:
 		return m.pendingMeta.PasteTarget()
-	case m.pendingBulkDelete != nil:
-		if m.pendingBulkDelete.tier != actions.TierModal {
-			return nil // non-prod bulk delete is a plain y/N, no buffer
-		}
-		return tui.PasteDigits(tui.PasteInto(&m.pendingBulkDelete.typedInput))
 	case m.filterActive && !m.filterListFocused:
 		insert := tui.PasteInto(&m.filterInput)
 		return func(s string) {
@@ -309,29 +304,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.recomputeVisible()
 			}
 		}
-	case bulkDeleteResultMsg:
-		m.pendingBulkDelete = nil
-		// The outcome — "Delete pods (N)" or the red "N of M targets
+	case actions.BulkResultMsg:
+		// A marked-set verb's per-target outcomes — 20a's delete
+		// (bulk.go's beginBulkDelete) or §36c's suspend/resume
+		// (cronjob_actions.go's beginCronJobSuspendBulk/commitCronJobResume).
+		// The outcome itself — "Delete pods (N)" or the red "N of M targets
 		// failed: <first error>" — is the controller's keybar result line
 		// (ActionResult), the same surface a single delete's failure uses.
-		m.actions.ReportBulkResult(actions.BulkResultMsg{Label: msg.label, Results: msg.results})
-		// Only the targets that failed stay marked, as for the controller's
-		// own bulk verbs below: a row that was deleted must not stay in the
-		// set, or the "N marked" strip, the keybar's "delete N" and a PROD
-		// retry's type-the-count target all overcount, and a StatefulSet
-		// pod recreated under the same name would come back already marked.
-		m.marks = retainFailedMarks(msg.results)
-		return m, m.load()
-	case actions.BulkResultMsg:
-		// 0.8.0 plan §3 Phase 2 task 11: "let the caller retain only failed
-		// marks" — a marked-set suspend/resume (cronjob_actions.go's
-		// beginCronJobSuspendBulk/commitCronJobResume) is the one bulk verb
-		// routed through actions.Controller's own Begin/execute path rather
-		// than bulk delete's own confirm (bulkDeleteResultMsg), so its
-		// per-target detail is handled here instead.
-		// The outcome itself ("… (N)" / "N of M targets failed") is the
-		// controller's keybar result line (ActionResult).
+		if strings.HasPrefix(msg.ActionID, bulkDeleteActionPrefix) {
+			msg.Results = nameBulkDeleteErrors(msg.Results)
+		}
 		m.actions.HandleBulkResult(msg)
+		// 0.8.0 plan §3 Phase 2 task 11: "let the caller retain only failed
+		// marks" — a row that was deleted must not stay in the set, or the
+		// "N marked" strip, the keybar's "delete N" and a PROD retry's
+		// type-the-count target all overcount, and a StatefulSet pod
+		// recreated under the same name would come back already marked.
 		m.marks = retainFailedMarks(msg.Results)
 		return m, m.load()
 	case actions.ResultMsg:
@@ -649,9 +637,6 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.pendingMeta = nil
 		}
 		return m, cmd
-	}
-	if m.pendingBulkDelete != nil {
-		return m.updateBulkDeleteKey(msg)
 	}
 	if m.filterActive && !m.filterListFocused {
 		return m.updateFilterKey(msg)
@@ -1154,20 +1139,21 @@ func isSetResourcesActionID(id string) bool {
 // escalates a pending Pod delete to force-delete (the same chord the modal's
 // detail line advertises, verbs.ForceDeleteModalHint), esc cancels.
 //
-// A marked-set "cronjob-suspend" confirm (pendingBulkCronJobSuspend,
-// cronjob_bulk.go) reuses this same routing but against the count grammar
+// A marked-set confirm (pendingBulkCount: 20a's delete or §36c's
+// cronjob-suspend) reuses this same routing but against the count grammar
 // instead: enter gates on the typed digits equalling the marked count
-// (bulkCronJobSuspendCountMatches) rather than Controller.NameMatches (which
-// has no single ResourceName to compare against a bulk action), and typing
-// is digit-filtered the same way updateBulkDeleteKey filters its own local
-// buffer.
+// (bulkCountMatches) rather than Controller.NameMatches (which has no single
+// ResourceName to compare against a bulk action), and typing is
+// digit-filtered (bulkCountKeyIsDigit). ForceDelete.Key never escalates a
+// marked set (Controller.EscalateForceDelete refuses bulk targets), so it
+// reaches the count buffer like any other key.
 func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	bulk := m.pendingBulkCronJobSuspend()
+	bulk := m.pendingBulkCount()
 	switch msg.String() {
 	case "esc":
 		m.actions.Cancel()
 	case "enter":
-		if bulk && !m.bulkCronJobSuspendCountMatches() {
+		if bulk && !m.bulkCountMatches() {
 			return m, nil
 		}
 		return m, m.actions.Confirm()
@@ -1177,7 +1163,7 @@ func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		}
 		return m, m.actions.HandleTypeKey(msg)
 	default:
-		if bulk && msg.Text != "" && !bulkCronJobSuspendKeyIsDigit(msg) {
+		if bulk && msg.Text != "" && !bulkCountKeyIsDigit(msg) {
 			return m, nil
 		}
 		return m, m.actions.HandleTypeKey(msg)

@@ -149,7 +149,7 @@ func TestBulkDeleteNonProdShowsInlinePromptAndDeletesMarkedSet(t *testing.T) {
 	}
 
 	m = step(t, m, tea.KeyPressMsg{Text: "D"})
-	if m.pendingBulkDelete == nil {
+	if !m.pendingBulkDelete() {
 		t.Fatal("expected ctrl-d with marks active to open the bulk delete confirm")
 	}
 	kb := m.Keybar()
@@ -164,7 +164,7 @@ func TestBulkDeleteNonProdShowsInlinePromptAndDeletesMarkedSet(t *testing.T) {
 	if len(m.marks) != 0 {
 		t.Fatalf("expected marks cleared after a successful bulk delete, got %d", len(m.marks))
 	}
-	if m.pendingBulkDelete != nil {
+	if m.pendingBulkDelete() {
 		t.Fatalf("expected pendingBulkDelete cleared after execution")
 	}
 }
@@ -189,8 +189,8 @@ func TestBulkDeleteProdOpensTypeCountModal(t *testing.T) {
 	}
 
 	m = step(t, m, tea.KeyPressMsg{Text: "D"})
-	if m.pendingBulkDelete == nil || m.pendingBulkDelete.tier != actions.TierModal {
-		t.Fatalf("expected the PROD type-the-count modal, got %+v", m.pendingBulkDelete)
+	if !m.pendingBulkDelete() || m.actions.Tier() != actions.TierModal {
+		t.Fatalf("expected the PROD type-the-count modal, got %+v", m.actions.Tier())
 	}
 	view := plain(m.Render())
 	if !strings.Contains(view, "PROD CONTEXT") {
@@ -228,8 +228,8 @@ func TestBulkNamespaceDeleteNonProdOpensTypeCountModal(t *testing.T) {
 
 	m = step(t, m, tea.KeyPressMsg{Text: "*"})
 	m = step(t, m, tea.KeyPressMsg{Text: "D"})
-	if m.pendingBulkDelete == nil || m.pendingBulkDelete.tier != actions.TierModal {
-		t.Fatalf("expected the type-the-count modal, got %+v", m.pendingBulkDelete)
+	if !m.pendingBulkDelete() || m.actions.Tier() != actions.TierModal {
+		t.Fatalf("expected the type-the-count modal, got %+v", m.actions.Tier())
 	}
 	view := plain(m.Render())
 	if strings.Contains(view, "PROD CONTEXT") || !strings.Contains(view, "team-a") {
@@ -284,12 +284,8 @@ func TestBulkNodeDeleteNonProdOpensTypeCountModal(t *testing.T) {
 
 	m = step(t, m, tea.KeyPressMsg{Text: "*"})
 	m = step(t, m, tea.KeyPressMsg{Text: "D"})
-	if m.pendingBulkDelete == nil || m.pendingBulkDelete.tier != actions.TierModal {
-		var tier actions.Tier
-		if m.pendingBulkDelete != nil {
-			tier = m.pendingBulkDelete.tier
-		}
-		t.Fatalf("expected the type-the-count modal, pending=%v tier=%v", m.pendingBulkDelete != nil, tier)
+	if !m.pendingBulkDelete() || m.actions.Tier() != actions.TierModal {
+		t.Fatalf("expected the type-the-count modal, pending=%v tier=%v", m.pendingBulkDelete(), m.actions.Tier())
 	}
 	m = step(t, m, tea.KeyPressMsg{Text: "y"})
 	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
@@ -300,5 +296,49 @@ func TestBulkNodeDeleteNonProdOpensTypeCountModal(t *testing.T) {
 	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
 	if len(mut.deleted) != 2 {
 		t.Fatalf("deleted = %v, want both nodes after typing the count", mut.deleted)
+	}
+}
+
+// TestBulkDeleteIgnoresForceDeleteChord: a marked set has no force-delete
+// form, so ctrl-k on its inline confirm leaves the y/N exactly as it was.
+func TestBulkDeleteIgnoresForceDeleteChord(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-0"), pod("default", "api-1")},
+	}}
+	mut := &fakeMutator{}
+	m := New(Config{Session: newSession(), Lister: lister, Mutator: mut})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "*"})
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	m = step(t, m, tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	if !m.pendingBulkDelete() || m.actions.Tier() != actions.TierInline {
+		t.Fatalf("expected the inline bulk confirm untouched by ctrl-k, pending=%v tier=%v", m.pendingBulkDelete(), m.actions.Tier())
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if len(mut.deleted) != 2 || len(mut.forceDeleted) != 0 {
+		t.Fatalf("deleted = %v, forceDeleted = %v, want a plain delete of both", mut.deleted, mut.forceDeleted)
+	}
+}
+
+// TestBulkDeleteConfirmDropsOnNamespaceSwitch: the marks drop on a namespace
+// switch (20a), and the confirm naming them goes with them.
+func TestBulkDeleteConfirmDropsOnNamespaceSwitch(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-0"), pod("nva-stage", "api-1")},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "space"})
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	if !m.pendingBulkDelete() {
+		t.Fatal("expected the bulk delete confirm open")
+	}
+	m = step(t, m, tui.SwitchNamespaceMsg{Namespace: "nva-stage"})
+	if m.pendingBulkDelete() || m.actions.Active() {
+		t.Fatal("expected the bulk delete confirm dropped with the marks")
 	}
 }

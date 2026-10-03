@@ -122,8 +122,8 @@ func TestBulkDeletePartialFailureShowsErrorResultLine(t *testing.T) {
 	if !res.Failed {
 		t.Fatalf("expected a failed result line, got %+v", res)
 	}
-	if !strings.Contains(res.Text, "1 of 3 targets failed") || !strings.Contains(res.Text, "forbidden") {
-		t.Fatalf("expected the count and the first error in the result line, got %q", res.Text)
+	if !strings.Contains(res.Text, "1 of 3 targets failed") || !strings.Contains(res.Text, `api-1: pods "api-1" is forbidden`) {
+		t.Fatalf("expected the count and the first error, named, in the result line, got %q", res.Text)
 	}
 	if note := m.Keybar().RightNote; strings.Contains(note, "forbidden") {
 		t.Fatalf("the failure must not render as the dim note, got RightNote %q", note)
@@ -201,7 +201,7 @@ func TestBulkDeletePartialFailureKeepsOnlyFailedMarks(t *testing.T) {
 }
 
 // TestBulkDeleteRefusedWhileOffline pins review 10 M2(a): a marked-set
-// delete runs its own confirm outside actions.Controller.Begin and so
+// delete once ran its own confirm outside actions.Controller.Begin and so
 // skipped its OFFLINE gate — marks + D + y deleted while reconnecting,
 // though a single-row delete is refused.
 func TestBulkDeleteRefusedWhileOffline(t *testing.T) {
@@ -216,7 +216,7 @@ func TestBulkDeleteRefusedWhileOffline(t *testing.T) {
 	m = step(t, m, tea.KeyPressMsg{Text: "*"})
 	m = step(t, m, kube.ConnStateMsg{Phase: kube.ConnReconnecting, Err: "i/o timeout"})
 	m = step(t, m, tea.KeyPressMsg{Text: "D"})
-	if m.pendingBulkDelete != nil {
+	if m.pendingBulkDelete() {
 		t.Fatal("expected D on a marked set to be refused while offline, got an open confirm")
 	}
 	if res := m.ActionResult(); !res.Failed || !strings.Contains(res.Text, "offline") {
