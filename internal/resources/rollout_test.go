@@ -150,3 +150,47 @@ func (r *recordingLister) ListRaw(_ context.Context, kind kube.ResourceKind, _ s
 // errNoCache stands in for a cache that can't answer — Forbidden, or one
 // that never filled.
 var errNoCache = errors.New("forbidden")
+
+// TestWorkloadSettledHonoursOnDeleteAndPartition: an OnDelete workload or a
+// partitioned StatefulSet never reaches Updated == replicas by design, so
+// comparing against that would keep 18a's rolling glyph on forever.
+func TestWorkloadSettledHonoursOnDeleteAndPartition(t *testing.T) {
+	sts := func(strategy appsv1.StatefulSetUpdateStrategy, updated int32) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "nva", Name: "db", Generation: 2},
+			Spec:       appsv1.StatefulSetSpec{Replicas: ptr32(5), UpdateStrategy: strategy},
+			Status: appsv1.StatefulSetStatus{
+				ObservedGeneration: 2, Replicas: 5, ReadyReplicas: 5, UpdatedReplicas: updated,
+			},
+		}
+	}
+	partition := func(p int32) appsv1.StatefulSetUpdateStrategy {
+		return appsv1.StatefulSetUpdateStrategy{
+			Type:          appsv1.RollingUpdateStatefulSetStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{Partition: ptr32(p)},
+		}
+	}
+	onDeleteDS := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "nva", Name: "agent", Generation: 2},
+		Spec:       appsv1.DaemonSetSpec{UpdateStrategy: appsv1.DaemonSetUpdateStrategy{Type: appsv1.OnDeleteDaemonSetStrategyType}},
+		Status: appsv1.DaemonSetStatus{
+			ObservedGeneration: 2, DesiredNumberScheduled: 3, UpdatedNumberScheduled: 0, NumberReady: 3,
+		},
+	}
+	tests := []struct {
+		name string
+		obj  runtime.Object
+		want bool
+	}{
+		{"sts OnDelete with no updated pods", sts(appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType}, 0), true},
+		{"sts partition 3 with ordinals 3-4 updated", sts(partition(3), 2), true},
+		{"sts partition 3 with only one updated", sts(partition(3), 1), false},
+		{"sts default strategy partially updated", sts(appsv1.StatefulSetUpdateStrategy{}, 4), false},
+		{"ds OnDelete with no updated pods", onDeleteDS, true},
+	}
+	for _, tt := range tests {
+		if _, settled, _ := workloadSettled(tt.obj); settled != tt.want {
+			t.Errorf("%s: settled = %v, want %v", tt.name, settled, tt.want)
+		}
+	}
+}

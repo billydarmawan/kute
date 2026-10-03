@@ -72,14 +72,35 @@ func workloadSettled(obj runtime.Object) (ref kube.WorkloadRef, settled, ok bool
 			return ref, false, true
 		}
 		want := int32ptr(w.Spec.Replicas)
-		return ref, w.Status.UpdatedReplicas >= want && w.Status.ReadyReplicas >= want, true
+		return ref, w.Status.UpdatedReplicas >= statefulSetUpdateTarget(w, want) && w.Status.ReadyReplicas >= want, true
 	case *appsv1.DaemonSet:
 		ref = kube.WorkloadRef{Kind: kube.KindDaemonSet, Namespace: w.Namespace, Name: w.Name}
 		if w.Generation > w.Status.ObservedGeneration {
 			return ref, false, true
 		}
 		want := w.Status.DesiredNumberScheduled
-		return ref, w.Status.UpdatedNumberScheduled >= want && w.Status.NumberReady >= want, true
+		updated := w.Status.UpdatedNumberScheduled >= want
+		if w.Spec.UpdateStrategy.Type == appsv1.OnDeleteDaemonSetStrategyType {
+			// The controller never replaces a pod on its own: nothing is
+			// rolling once it has observed the spec.
+			updated = true
+		}
+		return ref, updated && w.Status.NumberReady >= want, true
 	}
 	return kube.WorkloadRef{}, false, false
+}
+
+// statefulSetUpdateTarget is how many of want replicas the controller will
+// itself move to the current revision — what `kubectl rollout status`
+// waits for. OnDelete moves none (pods update only when someone deletes
+// them), and a RollingUpdate partition holds every ordinal below it back.
+func statefulSetUpdateTarget(w *appsv1.StatefulSet, want int32) int32 {
+	strategy := w.Spec.UpdateStrategy
+	if strategy.Type == appsv1.OnDeleteStatefulSetStrategyType {
+		return 0
+	}
+	if strategy.RollingUpdate != nil && strategy.RollingUpdate.Partition != nil {
+		return max(want-*strategy.RollingUpdate.Partition, 0)
+	}
+	return want
 }
