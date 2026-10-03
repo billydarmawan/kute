@@ -9,6 +9,7 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +20,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/components"
 )
 
 type recordingLister struct {
@@ -379,5 +381,64 @@ metadata:
 	m = *updated.(*Model)
 	if got := m.rows[0].liveState; got != "Completed event · object no longer present" {
 		t.Fatalf("hook evidence = %q, want the Completed event from its own namespace", got)
+	}
+}
+
+// TestBodyWindowMatchesWholeListLayout: Body wraps and styles only the rows
+// that can reach the screen, and must lay them out exactly as wrapping every
+// row and then windowing would — for every selection, including wrapped
+// rows taller than the viewport.
+func TestBodyWindowMatchesWholeListLayout(t *testing.T) {
+	m := New(Config{Session: diagnosticSession(), Lister: &recordingLister{}, Events: fakeEvents{}, Release: pendingRelease()})
+	m.state = tui.TaskStateReady
+	for i := range 40 {
+		live := strings.Repeat("evidence words ", i%7)
+		m.rows = append(m.rows, diagnosticRow{typeLabel: "object", ref: kube.HelmObjectRef{Kind: "ConfigMap", Name: "cm-" + strings.Repeat("x", i%3)}, helmState: "declared", liveState: "not created " + live, kindType: rowObject})
+	}
+	reference := func(m Model, width, height int) string {
+		theme := m.Theme()
+		columns := []components.Column{{Title: "Source", Min: 15}, {Title: "Resource", Min: 18, Flex: true}, {Title: "Helm state", Min: 12}, {Title: "Live evidence", Min: 22, Flex: true}}
+		table := components.Table{Columns: columns, Selected: m.selected, Width: width, Height: max(height, 3),
+			HeaderStyle: lipgloss.NewStyle().Foreground(theme.TextFaint).Bold(true)}
+		widths := table.ColumnWidths(width)
+		wrapped := make([][]string, len(m.rows))
+		for i, row := range m.rows {
+			wrapped[i] = renderDiagnosticRow(row, i == m.selected, widths, width, theme, m.now)
+		}
+		budget := max(height-2, 1)
+		start, through := 0, 0
+		for i := 0; i <= m.selected && i < len(wrapped); i++ {
+			through += len(wrapped[i])
+		}
+		for start < m.selected && through > budget {
+			through -= len(wrapped[start])
+			start++
+		}
+		var lines []string
+		remaining := budget
+		for i := start; i < len(wrapped) && remaining > 0; i++ {
+			if len(wrapped[i]) > remaining {
+				if i == start || i == m.selected {
+					lines = append(lines, wrapped[i][:remaining]...)
+				}
+				break
+			}
+			lines = append(lines, wrapped[i]...)
+			remaining -= len(wrapped[i])
+		}
+		return strings.Join(lines, "\n")
+	}
+	for _, size := range [][2]int{{80, 3}, {80, 12}, {120, 30}} {
+		for sel := range m.rows {
+			m.selected = sel
+			got := strings.SplitN(m.Body(size[0], size[1]), "\n", 3)
+			body := ""
+			if len(got) == 3 {
+				body = got[2]
+			}
+			if want := reference(m, size[0], size[1]); body != want {
+				t.Fatalf("size %v selected %d: windowed body differs from the whole-list layout", size, sel)
+			}
+		}
 	}
 }

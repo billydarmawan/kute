@@ -92,27 +92,30 @@ func (m Model) Body(width, height int) string {
 		ShowHeaderRule: true, RuleStyle: lipgloss.NewStyle().Foreground(theme.BorderSubtle),
 	}
 	widths := table.ColumnWidths(width)
-	wrapped := make([][]string, len(m.rows))
-	for i, row := range m.rows {
-		wrapped[i] = renderDiagnosticRow(row, i == m.selected, widths, width, theme, m.now)
-	}
 
 	// Scroll in logical rows, but budget in physical lines so a wrapped row
 	// remains one selection and the selected row is kept fully visible when
-	// the viewport permits it.
+	// the viewport permits it. Only rows that can reach the screen are
+	// wrapped and styled: walk back from the selection to the first row that
+	// still fits, then render forward until the budget is spent — so a chart
+	// with hundreds of objects pays for one screenful per frame, not all of
+	// them.
 	budget := max(height-2, 1) // sticky header + rule
-	start, throughSelected := 0, 0
-	for i := 0; i <= m.selected && i < len(wrapped); i++ {
-		throughSelected += len(wrapped[i])
-	}
-	for start < m.selected && throughSelected > budget {
-		throughSelected -= len(wrapped[start])
-		start++
+	selected := min(m.selected, len(m.rows)-1)
+	start := selected
+	used := diagnosticRowHeight(m.rows[selected], widths, m.now)
+	for start > 0 {
+		h := diagnosticRowHeight(m.rows[start-1], widths, m.now)
+		if used+h > budget {
+			break
+		}
+		start--
+		used += h
 	}
 	lines := []string{table.HeaderLine(width), lipgloss.NewStyle().Foreground(theme.BorderSubtle).Render(strings.Repeat("─", width))}
 	remaining := budget
-	for i := start; i < len(wrapped) && remaining > 0; i++ {
-		rowLines := wrapped[i]
+	for i := start; i < len(m.rows) && remaining > 0; i++ {
+		rowLines := renderDiagnosticRow(m.rows[i], i == m.selected, widths, width, theme, m.now)
 		if len(rowLines) > remaining {
 			if i == start || i == m.selected {
 				lines = append(lines, rowLines[:remaining]...)
@@ -150,12 +153,7 @@ func renderDiagnosticRow(row diagnosticRow, selected bool, widths []int, width i
 		lipgloss.NewStyle().Foreground(theme.TextDim),
 		liveStyle,
 	}
-	values := [][]string{
-		wrapDiagnosticText(row.typeLabel, widths[0]),
-		{components.Truncate(row.ref.Kind+"/"+row.ref.Name, widths[1])},
-		wrapDiagnosticText(row.helmStateText(now), widths[2]),
-		wrapDiagnosticText(row.liveState, widths[3]),
-	}
+	values := diagnosticRowCells(row, widths, now)
 	height := 1
 	for _, lines := range values {
 		height = max(height, len(lines))
@@ -187,6 +185,26 @@ func renderDiagnosticRow(row diagnosticRow, selected bool, widths []int, width i
 		out[line] = content + pad(max(width-lipgloss.Width(content), 0))
 	}
 	return out
+}
+
+// diagnosticRowCells is a row's four cells, wrapped to widths but unstyled.
+func diagnosticRowCells(row diagnosticRow, widths []int, now time.Time) [][]string {
+	return [][]string{
+		wrapDiagnosticText(row.typeLabel, widths[0]),
+		{components.Truncate(row.ref.Kind+"/"+row.ref.Name, widths[1])},
+		wrapDiagnosticText(row.helmStateText(now), widths[2]),
+		wrapDiagnosticText(row.liveState, widths[3]),
+	}
+}
+
+// diagnosticRowHeight is how many physical lines renderDiagnosticRow gives
+// row, without paying for its styling.
+func diagnosticRowHeight(row diagnosticRow, widths []int, now time.Time) int {
+	height := 1
+	for _, lines := range diagnosticRowCells(row, widths, now) {
+		height = max(height, len(lines))
+	}
+	return height
 }
 
 // wrapDiagnosticText keeps words and comma-separated hook events intact when
