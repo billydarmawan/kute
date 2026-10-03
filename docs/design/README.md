@@ -629,7 +629,7 @@ Theme selection: default = terminal background detection (`lipgloss.HasDarkBackg
 | `Text` bright | `#f0f0fa` | `#14141c` |
 | `TextPrimary` | `#d8d8e8` | `#2a2a38` |
 | `TextSecondary` | `#9a9ab2` | `#565668` |
-| `TextDim` | `#676780` | `#8a8a9e` |
+| `TextDim` | `#818199` | `#67677c` |
 | `TextFaint` | `#55556e` | `#9a9aae` |
 | `TextGhost` | `#44445c` / `#33334a` | `#b4b4c6` / `#c6c6d4` |
 | `Accent` purple | `#a78bfa` | `#6b46d9` |
@@ -661,7 +661,7 @@ Rules that hold in both themes:
 - Mode pills by hue: purple = normal modes · blue = ALL NS · red = OFFLINE/CONFIRM · gray = SETUP. Pill bg = the theme's tinted surface, pill text = the hue's text token.
 - Selection cue = 1-cell accent bar + `SelBg` row background — verify it in both themes; the bar is the primary cue.
 - Text fields horizontally scroll to keep the caret visible. `shift+←/→`, `ctrl/alt+shift+←/→`, and `shift+home/end` select text; typing or paste replaces it, backspace/delete removes it, and `ctrl+shift+c` copies it when the terminal forwards that chord. In-field selection uses `Accent` behind `Bg` text so it stays distinct even inside a `SelBg` row. A masked Secret field never reveals the selected span's length.
-- Contrast floor (pinned by `internal/tui/theme_contrast_test.go`): status, error and body-text tokens reach WCAG 4.5:1 on every background they're drawn on, `SelBg`/`MarkBg` included; the deliberately muted 4a ramp and `AccentMuted` reach 3:1. `TextDim` and the decorative tokens (`TextFaint`, `TextGhost`, `YamlPunct`, `YamlFold`) are exempt.
+- Contrast floor (pinned by `internal/tui/theme_contrast_test.go`): status, error, body-text and `TextDim` hint tokens reach WCAG 4.5:1 on every background they're drawn on, `SelBg`/`MarkBg` included (and `ErrBannerBg` for `TextDim`); the deliberately muted 4a ramp and `AccentMuted` reach 3:1. The decorative tokens (`TextFaint`, `TextGhost`, `YamlPunct`, `YamlFold`) are exempt.
 - 4a desaturation: each theme defines its own muted ramp (dark: dim the colors; light: wash toward gray) — don't compute it, declare it in the struct.
 - Test on a real light terminal and on 256-color fallback; hex values degrade via termenv.
 

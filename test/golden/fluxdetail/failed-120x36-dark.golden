@@ -1,14 +1,14 @@
-  [1;38;2;240;240;250mkute[m[38;2;51;51;74m │ [m[38;2;103;103;128mmicrok8s-cluster[m[38;2;68;68;92m › [m[38;2;216;216;232mflux-system[m[38;2;68;68;92m › [m[38;2;103;103;128mKustomizations[m[38;2;68;68;92m › [m[1;38;2;240;240;250mnebula-workers[m                                  [38;2;52;209;123m● connected[m  
+  [1;38;2;240;240;250mkute[m[38;2;51;51;74m │ [m[38;2;129;129;153mmicrok8s-cluster[m[38;2;68;68;92m › [m[38;2;216;216;232mflux-system[m[38;2;68;68;92m › [m[38;2;129;129;153mKustomizations[m[38;2;68;68;92m › [m[1;38;2;240;240;250mnebula-workers[m                                  [38;2;52;209;123m● connected[m  
 [38;2;68;68;92m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
 [1;38;2;239;106;106mRECONCILE FAILED · HealthCheckFailed · 4m ago · retry in 3m 12s[m                                                         
 [38;2;201;138;138mhealth check failed after 2m0s: Deployment/nebula-stage/nebula-worker status: 'InProgress'[m                              
-[38;2;103;103;128m▸ opens Deployment/nebula-worker · 3/4 · CrashLoopBackOff — exit 137, OOMKilled[m                                         
+[38;2;129;129;153m▸ opens Deployment/nebula-worker · 3/4 · CrashLoopBackOff — exit 137, OOMKilled[m                                         
                                                                                                                         
 [38;2;85;85;110msource            [m[38;2;154;154;178mgit/flux-system · ./clusters/stage/workers · interval 5m[m                                              
 [38;2;85;85;110msource revision   [m[38;2;154;154;178mmain@8f3c2a1[m                                                                                          
 [38;2;85;85;110mapplied revision  [m[38;2;154;154;178mmain@8f3c2a1[m[38;2;52;209;123m · in sync[m[38;2;154;154;178m — applied, failing health checks[m                                               
 [38;2;85;85;110mINVENTORY · 3 OBJECTS · 1 NOT READY[m                                                                                     
-[38;2;167;139;250m▎[m [38;2;239;106;106m✕[m [1;38;2;240;240;250mnebula-worker                   [m[38;2;103;103;128mDeployment        [m[38;2;239;106;106m3/4[m                                                               
+[38;2;167;139;250m▎[m [38;2;239;106;106m✕[m [1;38;2;240;240;250mnebula-worker                   [m[38;2;129;129;153mDeployment        [m[38;2;239;106;106m3/4[m                                                               
 [38;2;85;85;110m  + 2 no reading · ↹ expand[m                                                                                             
 [38;2;85;85;110m1–1 of 3[m                                                                                                                
                                                                                                                         
@@ -33,4 +33,4 @@
                                                                                                                         
                                                                                                                         
 [38;2;68;68;92m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
-  [38;2;167;139;250;48;2;29;22;51m KUSTOMIZE [m [38;2;167;139;250m↵[m[38;2;103;103;128m open object[m[38;2;38;38;58m │ [m[38;2;167;139;250mr[m[38;2;103;103;128m reconcile[m  [38;2;167;139;250ms[m[38;2;103;103;128m suspend[m[38;2;38;38;58m │ [m[38;2;167;139;250mo[m[38;2;103;103;128m source[m  [38;2;167;139;250my[m[38;2;103;103;128m yaml[m[38;2;38;38;58m │ [m[38;2;167;139;250mtab[m[38;2;103;103;128m expand/collapse ready[m             [38;2;167;139;250m?[m[38;2;103;103;128m help[m  
+  [38;2;167;139;250;48;2;29;22;51m KUSTOMIZE [m [38;2;167;139;250m↵[m[38;2;129;129;153m open object[m[38;2;38;38;58m │ [m[38;2;167;139;250mr[m[38;2;129;129;153m reconcile[m  [38;2;167;139;250ms[m[38;2;129;129;153m suspend[m[38;2;38;38;58m │ [m[38;2;167;139;250mo[m[38;2;129;129;153m source[m  [38;2;167;139;250my[m[38;2;129;129;153m yaml[m[38;2;38;38;58m │ [m[38;2;167;139;250mtab[m[38;2;129;129;153m expand/collapse ready[m             [38;2;167;139;250m?[m[38;2;129;129;153m help[m  

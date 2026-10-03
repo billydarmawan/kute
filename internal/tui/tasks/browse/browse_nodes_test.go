@@ -440,7 +440,7 @@ func TestNodeStatusReadyRendersDimNotGreen(t *testing.T) {
 	// theme.Good — that column is untouched by this fix.
 	readyCode := statusTextColorCode(t, readyLine, "Ready")
 	notReadyCode := statusTextColorCode(t, notReadyLine, "NotReady")
-	dim := "38;2;103;103;128" // theme.TextDim
+	dim := "38;2;129;129;153" // theme.TextDim (#818199)
 	bad := "38;2;239;106;106" // theme.Bad (#ef6a6a; 0x6a = 106 — lipgloss v1 rounded this channel down by 1, v2 renders the exact hex value)
 	if !strings.Contains(readyCode, dim) {
 		t.Errorf("Ready's STATUS cell color = %q, want to contain TextDim %q", readyCode, dim)

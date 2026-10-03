@@ -1,4 +1,4 @@
-  [1;38;2;20;20;28mkute[m[38;2;198;198;212m │ [m[38;2;138;138;158mnva-staging[m[38;2;180;180;198m › [m[38;2;42;42;56mnva-stage[m[38;2;180;180;198m › [m[38;2;138;138;158mCertificates[m[38;2;180;180;198m › [m[1;38;2;20;20;28mapi-tls[m                                           [38;2;17;120;68m● connected · 12ms[m  
+  [1;38;2;20;20;28mkute[m[38;2;198;198;212m │ [m[38;2;103;103;124mnva-staging[m[38;2;180;180;198m › [m[38;2;42;42;56mnva-stage[m[38;2;180;180;198m › [m[38;2;103;103;124mCertificates[m[38;2;180;180;198m › [m[1;38;2;20;20;28mapi-tls[m                                           [38;2;17;120;68m● connected · 12ms[m  
 [38;2;180;180;198m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
 [1;38;2;20;20;28mapi-tls[m  [38;2;188;49;49m✕ Not Ready[m  [38;2;180;180;198mcert-manager.io/v1[m                                                                 [38;2;154;154;174mwatching · live[m
                                                                                                                         
@@ -6,13 +6,13 @@
 [38;2;42;42;56mFalse[m    [38;2;42;42;56mapi-tls-secret[m    [38;2;42;42;56mletsencrypt-prod[m    [38;2;107;70;217mClusterIssuer/letsencrypt-prod ↗[m                                         
                                                                                                                         
 [1;38;2;154;154;174mCONDITIONS[m                                                                                                              
-[38;2;188;49;49m✕[m  [38;2;138;138;158mReady           [m  [38;2;188;49;49mFalse   [m  [38;2;86;86;104mIssuing certificate as Secret does not exist[m  [38;2;138;138;158m2m[m                                         
-[38;2;17;120;68m●[m  [38;2;138;138;158mIssuing         [m  [38;2;17;120;68mTrue    [m  [38;2;86;86;104mIssuing certificate as Secret does not exist[m  [38;2;138;138;158m2m[m                                         
+[38;2;188;49;49m✕[m  [38;2;103;103;124mReady           [m  [38;2;188;49;49mFalse   [m  [38;2;86;86;104mIssuing certificate as Secret does not exist[m  [38;2;103;103;124m2m[m                                         
+[38;2;17;120;68m●[m  [38;2;103;103;124mIssuing         [m  [38;2;17;120;68mTrue    [m  [38;2;86;86;104mIssuing certificate as Secret does not exist[m  [38;2;103;103;124m2m[m                                         
                                                                                                                         
 [1;38;2;154;154;174mEVENTS[m[38;2;180;180;198m · newest first[m                                                                                                   
-[38;2;39;103;191mNormal  [m  [38;2;138;138;158mIssuing         [m  [38;2;138;138;158m2m    [m  [38;2;86;86;104mIssuing certificate as Secret does not exist[m                                        
-[38;2;39;103;191mNormal  [m  [38;2;138;138;158mGenerated       [m  [38;2;138;138;158m2m    [m  [38;2;86;86;104mStored new private key in temporary Secret resource "api-tls-xk9j2"[m                 
-[38;2;39;103;191mNormal  [m  [38;2;138;138;158mRequested       [m  [38;2;138;138;158m3m    [m  [38;2;86;86;104mCreated new CertificateRequest resource "api-tls-1"[m                                 
+[38;2;39;103;191mNormal  [m  [38;2;103;103;124mIssuing         [m  [38;2;103;103;124m2m    [m  [38;2;86;86;104mIssuing certificate as Secret does not exist[m                                        
+[38;2;39;103;191mNormal  [m  [38;2;103;103;124mGenerated       [m  [38;2;103;103;124m2m    [m  [38;2;86;86;104mStored new private key in temporary Secret resource "api-tls-xk9j2"[m                 
+[38;2;39;103;191mNormal  [m  [38;2;103;103;124mRequested       [m  [38;2;103;103;124m3m    [m  [38;2;86;86;104mCreated new CertificateRequest resource "api-tls-1"[m                                 
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -33,4 +33,4 @@
                                                                                                                         
                                                                                                                         
 [38;2;180;180;198m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
-  [38;2;107;70;217;48;2;236;229;251m DETAIL [m [38;2;107;70;217mj/k[m[38;2;138;138;158m next/prev[m[38;2;213;215;224m │ [m[38;2;107;70;217m1[m[38;2;138;138;158m owner[m[38;2;213;215;224m │ [m[38;2;107;70;217mD[m[38;2;138;138;158m delete[m                                                                   [38;2;107;70;217m?[m[38;2;138;138;158m help[m  
+  [38;2;107;70;217;48;2;236;229;251m DETAIL [m [38;2;107;70;217mj/k[m[38;2;103;103;124m next/prev[m[38;2;213;215;224m │ [m[38;2;107;70;217m1[m[38;2;103;103;124m owner[m[38;2;213;215;224m │ [m[38;2;107;70;217mD[m[38;2;103;103;124m delete[m                                                                   [38;2;107;70;217m?[m[38;2;103;103;124m help[m  

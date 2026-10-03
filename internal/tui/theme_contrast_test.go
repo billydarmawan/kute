@@ -40,13 +40,10 @@ type namedColor struct {
 }
 
 // TestThemeContrast pins the contrast floor of every token that carries
-// meaning: status, error and body text reach WCAG AA (4.5:1) on every
-// surface they're drawn on — the selected (SelBg) and marked (MarkBg) rows
-// included — and the deliberately muted 4a offline ramp and the breadcrumb's
-// AccentMuted reach 3:1. Both themes.
-//
-// TextDim is excluded on purpose: whether it should clear 4.5:1 (it doesn't
-// in either theme today) is a pending design decision. The decorative tokens
+// meaning: status, error, body and dim hint text reach WCAG AA (4.5:1) on
+// every surface they're drawn on — the selected (SelBg) and marked (MarkBg)
+// rows included — and the deliberately muted 4a offline ramp and the
+// breadcrumb's AccentMuted reach 3:1. Both themes. The decorative tokens
 // (TextFaint, TextGhost, TextGhost2, YamlPunct, YamlFold) are exempt by
 // design.
 func TestThemeContrast(t *testing.T) {
@@ -83,6 +80,7 @@ func TestThemeContrast(t *testing.T) {
 		} {
 			check(fg, surfaces, 4.5)
 		}
+		check(namedColor{"TextDim", th.TextDim}, with(errBanner), 4.5)
 		check(namedColor{"Good", th.Good}, with(errCard), 4.5)
 		check(namedColor{"Warn", th.Warn}, with(errBanner, errCard), 4.5)
 		check(namedColor{"Bad", th.Bad}, with(errBanner, errCard, confirmPill), 4.5)
