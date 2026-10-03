@@ -366,29 +366,12 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateConfirmKey routes keys while 'R' rollback's confirmation is
-// showing: TierModal (the PROD type-the-name modal) gets typing/backspace/
-// enter-when-matched, TierInline stays the simple y/n/esc prompt — mirrors
-// tasks/poddetail's own updateConfirmKey/updateModalConfirmKey split.
+// updateConfirmKey routes keys while a confirmation is showing, through
+// the controller's one router (actions.HandleConfirmKey) — 'R'
+// rollback's y/N, or its PROD type-the-name modal.
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.actionsCtl.Tier() == actions.TierModal {
-		switch msg.String() {
-		case "esc":
-			m.actionsCtl.Cancel()
-		case "enter":
-			return m, m.actionsCtl.Confirm()
-		default:
-			return m, m.actionsCtl.HandleTypeKey(msg)
-		}
-		return m, nil
-	}
-	switch msg.String() {
-	case "y":
-		return m, m.actionsCtl.Confirm()
-	case "n", "esc":
-		m.actionsCtl.Cancel()
-	}
-	return m, nil
+	cmd, _ := m.actionsCtl.HandleConfirmKey(msg)
+	return m, cmd
 }
 
 // beginRollback confirms rolling deploy/m.railDeployment back to rev — the

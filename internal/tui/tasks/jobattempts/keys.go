@@ -28,7 +28,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeConfirm,
 			PillText:  "CONFIRM",
-			Groups:    [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}},
+			Groups:    [][]tui.KeyHint{m.actions.ConfirmHints()},
 			RightNote: note,
 		}
 	}

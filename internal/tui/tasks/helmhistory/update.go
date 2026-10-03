@@ -178,29 +178,13 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateConfirmKey routes keys while 'R' rollback's confirmation is showing:
-// TierModal (the PROD type-the-name modal — "Rollback inherits 8b friction")
-// gets typing/backspace/enter-when-matched, TierInline stays the simple
-// y/n/esc prompt — mirrors tasks/timeline's own updateConfirmKey.
+// updateConfirmKey routes keys while a confirmation is showing, through
+// the controller's one router (actions.HandleConfirmKey) — 'R'
+// rollback's y/N, or its PROD type-the-name modal ("Rollback inherits 8b
+// friction").
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.actions.Tier() == actions.TierModal {
-		switch msg.String() {
-		case "esc":
-			m.actions.Cancel()
-		case "enter":
-			return m, m.actions.Confirm()
-		default:
-			return m, m.actions.HandleTypeKey(msg)
-		}
-		return m, nil
-	}
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case "n", "esc":
-		m.actions.Cancel()
-	}
-	return m, nil
+	cmd, _ := m.actions.HandleConfirmKey(msg)
+	return m, cmd
 }
 
 func (m *Model) moveSelection(delta int) {

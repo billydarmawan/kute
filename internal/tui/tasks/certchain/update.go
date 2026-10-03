@@ -182,14 +182,12 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateConfirmKey routes keys while a confirmation is showing, through
+// the controller's one router (actions.HandleConfirmKey) — 'r'
+// renew's one y/N, never PROD-escalated.
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case "n", "esc":
-		m.actions.Cancel()
-	}
-	return m, nil
+	cmd, _ := m.actions.HandleConfirmKey(msg)
+	return m, cmd
 }
 
 // beginCertRenew starts verbs.CertRenew ('r') against the Certificate this

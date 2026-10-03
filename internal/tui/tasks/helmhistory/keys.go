@@ -16,13 +16,13 @@ func (m Model) Keybar() tui.Keybar {
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierInline {
 			note, shortNote := m.actions.Prompt(), ""
-			confirm := tui.KeyHint{Key: "y", Label: "confirm"}
+			hints := m.actions.ConfirmHints()
 			if pending := m.actions.Pending(); pending != nil && pending.Scope.Verb == "rollback" {
 				// The rail stays up under the inline confirm, so the
 				// selected row already names the target; a target that never
 				// went live gets said on the confirm key itself.
 				if rev, ok := m.selectedRevision(); ok && rev.Revision == pending.Scope.Revision && !knownGoodRevision(rev) {
-					confirm.Label = "confirm · revision " + strconv.Itoa(rev.Revision) + " is " + rev.Status
+					hints[0].Label += " · revision " + strconv.Itoa(rev.Revision) + " is " + rev.Status
 				}
 				// 18a: "shell out to helm with a will run line" — kept short
 				// deliberately, same reasoning as browse's own rollbackPrompt
@@ -36,7 +36,7 @@ func (m Model) Keybar() tui.Keybar {
 			return tui.Keybar{
 				Pill:           tui.ModeConfirm,
 				PillText:       "CONFIRM",
-				Groups:         [][]tui.KeyHint{{confirm, {Key: "esc", Label: "cancel"}}},
+				Groups:         [][]tui.KeyHint{hints},
 				RightNote:      note,
 				RightNoteShort: shortNote,
 			}

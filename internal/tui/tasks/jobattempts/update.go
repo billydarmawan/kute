@@ -332,34 +332,12 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateConfirmKey routes keys while a confirmation is showing — mirrors
-// cronjobdetail's own (this screen's only TierModal verb is job-replace's
-// PROD escalation).
+// updateConfirmKey routes keys while a confirmation is showing, through
+// the controller's one router (actions.HandleConfirmKey) — y/N, or
+// job-replace's PROD type-the-name modal.
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.actions.Tier() == actions.TierModal {
-		return m.updateModalConfirmKey(msg)
-	}
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case "n", "esc":
-		m.actions.Cancel()
-	}
-	return m, nil
-}
-
-// updateModalConfirmKey drives job-replace's PROD type-the-name modal —
-// mirrors cronjobdetail's own.
-func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		m.actions.Cancel()
-	case "enter":
-		return m, m.actions.Confirm()
-	default:
-		return m, m.actions.HandleTypeKey(msg)
-	}
-	return m, nil
+	cmd, _ := m.actions.HandleConfirmKey(msg)
+	return m, cmd
 }
 
 // openSelectedLogs opens logs for the selected attempt's pod — task is nil
