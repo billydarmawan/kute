@@ -1071,3 +1071,49 @@ func TestEditAgainBeforeCacheCatchesUpUsesWrittenResourceVersion(t *testing.T) {
 			m.resourceVersion, m.ownWrites.Latest(), server.ResourceVersion)
 	}
 }
+
+// binaryData keys are listed (read-only, with their size) rather than
+// hidden — a binaryData-only ConfigMap is not "no keys" — and an add that
+// collides with one is refused before it reaches the server.
+func TestBinaryDataKeysAreListedReadOnly(t *testing.T) {
+	cm := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
+	cm.BinaryData = map[string][]byte{"cert.der": make([]byte, 300)}
+	mut := &fakeMutator{cm: cm}
+	m := newModel(t, newSession(), cm, mut, nil)
+
+	body := plain(m.Render())
+	for _, want := range []string{"cert.der", "binary · read-only", "300 B", "2 keys"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("render missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "no keys") {
+		t.Fatalf("render claims no keys:\n%s", body)
+	}
+
+	// cert.der sorts after LOG_LEVEL.
+	m = step(t, m, tea.KeyPressMsg{Text: "j", Code: 'j'})
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.editing != nil || m.multiline != nil {
+		t.Fatal("↵ opened an editor on a binaryData key")
+	}
+	if strip := plain(m.willRunStrip(m.Theme(), 120)); !strings.Contains(strip, "cert.der is binaryData") {
+		t.Fatalf("will-run strip = %q, want the binaryData notice", strip)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "D", Code: 'D'})
+	if m.actions.Active() {
+		t.Fatal("D began a removal of a binaryData key")
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "a", Code: 'a'})
+	for _, r := range "cert.der" {
+		m = step(t, m, tea.KeyPressMsg{Text: string(r), Code: r})
+	}
+	if strip := plain(m.willRunStrip(m.Theme(), 120)); !strings.Contains(strip, "already a binaryData key") {
+		t.Fatalf("will-run strip = %q, want the collision warning", strip)
+	}
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if len(mut.dataResourceVersions) != 0 || m.adding == nil {
+		t.Fatalf("add over a binaryData key was sent (patches %d) or closed the row", len(mut.dataResourceVersions))
+	}
+}

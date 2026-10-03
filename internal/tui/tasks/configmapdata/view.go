@@ -208,6 +208,8 @@ func (m Model) configMapRowLine(theme tui.Theme, idx int, width int) string {
 		value = valueStyle.Render(components.Truncate(oneLine(r.value), 24)) + fill.Render("  ") + fill.Foreground(theme.Warn).Render(m.confirmNote("update"))
 	case isPendingRemove:
 		value = valueStyle.Render(components.Truncate(oneLine(r.value), 24)) + fill.Render("  ") + fill.Foreground(theme.Bad).Render("remove · y/N")
+	case r.binary:
+		value = dimStyle.Render("binary · read-only")
 	case r.multiline():
 		lineCount := strings.Count(r.value, "\n") + 1
 		value = dimStyle.Render(fmt.Sprintf("▸ %d lines · e opens the buffer editor", lineCount))
@@ -432,9 +434,12 @@ func (m Model) willRunStrip(theme tui.Theme, width int) string {
 		restart = m.pendingCommit != nil && m.pendingCommit.restartConsumers
 	case m.adding != nil:
 		key := strings.TrimSpace(m.adding.keyInput.Value())
-		if key == "" {
+		switch {
+		case key == "":
 			primary = label.Render("will run") + fill.Render(" ") + cmd.Render("type a key to add")
-		} else {
+		case m.binaryKey(key):
+			primary = fill.Foreground(theme.Warn).Render(key + " is already a binaryData key · pick another name")
+		default:
 			primary = label.Render("will run") + fill.Render(" ") + m.overwriteWarning(theme, key) + cmd.Render(kube.ConfigMapDataCommandString(m.namespace, m.name, key, m.adding.valueInput.Value(), false))
 		}
 	case m.pendingCommit != nil && !m.pendingCommit.remove && !m.pendingCommit.isEdit:

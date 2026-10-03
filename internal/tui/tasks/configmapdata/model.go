@@ -74,16 +74,21 @@ type Config struct {
 // plaintext value straight from .Data (ConfigMap carries no base64 decode
 // step the way Secret's .Data []byte does), so unlike secretKeyRow there's
 // nothing to keep off-screen: every row shows it directly.
+//
+// binary marks a .binaryData key: listed read-only (its bytes are never
+// shown, and neither buffer nor a .data merge patch can write it), so the
+// grid and SIZE account for every key the ConfigMap holds.
 type configMapKeyRow struct {
-	key   string
-	value string
-	size  int
+	key    string
+	value  string
+	size   int
+	binary bool
 }
 
 // multiline reports whether the row's value needs the buffer editor rather
 // than the single-line in-place edit (docs/design README.md §27a: "Multi-
 // line keys show a folded summary ... e opens the buffer editor").
-func (r configMapKeyRow) multiline() bool { return strings.Contains(r.value, "\n") }
+func (r configMapKeyRow) multiline() bool { return !r.binary && strings.Contains(r.value, "\n") }
 
 // configMapInputStyles builds the add/edit buffers' textfield.Styles: bold
 // text on a SelBg background, matching this screen's own fill :=
@@ -328,7 +333,7 @@ func (m Model) load() tea.Cmd {
 				continue
 			}
 			found = true
-			keys = configMapRowsFrom(cm.Data)
+			keys = configMapRowsFrom(cm.Data, cm.BinaryData)
 			resourceVersion = cm.ResourceVersion
 			break
 		}
@@ -340,13 +345,17 @@ func (m Model) load() tea.Cmd {
 	}
 }
 
-// configMapRowsFrom sorts a ConfigMap's .Data by key (for stable,
-// deterministic display — a map carries no meaningful iteration order of its
-// own), one row per key with its value and byte length.
-func configMapRowsFrom(data map[string]string) []configMapKeyRow {
-	rows := make([]configMapKeyRow, 0, len(data))
+// configMapRowsFrom sorts a ConfigMap's .Data and .BinaryData by key (for
+// stable, deterministic display — a map carries no meaningful iteration order
+// of its own), one row per key with its value and byte length. The API
+// server keeps the two key sets disjoint.
+func configMapRowsFrom(data map[string]string, binaryData map[string][]byte) []configMapKeyRow {
+	rows := make([]configMapKeyRow, 0, len(data)+len(binaryData))
 	for k, v := range data {
 		rows = append(rows, configMapKeyRow{key: k, value: v, size: len(v)})
+	}
+	for k, v := range binaryData {
+		rows = append(rows, configMapKeyRow{key: k, size: len(v), binary: true})
 	}
 	slices.SortFunc(rows, func(a, b configMapKeyRow) int { return cmp.Compare(a.key, b.key) })
 	return rows

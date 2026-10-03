@@ -75,7 +75,12 @@ func (m Model) Keybar() tui.Keybar {
 	groups := [][]tui.KeyHint{{{Key: "↑↓", Label: "move"}}}
 	if m.mutator != nil && !verbs.AddConfigMapKey.HiddenWhileOffline(m.conn.Offline()) {
 		hints := []tui.KeyHint{{Key: "↵", Label: "edit"}, verbs.AddConfigMapKey.Hint(), verbs.RemoveConfigMapKey.Hint()}
-		if row, ok := m.selectedKeyRow(); ok && row.multiline() {
+		row, ok := m.selectedKeyRow()
+		if ok && row.binary {
+			// A binaryData row is read-only here: only add applies.
+			hints = []tui.KeyHint{verbs.AddConfigMapKey.Hint()}
+		}
+		if ok && row.multiline() {
 			hints = append(hints, tui.KeyHint{Key: "e", Label: "buffer editor"})
 		}
 		groups = append(groups, hints)

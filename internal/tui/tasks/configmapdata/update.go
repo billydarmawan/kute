@@ -231,11 +231,27 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case verbs.RemoveConfigMapKey.Key:
 		if m.mutator != nil && m.state == tui.TaskStateReady {
 			if row, ok := m.selectedKeyRow(); ok {
+				if row.binary {
+					m.notice = binaryNotice(row.key)
+					return m, nil
+				}
 				return m, m.beginRemove(row)
 			}
 		}
 	}
 	return m, nil
+}
+
+// binaryNotice explains why a binaryData row can't be edited or removed here.
+func binaryNotice(key string) string {
+	return key + " is binaryData · read-only here — use E on the ConfigMaps list"
+}
+
+// binaryKey reports whether key names one of the ConfigMap's binaryData
+// rows.
+func (m Model) binaryKey(key string) bool {
+	idx, ok := indexOfConfigMapKey(m.keys, key)
+	return ok && m.keys[idx].binary
 }
 
 // beginEditRow opens the right editor for row's shape: the single-line
@@ -247,6 +263,10 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // notice instead: it would open already normalized, so applying any edit —
 // or none — would rewrite the whole value.
 func (m *Model) beginEditRow(row configMapKeyRow) {
+	if row.binary {
+		m.notice = binaryNotice(row.key)
+		return
+	}
 	if !textfield.RoundTrips(row.value) && !textareaRoundTrips(row.value) {
 		m.notice = row.key + " has tabs, CRLF line endings or binary content · can't edit it here — use E on the ConfigMaps list"
 		return
@@ -442,7 +462,9 @@ func (m *Model) beginCommit(key, value string, isEdit bool, original string, res
 func (m *Model) commitAdd(restart bool) tea.Cmd {
 	a := m.adding
 	key := strings.TrimSpace(a.keyInput.Value())
-	if key == "" {
+	if key == "" || m.binaryKey(key) {
+		// A binaryData key can't also be a .data key — the server would
+		// refuse the patch; the will-run strip already says so.
 		return nil
 	}
 	value := a.valueInput.Value()
