@@ -128,6 +128,10 @@ type secretPendingCommit struct {
 	// overwrite marks an add whose key already exists — escalated to a
 	// confirm, and reported as "updated" rather than "added".
 	overwrite bool
+	// masked is the buffer's mask state when it was committed, so a
+	// restored buffer (failed apply, cancelled confirm) comes back masked
+	// or revealed exactly as the user left it.
+	masked bool
 	// resourceVersion is the precondition the patch carried — what a
 	// failed commit's restored buffer goes back to.
 	resourceVersion string

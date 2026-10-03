@@ -220,7 +220,13 @@ func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "y":
 		return m, m.actions.Confirm()
 	case "n", "esc":
+		// Cancelling walks back exactly one level — to the buffer the
+		// commit came from, with the typed value intact (a removal has
+		// none: its row never moved).
 		m.actions.Cancel()
+		pc := m.pendingCommit
+		m.pendingCommit = nil
+		m.restoreBuffer(pc)
 	}
 	return m, nil
 }
@@ -313,7 +319,7 @@ func (m *Model) commitAdd() tea.Cmd {
 	value := a.valueInput.Value()
 	m.adding = nil
 	_, overwrite := indexOfSecretKey(m.keys, key)
-	m.pendingCommit = &secretPendingCommit{key: key, value: value, overwrite: overwrite, resourceVersion: m.bufferRV}
+	m.pendingCommit = &secretPendingCommit{key: key, value: value, overwrite: overwrite, masked: a.masked, resourceVersion: m.bufferRV}
 	m.message, m.lastError = "", ""
 	label := fmt.Sprintf("Add key %s to %s?", key, m.name)
 	if overwrite {
@@ -346,7 +352,7 @@ func (m *Model) commitEdit() tea.Cmd {
 	}
 	key, value, original := e.key, e.valueInput.Value(), e.original
 	m.editing = nil
-	m.pendingCommit = &secretPendingCommit{key: key, value: value, isEdit: true, original: original, resourceVersion: m.bufferRV}
+	m.pendingCommit = &secretPendingCommit{key: key, value: value, isEdit: true, original: original, masked: e.masked, resourceVersion: m.bufferRV}
 	m.message, m.lastError = "", ""
 	return m.actions.Begin(actions.Request{Verb: verbs.AddSecretKey, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "edit-secret-key-" + m.namespace + "/" + m.name + "/" + key,
@@ -429,27 +435,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 			m.bufferRV = pc.resourceVersion
 		}
 		m.bufferRVFollows = conflict
-		switch {
-		case pc == nil || pc.remove:
-			// A failed removal has no buffer to restore — the row is still
-			// right there, unmoved.
-		case pc.isEdit:
-			valueInput := newSecretInput(m.Theme())
-			valueInput.SetValue(pc.value)
-			valueInput.CursorEnd()
-			valueInput.Focus()
-			m.editing = &editKeyState{key: pc.key, original: pc.original, valueInput: valueInput}
-		default:
-			theme := m.Theme()
-			keyInput := newSecretInput(theme)
-			keyInput.SetValue(pc.key)
-			keyInput.CursorEnd()
-			valueInput := newSecretInput(theme)
-			valueInput.SetValue(pc.value)
-			valueInput.CursorEnd()
-			valueInput.Focus()
-			m.adding = &addKeyState{keyInput: keyInput, valueInput: valueInput, onValue: true}
-		}
+		m.restoreBuffer(pc)
 		if conflict {
 			m.reloadEpoch++
 			return m.load()
@@ -472,6 +458,32 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	m.focusKey = pc.key
 	m.reloadEpoch++
 	return m.load()
+}
+
+// restoreBuffer reopens the add/edit row a commit came from, holding the
+// value it tried to write and masked or revealed as it was — after a failed
+// apply or a cancelled confirm. A removal (or no commit at all) has no
+// buffer: its row is still right there, unmoved.
+func (m *Model) restoreBuffer(pc *secretPendingCommit) {
+	switch {
+	case pc == nil || pc.remove:
+	case pc.isEdit:
+		valueInput := newSecretInput(m.Theme())
+		valueInput.SetValue(pc.value)
+		valueInput.CursorEnd()
+		valueInput.Focus()
+		m.editing = &editKeyState{key: pc.key, original: pc.original, valueInput: valueInput, masked: pc.masked}
+	default:
+		theme := m.Theme()
+		keyInput := newSecretInput(theme)
+		keyInput.SetValue(pc.key)
+		keyInput.CursorEnd()
+		valueInput := newSecretInput(theme)
+		valueInput.SetValue(pc.value)
+		valueInput.CursorEnd()
+		valueInput.Focus()
+		m.adding = &addKeyState{keyInput: keyInput, valueInput: valueInput, onValue: true, masked: pc.masked}
+	}
 }
 
 // recordWrite notes a landed patch's returned resourceVersion and makes it

@@ -844,3 +844,46 @@ func TestEditAgainBeforeCacheCatchesUpUsesWrittenResourceVersion(t *testing.T) {
 		t.Fatalf("patch preconditions = %v, want [1 2 3] (each on the version the previous write returned)", got)
 	}
 }
+
+// Cancelling a PROD y/N walks back one level to the buffer the commit came
+// from — the typed value intact and masked as it was — rather than
+// discarding it and leaving a stale pending commit behind.
+func TestCancelledProdConfirmRestoresTheBuffer(t *testing.T) {
+	for _, cancel := range []string{"n", "esc"} {
+		t.Run(cancel, func(t *testing.T) {
+			secret := secretObj("nva-stage", "nva-secrets", map[string][]byte{"TOKEN": []byte("abc")})
+			mut := &fakeMutator{secret: secret}
+			m := newModel(t, prodSession(), secret, mut)
+
+			m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+			m = step(t, m, tea.KeyPressMsg{Text: "d"})
+			m = step(t, m, tea.KeyPressMsg{Text: "ctrl+x"})
+			m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+			if !m.actions.Active() {
+				t.Fatal("expected a PROD edit to stage a y/N")
+			}
+			m = step(t, m, tea.KeyPressMsg{Text: cancel})
+			if m.actions.Active() || m.pendingCommit != nil {
+				t.Fatalf("cancel left a pending confirm/commit: active=%v pending=%+v", m.actions.Active(), m.pendingCommit)
+			}
+			if m.editing == nil || m.editing.valueInput.Value() != "abcd" || !m.editing.masked {
+				t.Fatalf("expected the masked edit buffer back holding abcd, got %+v", m.editing)
+			}
+			if string(secret.Data["TOKEN"]) != "abc" {
+				t.Fatalf("cancel applied the edit: %q", secret.Data["TOKEN"])
+			}
+
+			// The add row comes back too.
+			m = step(t, m, tea.KeyPressMsg{Text: "esc"})
+			m = step(t, m, tea.KeyPressMsg{Text: "a"})
+			m = step(t, m, tea.KeyPressMsg{Text: "K"})
+			m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+			m = step(t, m, tea.KeyPressMsg{Text: "v"})
+			m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+			m = step(t, m, tea.KeyPressMsg{Text: cancel})
+			if m.adding == nil || m.adding.keyInput.Value() != "K" || m.adding.valueInput.Value() != "v" || m.pendingCommit != nil {
+				t.Fatalf("expected the add row back holding K=v, got %+v", m.adding)
+			}
+		})
+	}
+}
