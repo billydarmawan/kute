@@ -30,13 +30,13 @@ func (m Model) Keybar() tui.Keybar {
 			return tui.Keybar{
 				Pill:       tui.ModeConfirm,
 				PillText:   "DELETE",
-				RightHints: []tui.KeyHint{{Key: "type name", Label: "then ↵"}, {Key: "esc", Label: "cancel"}},
+				RightHints: []tui.KeyHint{{Key: "type name", Label: "then ↵"}, verbs.ConfirmCancel.Hint()},
 			}
 		}
 		return tui.Keybar{
 			Pill:      tui.ModeConfirm,
 			PillText:  "CONFIRM",
-			Groups:    [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "n", Label: "cancel"}}},
+			Groups:    [][]tui.KeyHint{m.actions.ConfirmHints()},
 			RightNote: m.actions.Prompt(),
 		}
 	}
@@ -44,7 +44,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeConfirm,
 			PillText:  "CONFIRM",
-			Groups:    [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "n", Label: "cancel"}}},
+			Groups:    [][]tui.KeyHint{verbs.ConfirmHints()},
 			RightNote: m.launchPrompt(),
 		}
 	}

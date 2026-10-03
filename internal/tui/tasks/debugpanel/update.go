@@ -332,14 +332,14 @@ func (m Model) launchVerb() verbs.Verb {
 
 func (m *Model) updateLaunchConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "y":
+	case verbs.ConfirmAccept.Key:
 		m.launchPending = false
 		if m.launchVerb().HiddenWhileOffline(m.conn.Offline()) {
 			// The connection dropped while the PROD y/N was showing.
 			return m, nil
 		}
 		return m, m.launchCmd()
-	case "n", "esc":
+	case verbs.ConfirmDecline.Key, verbs.ConfirmCancel.Key:
 		m.launchPending = false
 	}
 	return m, nil
@@ -507,30 +507,13 @@ func (m *Model) beginCleanupDelete() tea.Cmd {
 }
 
 // updateActionsConfirmKey routes keys while the cleanup delete's confirm is
-// showing — the ordinary y/n/esc inline confirm outside PROD, or the
-// type-the-name modal in PROD (verbs.Resolve's typed-name policy for "delete"),
-// mirroring browse's own updateConfirmKey/updateModalConfirmKey split.
+// showing — the ordinary y/N outside PROD, or the type-the-name modal in
+// PROD (verbs.Resolve's typed-name policy for verbs.DebugCleanup) — through
+// the controller's one router (actions.HandleConfirmKey). Begun as
+// DebugCleanup rather than Delete, it is never offered a force delete.
 func (m *Model) updateActionsConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.actions.Tier() == actions.TierModal {
-		switch msg.String() {
-		case "esc":
-			m.actions.Cancel()
-		case "enter":
-			if m.actions.NameMatches() {
-				return m, m.actions.Confirm()
-			}
-		default:
-			return m, m.actions.HandleTypeKey(msg)
-		}
-		return m, nil
-	}
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case "n", "esc":
-		m.actions.Cancel()
-	}
-	return m, nil
+	cmd, _ := m.actions.HandleConfirmKey(msg)
+	return m, cmd
 }
 
 // handleActionResult applies the cleanup delete's outcome — success clears
