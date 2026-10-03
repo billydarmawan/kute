@@ -1312,3 +1312,40 @@ func TestStreamPodLogsHonoursRequest(t *testing.T) {
 		t.Fatalf("follow = %q, want the three lines then EOF on cancel", got)
 	}
 }
+
+// TestHelmRollbackMatchesHelm: like real helm, the new revision carries
+// "Rollback to N" as its description, every revision still marked deployed
+// becomes superseded (a failed upgrade leaves the last good one deployed),
+// and rolling back revision 1 has nothing to roll back to.
+func TestHelmRollbackMatchesHelm(t *testing.T) {
+	t.Parallel()
+	c := New("default", "dev")
+	rel := func(rev int, status string) runtime.Object {
+		return kube.EncodeHelmReleaseSecret(kube.HelmRelease{Namespace: "default", Name: "web", Chart: "web", ChartVersion: "1.0.0", Revision: rev, Status: status})
+	}
+	c.Seed(kube.KindSecret, rel(1, "superseded"), rel(2, "deployed"), rel(3, "failed"))
+
+	if err := c.HelmRollback(t.Context(), "default", "web", 1); err != nil {
+		t.Fatalf("HelmRollback: %v", err)
+	}
+	objs, _ := c.ListRaw(t.Context(), kube.KindSecret, "default")
+	history := kube.HelmReleaseHistory(kube.DecodeHelmReleases(objs), "default", "web")
+	got := map[int]kube.HelmRelease{}
+	for _, r := range history {
+		got[r.Revision] = r
+	}
+	if r := got[4]; r.Status != "deployed" || r.StatusReason != "Rollback to 1" {
+		t.Fatalf("new revision = %+v, want deployed with \"Rollback to 1\"", r)
+	}
+	for _, rev := range []int{2, 3} {
+		if got[rev].Status != "superseded" {
+			t.Fatalf("revision %d status = %q, want superseded", rev, got[rev].Status)
+		}
+	}
+
+	solo := New("default", "dev")
+	solo.Seed(kube.KindSecret, rel(1, "deployed"))
+	if err := solo.HelmRollback(t.Context(), "default", "web", 0); err == nil {
+		t.Fatal("rolling back a release's only revision should fail like helm's \"no 0 version\"")
+	}
+}

@@ -1140,7 +1140,10 @@ func (c *Cluster) HelmRollback(_ context.Context, namespace, name string, toRevi
 			continue
 		}
 		r, err := kube.DecodeHelmReleaseSecret(secret)
-		if err != nil || r.Namespace != namespace || r.Name != name || r.Revision != current.Revision {
+		// Like helm: the revision being replaced and every revision still
+		// marked deployed (a failed upgrade leaves the last good one so)
+		// become superseded.
+		if err != nil || r.Namespace != namespace || r.Name != name || (r.Revision != current.Revision && r.Status != "deployed") {
 			continue
 		}
 		r.Status = "superseded"
@@ -1150,7 +1153,7 @@ func (c *Cluster) HelmRollback(_ context.Context, namespace, name string, toRevi
 	next := *target
 	next.Revision = current.Revision + 1
 	next.Status = "deployed"
-	next.StatusReason = ""
+	next.StatusReason = fmt.Sprintf("Rollback to %d", target.Revision) // helm's own description
 	next.Updated = time.Now()
 	secret := kube.EncodeHelmReleaseSecret(next)
 	if accessor, err := apimeta.Accessor(secret); err == nil && accessor.GetResourceVersion() == "" {
