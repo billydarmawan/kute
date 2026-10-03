@@ -378,48 +378,17 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateConfirmKey routes keys while a confirmation is showing — mirrors
-// poddetail's own updateConfirmKey (this screen's only TierModal verb is
-// cronjob-suspend's PROD escalation, so there's no delete-family ctrl-k
-// force-delete branch to carry).
+// updateConfirmKey routes keys while a confirmation is showing, through
+// the controller's one router (actions.HandleConfirmKey). The one
+// screen-local step: cancelling a y/N whose 26a panel stays open under it
+// reverts that panel's buffer (metapanel.CancelConfirm's hosting contract).
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.actions.Tier() == actions.TierModal {
-		return m.updateModalConfirmKey(msg)
-	}
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case "n", "esc":
-		m.cancelInlineConfirm()
-	}
-	return m, nil
-}
-
-// cancelInlineConfirm is updateConfirmKey's shared "actually cancel" path —
-// when the cancelled confirm was a 26a commit (the panel stays open under
-// its TierInline y/N), the row's buffer must revert too, per the panel's
-// hosting contract (metapanel.CancelConfirm's doc comment). A no-op for the
-// screen's other inline confirms (suspend, resume): m.meta is nil then.
-func (m *Model) cancelInlineConfirm() {
-	if m.meta != nil {
+	typed := m.actions.TypeToConfirm()
+	cmd, outcome := m.actions.HandleConfirmKey(msg)
+	if outcome == actions.ConfirmCancelled && !typed && m.meta != nil {
 		m.meta.CancelConfirm()
 	}
-	m.actions.Cancel()
-}
-
-// updateModalConfirmKey drives cronjob-suspend's PROD type-the-name modal —
-// mirrors poddetail's own updateModalConfirmKey, minus the ctrl-k
-// force-delete escalation (not applicable to a CronJob suspend).
-func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		m.actions.Cancel()
-	case "enter":
-		return m, m.actions.Confirm()
-	default:
-		return m, m.actions.HandleTypeKey(msg)
-	}
-	return m, nil
+	return m, cmd
 }
 
 // openSelectedJob emits the shared goto navigation onto the Jobs table's

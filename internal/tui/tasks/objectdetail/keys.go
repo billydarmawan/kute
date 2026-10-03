@@ -3,7 +3,6 @@ package objectdetail
 import (
 	"fmt"
 
-	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/metapanel"
@@ -15,23 +14,17 @@ import (
 func (m Model) Keybar() tui.Keybar {
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierInline {
-			hints := []tui.KeyHint{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}
+			hints := m.actions.ConfirmHints()
 			note := m.actions.Prompt()
-			if pending := m.actions.Pending(); pending != nil {
-				switch {
-				case pending.Scope.Verb == verbs.Delete.ID && verbs.ForceDelete.AppliesTo(kube.ResourceKind(pending.Scope.ResourceKind)):
-					// force-delete is only ever offered for Pods (verbs.ForceDelete's Kinds).
-					hints = append(hints, verbs.ForceDelete.Hint())
-				case pending.Scope.Verb == "set-meta":
-					// 26a: the panel stays open under this confirm and already
-					// renders the full will-run line + join warning in its own
-					// strip, so this note keeps to the keybar-safe short form
-					// (browse's own set-meta case, same reasoning).
-					note = metapanel.WillRunLine(pending.Scope)
-					if pending.Scope.MetaJoinService != "" {
-						note = fmt.Sprintf("detaches %d pods from svc/%s",
-							pending.Scope.MetaJoinPodCount, pending.Scope.MetaJoinService)
-					}
+			if pending := m.actions.Pending(); pending != nil && pending.Scope.Verb == "set-meta" {
+				// 26a: the panel stays open under this confirm and already
+				// renders the full will-run line + join warning in its own
+				// strip, so this note keeps to the keybar-safe short form
+				// (browse's own set-meta case, same reasoning).
+				note = metapanel.WillRunLine(pending.Scope)
+				if pending.Scope.MetaJoinService != "" {
+					note = fmt.Sprintf("detaches %d pods from svc/%s",
+						pending.Scope.MetaJoinPodCount, pending.Scope.MetaJoinService)
 				}
 			}
 			return tui.Keybar{

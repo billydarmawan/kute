@@ -456,25 +456,18 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateConfirmKey routes keys while a confirmation is showing, through
+// the controller's one router (actions.HandleConfirmKey) — y/N only:
+// cordon never confirms and drain is a modal y/N card. The one screen-local
+// step: cancelling a y/N whose 26a panel stays open under it reverts that
+// panel's buffer (metapanel.CancelConfirm's hosting contract).
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case "n", "esc":
-		m.cancelInlineConfirm()
-	}
-	return m, nil
-}
-
-// cancelInlineConfirm is updateConfirmKey's shared "actually cancel" path —
-// when the cancelled confirm was a 26a commit (the panel stays open under
-// its TierInline y/N), the row's buffer must revert too, per the panel's
-// hosting contract (metapanel.CancelConfirm's doc comment).
-func (m *Model) cancelInlineConfirm() {
-	if m.meta != nil {
+	typed := m.actions.TypeToConfirm()
+	cmd, outcome := m.actions.HandleConfirmKey(msg)
+	if outcome == actions.ConfirmCancelled && !typed && m.meta != nil {
 		m.meta.CancelConfirm()
 	}
-	m.actions.Cancel()
+	return m, cmd
 }
 
 // updateFilterKey drives the pods list's live "/" filter — same shape as

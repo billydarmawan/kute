@@ -369,58 +369,18 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateConfirmKey routes keys while a confirmation is showing: TierModal
-// (the type-the-name PROD modal) gets its own key handling — typing,
-// backspace, force-delete escalation, enter-when-matched — while
-// TierInline/TierNone stay the simple y/n/esc prompt (mvp-plan.md §8b), plus
-// verbs.ForceDelete.Key on the inline delete confirm, which escalates it
-// into the type-the-name modal (Controller.EscalateForceDelete) — force delete
-// is always modal, PROD or not.
+// updateConfirmKey routes keys while a confirmation is showing, through
+// the controller's one router (actions.HandleConfirmKey) — including
+// verbs.ForceDelete.Key escalating a pending delete to the type-the-name
+// force-delete modal, PROD or not. The one screen-local step: cancelling a
+// y/N whose 26a panel stays open under it reverts that panel's buffer (metapanel.CancelConfirm's hosting contract).
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.actions.Tier() == actions.TierModal {
-		return m.updateModalConfirmKey(msg)
-	}
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case verbs.ForceDelete.Key:
-		m.actions.EscalateForceDelete(m.isProd())
-	case "n", "esc":
-		m.cancelInlineConfirm()
-	}
-	return m, nil
-}
-
-// cancelInlineConfirm is updateConfirmKey's shared "actually cancel" path —
-// when the cancelled confirm was a 26a commit (the panel stays open under
-// its TierInline y/N), the row's buffer must revert too, per the panel's
-// hosting contract (metapanel.CancelConfirm's doc comment).
-func (m *Model) cancelInlineConfirm() {
-	if m.meta != nil {
+	typed := m.actions.TypeToConfirm()
+	cmd, outcome := m.actions.HandleConfirmKey(msg)
+	if outcome == actions.ConfirmCancelled && !typed && m.meta != nil {
 		m.meta.CancelConfirm()
 	}
-	m.actions.Cancel()
-}
-
-// updateModalConfirmKey drives the 8b type-the-name modal: enter executes
-// only once Controller.NameMatches (a no-op otherwise, "↵ stays dead until
-// the typed name matches"), backspace/typing edit the buffer,
-// verbs.ForceDelete.Key escalates a pending Pod delete to force-delete, esc cancels.
-func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		m.actions.Cancel()
-	case "enter":
-		return m, m.actions.Confirm()
-	case verbs.ForceDelete.Key:
-		if m.actions.EscalateForceDelete(m.isProd()) {
-			return m, nil
-		}
-		return m, m.actions.HandleTypeKey(msg)
-	default:
-		return m, m.actions.HandleTypeKey(msg)
-	}
-	return m, nil
+	return m, cmd
 }
 
 // isProd reports whether the active session's current context is tagged

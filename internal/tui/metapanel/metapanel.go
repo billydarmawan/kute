@@ -796,7 +796,7 @@ func sectionOf(isAnnotation bool) metaSection {
 // it — the same "esc backs out without keeping the typed change" contract
 // editing mode's own esc already has. A no-op for a pending removal, whose
 // buffer never diverged from current in the first place. The host still
-// calls ctrl.Cancel() itself (browse's cancelInlineConfirm shape).
+// calls ctrl.Cancel() itself (browse's revertConfirmedEditor shape).
 func (p *Model) CancelConfirm() {
 	if r := p.t.selectedRow(); r != nil {
 		r.setBuffer(r.current)

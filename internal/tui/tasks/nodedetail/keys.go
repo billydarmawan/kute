@@ -16,13 +16,13 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeConfirm,
 			PillText:  "CONFIRM",
-			Groups:    [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}},
+			Groups:    [][]tui.KeyHint{verbs.ConfirmHints()},
 			RightNote: m.editConfirmPrompt(),
 		}
 	}
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierInline {
-			hints := []tui.KeyHint{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}
+			hints := m.actions.ConfirmHints()
 			note := m.actions.Prompt()
 			if pending := m.actions.Pending(); pending != nil && pending.Scope.Verb == "set-meta" {
 				// 26a: the panel stays open under this confirm and already

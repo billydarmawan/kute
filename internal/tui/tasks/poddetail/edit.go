@@ -50,11 +50,11 @@ func editCmd(target kube.CommandTarget, namespace, name string) tea.Cmd {
 // showing: 'y' launches, 'n'/esc cancels back to normal detail view.
 func (m *Model) updateEditConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "y":
+	case verbs.ConfirmAccept.Key:
 		target := *m.pendingEdit
 		m.pendingEdit = nil
 		return m, editCmd(m.session.CommandTarget(), target.namespace, target.name)
-	case "n", "esc":
+	case verbs.ConfirmDecline.Key, verbs.ConfirmCancel.Key:
 		m.pendingEdit = nil
 	}
 	return m, nil
