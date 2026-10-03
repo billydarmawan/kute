@@ -496,7 +496,7 @@ func singularDisplay(plural string) string {
 func (m Model) CapturingInput() bool {
 	return (m.filterActive && !m.filterListFocused) || m.actions.Active() || m.pendingEdit != nil || m.pendingStopAllForwards ||
 		m.pendingScale != nil || m.pendingSetImage != nil || m.pendingSetResources != nil || m.pendingMeta != nil ||
-		m.pendingJobRerun != nil
+		m.pendingJobRerun != nil || m.pendingCronJobRun != nil || m.pendingCronJobResume != nil
 }
 
 // ActionResult puts the actions controller's outcome line — a failed or

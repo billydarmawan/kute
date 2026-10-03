@@ -474,3 +474,18 @@ func TestResourceChangedInAnotherNamespaceSkipsReload(t *testing.T) {
 		}
 	}
 }
+
+// TestCapturingInputCoversCronJobPreflights: while §36b's run-now or §36c's
+// resume preflight owns the keybar, g/n/c/? must reach it, not the shell.
+func TestCapturingInputCoversCronJobPreflights(t *testing.T) {
+	m := New(Config{Session: newSession(), Lister: fakeLister{}})
+	m.pendingCronJobRun = &cronJobRunTarget{}
+	if !m.CapturingInput() {
+		t.Fatal("run-now preflight should capture input")
+	}
+	m.pendingCronJobRun = nil
+	m.pendingCronJobResume = &cronJobResumeTarget{}
+	if !m.CapturingInput() {
+		t.Fatal("resume preflight should capture input")
+	}
+}
