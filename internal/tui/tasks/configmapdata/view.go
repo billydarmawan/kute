@@ -11,6 +11,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/components"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 func (m Model) View() tea.View { return tea.NewView(m.Render()) }
@@ -358,7 +359,7 @@ func (m Model) multilineBody(theme tui.Theme, width, height int) string {
 	e := m.multiline
 	headerStyle := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true)
 	hintStyle := lipgloss.NewStyle().Foreground(theme.TextDim)
-	header := headerStyle.Render(e.key) + hintStyle.Render("  alt+a apply · ctrl-r apply + restart consumers · esc discard")
+	header := headerStyle.Render(e.key) + hintStyle.Render("  "+verbs.ConfigMapBufferApply.Key+" apply · "+verbs.RestartConfigMapConsumers.Key+" apply + restart consumers · esc discard")
 
 	willRun := m.willRunStrip(theme, width)
 	budget := height - 2 // header + blank line
@@ -453,7 +454,7 @@ func (m Model) willRunStrip(theme tui.Theme, width int) string {
 		}
 	case m.multiline != nil:
 		if !m.multiline.changed() {
-			primary = label.Render("will run") + fill.Render(" ") + cmd.Render("no changes — alt+a has nothing to apply")
+			primary = label.Render("will run") + fill.Render(" ") + cmd.Render("no changes — "+verbs.ConfigMapBufferApply.Key+" has nothing to apply")
 		} else {
 			primary = label.Render("will run") + fill.Render(" ") + cmd.Render(m.commandForKey(m.multiline.key))
 		}

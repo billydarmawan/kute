@@ -3,7 +3,7 @@
   2 keys                                                                                                                
   no consumers found                                                         pods don't reload configmaps on their own  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-nginx.conf  alt+a apply · ctrl-r apply + restart consumers · esc discard                                                
+nginx.conf  alt+a apply · ctrl+r apply + restart consumers · esc discard                                                
                                                                                                                         
   1 server {                                                                                                            
   2   listen 80;                                                                                                        

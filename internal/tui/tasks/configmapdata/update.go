@@ -385,7 +385,7 @@ func (m *Model) updateMultilineKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.multiline = nil
-	case "alt+a":
+	case verbs.ConfigMapBufferApply.Key:
 		return m, m.commitMultiline(false)
 	case verbs.RestartConfigMapConsumers.Key:
 		return m, m.commitMultiline(true)
@@ -533,7 +533,7 @@ func conflictMessage(name string, pc *configMapPendingCommit, multiline bool) st
 	case pc != nil && pc.remove:
 		retry = verbs.RemoveConfigMapKey.Key + " again removes " + pc.key + " from the latest version"
 	case multiline:
-		retry = "alt+a again applies your edit to the latest version"
+		retry = verbs.ConfigMapBufferApply.Key + " again applies your edit to the latest version"
 	}
 	return name + " changed on the server since you opened it — reloaded · " + retry
 }

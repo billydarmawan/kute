@@ -20,6 +20,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 func plain(s string) string { return ansi.Strip(s) }
@@ -446,16 +447,16 @@ func TestUnchangedEditOmitsTheWillRunBand(t *testing.T) {
 
 // The edit row's inline hint names the mask toggle's real key — a bare M
 // would just type a letter into the buffer.
-func TestEditRowHintNamesCtrlXForTheMaskToggle(t *testing.T) {
+func TestEditRowHintNamesTheMaskToggleKey(t *testing.T) {
 	secret := secretObj("nva-stage", "nva-secrets", map[string][]byte{"TOKEN": []byte("abc")})
 	m := newModel(t, newSession(), secret, &fakeMutator{secret: secret})
 
 	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
-	if body := plain(m.Render()); !strings.Contains(body, "ctrl-x re-mask") || strings.Contains(body, "M re-mask") {
+	if body := plain(m.Render()); !strings.Contains(body, verbs.SecretMaskToggle.Key+" re-mask") || strings.Contains(body, "M re-mask") {
 		t.Fatalf("edit row hint should name ctrl-x:\n%s", body)
 	}
 	m = step(t, m, tea.KeyPressMsg{Text: "ctrl+x"})
-	if body := plain(m.Render()); !strings.Contains(body, "ctrl-x reveal") || strings.Contains(body, "M reveal") {
+	if body := plain(m.Render()); !strings.Contains(body, verbs.SecretMaskToggle.Key+" reveal") || strings.Contains(body, "M reveal") {
 		t.Fatalf("masked edit row hint should name ctrl-x:\n%s", body)
 	}
 }

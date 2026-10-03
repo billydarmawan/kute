@@ -589,6 +589,30 @@ var (
 	}
 )
 
+// Editor-mode keys for 26a/27a/27b's buffers and grids — registered so the
+// keybar hints, the inline row hints and the key handlers all read the same
+// Key (hand-written copies drifted: 27b's edit row once advertised "M
+// reveal" for what was ctrl-x). None is Mutating: the writes they lead to
+// go through AddSecretKey/AddConfigMapKey/Meta's own policy.
+var (
+	// SecretMaskToggle is 27b's mask toggle on the add/edit value buffer —
+	// a chord so a plain 'x' (or 'M') stays typeable. The label is
+	// per-state ("re-mask"/"reveal"), so call sites pair Key with their own.
+	SecretMaskToggle = Verb{ID: "secret-mask-toggle", Key: "ctrl+x", Label: "re-mask", Kinds: []kube.ResourceKind{kube.KindSecret}}
+	// SecretPaste is the paste chord tui.RoutePaste claims (tui.IsPasteKey),
+	// advertised on 27b's buffers because a pasted value is never echoed.
+	SecretPaste = Verb{ID: "secret-paste", Key: "ctrl+v", Label: "paste (never echoed)", Kinds: []kube.ResourceKind{kube.KindSecret}}
+	// ConfigMapBufferApply is 27a's buffer-editor apply — alt+a rather than
+	// 17a's ctrl-s, which is the terminal's XOFF flow-control key in some
+	// environments; ↵ has to stay a newline there.
+	ConfigMapBufferApply = Verb{ID: "configmap-buffer-apply", Key: "alt+a", Label: "apply", Kinds: []kube.ResourceKind{kube.KindConfigMap}}
+	// MetaRemoveKey is 26a's removal of the selected label/annotation
+	// (navigation mode only — no buffer is open, so a bare letter is safe).
+	MetaRemoveKey = Verb{ID: "meta-remove-key", Key: "D", Label: "remove key · y/N"}
+	// MetaCopyKeyValue is 26a's copy of the selected row as key=value.
+	MetaCopyKeyValue = Verb{ID: "meta-copy-key-value", Key: "y", Label: "copy key=value"}
+)
+
 // Port-forward verbs (13a/13c, docs/design README.md). Forward pushes the
 // picker from a Pod/Service/Deployment row; Stop/Restart/CopyForwardURL act
 // on a Forwards row immediately (Mutating: false — a local port-forward
@@ -671,6 +695,7 @@ var All = []Verb{
 	Cordon, Drain, Rollback, RolloutUndo, Scale, SetImage, SetResources, Meta,
 	AddSecretKey, RemoveSecretKey,
 	AddConfigMapKey, RemoveConfigMapKey, RestartConfigMapConsumers,
+	SecretMaskToggle, SecretPaste, ConfigMapBufferApply, MetaRemoveKey, MetaCopyKeyValue,
 	Forward, StopForward, RestartForward, StopAllForwards, CopyForwardURL, CopyServiceClusterIP, CopyServiceExternalIP,
 	CopyRouteURL, OpenParentGateway, CopyRouteYAML, FocusTLSStrip, OpenTLSSecret,
 }

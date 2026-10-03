@@ -11,6 +11,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/components"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // secretDataMaskGlyph is 27b's fixed 16-dot placeholder for every existing
@@ -204,9 +205,9 @@ func (m Model) editValueCell(theme tui.Theme, width int) string {
 	bold := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Background(theme.SelBg)
 	dim := lipgloss.NewStyle().Foreground(theme.TextDim).Background(theme.SelBg)
 	if e.masked {
-		return bold.Render(secretDataMaskGlyph) + accent.Render(tui.GlyphSelBar) + dim.Render(" · masked · ctrl-x reveal")
+		return bold.Render(secretDataMaskGlyph) + accent.Render(tui.GlyphSelBar) + dim.Render(" · masked · "+verbs.SecretMaskToggle.Key+" reveal")
 	}
-	return e.valueInput.ViewWidth(width) + dim.Render(" · visible while editing · ctrl-x re-mask")
+	return e.valueInput.ViewWidth(width) + dim.Render(" · visible while editing · "+verbs.SecretMaskToggle.Key+" re-mask")
 }
 
 // pendingEditConfirm reports whether an existing key's PROD y/N is
@@ -246,10 +247,10 @@ func (m Model) addRowLine(theme tui.Theme, width int) string {
 		if a.onValue {
 			valueCell += accent.Render(tui.GlyphSelBar)
 		}
-		note = dim.Render(" · masked · ctrl-x reveal")
+		note = dim.Render(" · masked · " + verbs.SecretMaskToggle.Key + " reveal")
 	default:
 		valueCell = secretBufferCell(a.valueInput, dim, valueWidth)
-		note = dim.Render(" · visible while typing · ctrl-x re-mask")
+		note = dim.Render(" · visible while typing · " + verbs.SecretMaskToggle.Key + " re-mask")
 	}
 	size := dim.Render("new")
 	return secretRowColumns(marker, key, valueCell+note, size, width, fill)

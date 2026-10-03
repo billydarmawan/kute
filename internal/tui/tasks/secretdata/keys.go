@@ -39,8 +39,8 @@ func (m Model) Keybar() tui.Keybar {
 			PillText: "ADD KEY",
 			Groups: [][]tui.KeyHint{{
 				{Key: "↵", Label: "apply"},
-				{Key: "ctrl-x", Label: "re-mask input"},
-				{Key: "ctrl-v", Label: "paste (never echoed)"},
+				{Key: verbs.SecretMaskToggle.Key, Label: "re-mask input"},
+				verbs.SecretPaste.Hint(),
 				{Key: "esc", Label: "discard"},
 			}},
 		}
@@ -51,8 +51,8 @@ func (m Model) Keybar() tui.Keybar {
 			PillText: "EDIT VALUE",
 			Groups: [][]tui.KeyHint{{
 				{Key: "↵", Label: "save"},
-				{Key: "ctrl-x", Label: "re-mask"},
-				{Key: "ctrl-v", Label: "paste (never echoed)"},
+				verbs.SecretMaskToggle.Hint(),
+				verbs.SecretPaste.Hint(),
 				{Key: "esc", Label: "cancel"},
 			}},
 		}

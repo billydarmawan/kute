@@ -65,7 +65,7 @@ func (m Model) Keybar() tui.Keybar {
 			Pill:     tui.ModeBrowse,
 			PillText: "BUFFER EDITOR",
 			Groups: [][]tui.KeyHint{{
-				{Key: "alt+a", Label: "apply"},
+				verbs.ConfigMapBufferApply.Hint(),
 				verbs.RestartConfigMapConsumers.Hint(),
 				{Key: "esc", Label: "discard"},
 			}},

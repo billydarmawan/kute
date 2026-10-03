@@ -128,6 +128,7 @@ func TestAllRegistersEveryDefinedVerb(t *testing.T) {
 		Cordon, Drain, Rollback, RolloutUndo, Scale, SetImage, SetResources, Meta,
 		AddSecretKey, RemoveSecretKey,
 		AddConfigMapKey, RemoveConfigMapKey, RestartConfigMapConsumers,
+		SecretMaskToggle, SecretPaste, ConfigMapBufferApply, MetaRemoveKey, MetaCopyKeyValue,
 		Forward, StopForward, RestartForward, StopAllForwards, CopyForwardURL, CopyServiceClusterIP, CopyServiceExternalIP,
 		CopyRouteURL, OpenParentGateway, CopyRouteYAML, FocusTLSStrip, OpenTLSSecret,
 	}

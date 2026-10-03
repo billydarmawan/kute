@@ -254,7 +254,7 @@ func (m *Model) updateAddKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.keyInput.Focus()
 	case "enter":
 		return m, m.commitAdd()
-	case "ctrl+x":
+	case verbs.SecretMaskToggle.Key:
 		if a.onValue {
 			a.masked = !a.masked
 		} else {
@@ -283,7 +283,7 @@ func (m *Model) updateEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.editing = nil
 	case "enter":
 		return m, m.commitEdit()
-	case "ctrl+x":
+	case verbs.SecretMaskToggle.Key:
 		e.masked = !e.masked
 	default:
 		var cmd tea.Cmd

@@ -583,7 +583,7 @@ func (p *Model) Update(msg tea.KeyPressMsg, ctrl *actions.Controller) (closed bo
 		r.setBuffer(r.current)
 		r.input.Focus()
 		t.editing = true
-	case "D":
+	case verbs.MetaRemoveKey.Key:
 		r := t.selectedRow()
 		if r == nil || r.readOnly {
 			return false, nil
@@ -605,7 +605,7 @@ func (p *Model) Update(msg tea.KeyPressMsg, ctrl *actions.Controller) (closed bo
 		t.addValueInput.SetStyles(addStyles)
 		t.addValueInput.Prompt = ""
 		t.addOnValue = false
-	case "y":
+	case verbs.MetaCopyKeyValue.Key:
 		if r := t.selectedRow(); r != nil && !r.secretMasked {
 			return false, tea.SetClipboard(r.key + "=" + r.current)
 		}
@@ -1008,7 +1008,7 @@ func (p *Model) KeybarHints() [][]tui.KeyHint {
 		hints = []tui.KeyHint{
 			{Key: "↑↓", Label: "row"}, {Key: tui.GlyphTab, Label: "switch grid"},
 			{Key: "↵", Label: "edit"}, {Key: "a/insert", Label: "add"},
-			{Key: "D", Label: "remove key · y/N"}, {Key: "y", Label: "copy key=value"},
+			verbs.MetaRemoveKey.Hint(), verbs.MetaCopyKeyValue.Hint(),
 		}
 	}
 	return [][]tui.KeyHint{hints}
