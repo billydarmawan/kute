@@ -1769,3 +1769,31 @@ func TestEnterOnAFluxHelmReleaseRowOpensTheFluxObject(t *testing.T) {
 		}
 	}
 }
+
+// A Deployment change moves rail[0]'s live status and change-cause, and an
+// Argo Application or Flux source change moves sync attribution and
+// revision pairing — each must reload the feed, not wait for an unrelated
+// Pod or Event change.
+func TestDeploymentArgoAndFluxChangesReloadTheTimeline(t *testing.T) {
+	argo := kube.DiscoveredKind{Kind: "Application", Plural: "applications", Group: kube.ArgoGroup,
+		Versions: []kube.CRDVersion{{Name: "v1alpha1", Served: true, Storage: true}}, Established: true}
+	git := kube.DiscoveredKind{Kind: "GitRepository", Plural: "gitrepositories", Group: kube.FluxGroupSource,
+		Versions: []kube.CRDVersion{{Name: "v1", Served: true, Storage: true}}, Established: true}
+	sess := newSession()
+	sess.Registry, sess.Groups = resources.BuildDiscoveredRegistry([]kube.DiscoveredKind{argo, git}, nil)
+	m := New(Config{Session: sess, Events: fakeEvents{}, Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	for _, kind := range []kube.ResourceKind{kube.KindDeployment, "Application", "GitRepository"} {
+		before := m.loadEpoch
+		updated, cmd := m.Update(kube.ResourceChangedMsg{Kind: kind})
+		m = *updated.(*Model)
+		if cmd == nil || m.loadEpoch == before {
+			t.Fatalf("a %s change didn't reload the timeline", kind)
+		}
+	}
+	if _, cmd := m.Update(kube.ResourceChangedMsg{Kind: kube.KindConfigMap}); cmd != nil {
+		t.Fatal("an unrelated ConfigMap change must not reload the timeline")
+	}
+}

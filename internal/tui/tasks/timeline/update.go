@@ -60,7 +60,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
-		if isTimelineSource(msg.Kind) && m.events != nil {
+		if m.isTimelineSource(msg.Kind) && m.events != nil {
 			return m, m.reload()
 		}
 	case tui.CacheSyncRetryMsg:
@@ -97,9 +97,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // isTimelineSource reports whether a watch event could change the merged
 // feed — Events directly, Pods (restarts) and ReplicaSets (rollout
-// revisions) indirectly.
-func isTimelineSource(kind kube.ResourceKind) bool {
-	return kind == kube.KindEvent || kind == kube.KindPod || kind == kube.KindReplicaSet
+// revisions) indirectly, Deployments (rail[0]'s live status, change-cause)
+// and the Argo Applications and Flux sources load() reads for sync
+// attribution and revision pairing. Those last two only ever fire once
+// load() itself has started their informers.
+func (m *Model) isTimelineSource(kind kube.ResourceKind) bool {
+	switch kind {
+	case kube.KindEvent, kube.KindPod, kube.KindReplicaSet, kube.KindDeployment:
+		return true
+	}
+	if m.session == nil {
+		return false
+	}
+	d, ok := m.session.Registry.Descriptor(kind)
+	return ok && (d.Argo || d.Flux)
 }
 
 func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
