@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/testutil/testenv"
 	"github.com/kute-dev/kute/internal/tui/components/palette"
@@ -49,6 +52,35 @@ func TestProbeToneMatchesReachability(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := probeTone(c.res); got != c.want {
 				t.Fatalf("probeTone(%+v) = %v, want %v", c.res, got, c.want)
+			}
+		})
+	}
+}
+
+// TestProbeStatusNamesAnsweringFailures: a probe the server answered — a 403
+// on /livez, or a 401/failed credential plugin — is not "unreachable". The
+// 403 cluster works; the 401 one needs a login, not a VPN check.
+func TestProbeStatusNamesAnsweringFailures(t *testing.T) {
+	t.Parallel()
+	gr := schema.GroupResource{}
+	cases := []struct {
+		name string
+		res  kube.ProbeResult
+		want string
+		tone palette.Tone
+	}{
+		{"forbidden", kube.ProbeResult{Name: "a", Latency: 12 * time.Millisecond, Err: apierrors.NewForbidden(gr, "", errors.New("no"))}, GlyphRunning + " 12ms · 403", palette.ToneOK},
+		{"unauthorized", kube.ProbeResult{Name: "a", Err: apierrors.NewUnauthorized("expired")}, GlyphFailed + " needs login", palette.ToneBad},
+		{"plugin failed", kube.ProbeResult{Name: "a", Err: errors.New(`Get "https://x/livez": getting credentials: exec: executable aws failed with exit code 255`)}, GlyphFailed + " needs login", palette.ToneBad},
+		{"cert file unreadable", kube.ProbeResult{Name: "a", Err: errors.New("open /certs/client.crt: permission denied")}, GlyphFailed + " unreachable", palette.ToneBad},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := probeStatus(c.res); got != c.want {
+				t.Errorf("probeStatus = %q, want %q", got, c.want)
+			}
+			if got := probeTone(c.res); got != c.tone {
+				t.Errorf("probeTone = %v, want %v", got, c.tone)
 			}
 		})
 	}

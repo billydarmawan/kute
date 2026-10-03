@@ -11,6 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
@@ -570,5 +572,20 @@ func TestRetryReprobesSwitchContextList(t *testing.T) {
 	m.Update(switchProbeMsg{gen: staleGen, res: kube.ProbeResult{Name: "kind-local", Latency: time.Second}})
 	if body := plain(m.Render()); !strings.Contains(body, "kind-local (reachable · 9ms)") {
 		t.Errorf("SWITCH CONTEXT list after r should show the re-probe's result:\n%s", body)
+	}
+}
+
+// TestSwitchRowStatusNamesAnsweringFailures: 4c's sibling rows name a 403 on
+// /livez as reachable and a 401/failed credential plugin as needing a login,
+// rather than calling both unreachable.
+func TestSwitchRowStatusNamesAnsweringFailures(t *testing.T) {
+	row := switchContextRow{name: "a"}
+	forbidden := kube.ProbeResult{Name: "a", Latency: 7 * time.Millisecond, Err: apierrors.NewForbidden(schema.GroupResource{}, "", errors.New("no"))}
+	if _, status, tone := switchRowStatus(row, forbidden, false); status != "reachable · 7ms · 403" || tone != switchToneGood {
+		t.Errorf("403 row = %q (tone %v), want reachable · 7ms · 403 in good", status, tone)
+	}
+	unauthorized := kube.ProbeResult{Name: "a", Err: apierrors.NewUnauthorized("expired")}
+	if _, status, _ := switchRowStatus(row, unauthorized, false); status != "needs login" {
+		t.Errorf("401 row = %q, want needs login", status)
 	}
 }

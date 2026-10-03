@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
@@ -17,6 +18,46 @@ type ProbeResult struct {
 	// Skipped marks a context deliberately left unprobed (7a's
 	// credential-plugin contexts until ctrl+r) — neither reachable nor not.
 	Skipped bool
+}
+
+// ProbeVerdict is what a ProbeResult says about its context, for the 7a/4c
+// rows that render it.
+type ProbeVerdict int
+
+const (
+	// ProbePending is the zero ProbeResult: nothing has reported yet.
+	ProbePending ProbeVerdict = iota
+	ProbeSkipped
+	ProbeReachable
+	// ProbeForbidden is a 403 on /livez: the server answered and knows who
+	// you are, it just doesn't let this identity read the health endpoint.
+	// Reachable, with the latency of that answer.
+	ProbeForbidden
+	// ProbeNeedsLogin is IsAuthenticationError — a credential plugin that
+	// couldn't mint a token, or a 401. Not a network fault, so calling it
+	// unreachable sends the user off checking VPNs instead of logging in.
+	ProbeNeedsLogin
+	ProbeUnreachable
+)
+
+// Verdict classifies r. Forbidden is the typed 403 only, never
+// IsPermissionError's substring fallback: an unreadable client-cert file
+// ("permission denied") is a local fault, not proof the server answered.
+func (r ProbeResult) Verdict() ProbeVerdict {
+	switch {
+	case r.Skipped:
+		return ProbeSkipped
+	case r.Name == "" && r.Err == nil && r.Latency == 0:
+		return ProbePending
+	case r.Err == nil:
+		return ProbeReachable
+	case apierrors.IsForbidden(r.Err):
+		return ProbeForbidden
+	case IsAuthenticationError(r.Err):
+		return ProbeNeedsLogin
+	default:
+		return ProbeUnreachable
+	}
 }
 
 // probeTimeout bounds one context's reachability check. Generous rather than

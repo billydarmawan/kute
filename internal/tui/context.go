@@ -136,7 +136,7 @@ func contextItems(sess *Session, probes map[string]kube.ProbeResult) []palette.I
 		case hasPrev && name == prevTarget:
 			item.Tag = "previous"
 		}
-		if res, ok := probes[name]; ok && res.Err != nil {
+		if v := probes[name].Verdict(); v == kube.ProbeNeedsLogin || v == kube.ProbeUnreachable {
 			item.Dim = true
 		}
 		items = append(items, item)
@@ -146,16 +146,22 @@ func contextItems(sess *Session, probes map[string]kube.ProbeResult) []palette.I
 }
 
 // probeStatus renders one context row's reachability glyph+text: "◌
-// probing…" before a result has arrived, "● 12ms" on success, "✕
-// unreachable" on error, and "○ not probed" for a credential-plugin context
-// left alone until ctrl+r (docs/design README.md §7a).
+// probing…" before a result has arrived, "● 12ms" on success (and "● 12ms ·
+// 403" when the server answered but refused this identity /livez), "✕ needs
+// login" when no usable credential could be presented, "✕ unreachable" on
+// any other error, and "○ not probed" for a credential-plugin context left
+// alone until ctrl+r (docs/design README.md §7a).
 func probeStatus(res kube.ProbeResult) string {
-	switch {
-	case res.Skipped:
+	switch res.Verdict() {
+	case kube.ProbeSkipped:
 		return GlyphCompleted + " not probed"
-	case res.Name == "" && res.Err == nil && res.Latency == 0:
+	case kube.ProbePending:
 		return GlyphProbing + " probing…"
-	case res.Err != nil:
+	case kube.ProbeForbidden:
+		return fmt.Sprintf("%s %dms · 403", GlyphRunning, res.Latency.Milliseconds())
+	case kube.ProbeNeedsLogin:
+		return GlyphFailed + " needs login"
+	case kube.ProbeUnreachable:
 		return GlyphFailed + " unreachable"
 	default:
 		return fmt.Sprintf("%s %dms", GlyphRunning, res.Latency.Milliseconds())
@@ -167,12 +173,12 @@ func probeStatus(res kube.ProbeResult) string {
 // only ever rendered through the row's default faint tone, silently losing
 // the reachability-at-a-glance cue the palette mockup relies on.
 func probeTone(res kube.ProbeResult) palette.Tone {
-	switch {
-	case res.Skipped:
+	switch res.Verdict() {
+	case kube.ProbeSkipped:
 		return palette.ToneFaint
-	case res.Name == "" && res.Err == nil && res.Latency == 0:
+	case kube.ProbePending:
 		return palette.ToneWarn
-	case res.Err != nil:
+	case kube.ProbeNeedsLogin, kube.ProbeUnreachable:
 		return palette.ToneBad
 	default:
 		return palette.ToneOK

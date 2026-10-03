@@ -304,7 +304,9 @@ const (
 // refused" string wraps this compact row ugly, unlike the mockup's
 // illustrative one-word "timeout") — every other context reads its own
 // probes entry: "probing…" before a result lands, "reachable · Nms" on
-// success, "unreachable" on error, "not probed" for a credential-plugin
+// success ("reachable · Nms · 403" when the server answered but refused
+// this identity /livez), "needs login" when no usable credential could be
+// presented, "unreachable" on any other error, "not probed" for a credential-plugin
 // context left alone (docs/design README.md §4c).
 func switchRowStatus(row switchContextRow, probe kube.ProbeResult, needsCreds bool) (glyph, status string, tone switchTone) {
 	if row.current {
@@ -318,12 +320,16 @@ func switchRowStatus(row switchContextRow, probe kube.ProbeResult, needsCreds bo
 		}
 		return tui.GlyphFailed, "current · unreachable", switchToneBad
 	}
-	switch {
-	case probe.Skipped:
+	switch probe.Verdict() {
+	case kube.ProbeSkipped:
 		return tui.GlyphCompleted, "not probed", switchToneFaint
-	case probe.Name == "" && probe.Err == nil && probe.Latency == 0:
+	case kube.ProbePending:
 		return tui.GlyphProbing, "probing…", switchToneWarn
-	case probe.Err != nil:
+	case kube.ProbeForbidden:
+		return tui.GlyphRunning, fmt.Sprintf("reachable · %dms · 403", probe.Latency.Milliseconds()), switchToneGood
+	case kube.ProbeNeedsLogin:
+		return tui.GlyphFailed, "needs login", switchToneBad
+	case kube.ProbeUnreachable:
 		return tui.GlyphFailed, "unreachable", switchToneBad
 	default:
 		return tui.GlyphRunning, fmt.Sprintf("reachable · %dms", probe.Latency.Milliseconds()), switchToneGood
