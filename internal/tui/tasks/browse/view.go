@@ -912,6 +912,13 @@ func (m Model) emptyBody(width, height int) string {
 			"",
 		}
 	}
+	if m.kind == kube.KindHelmRelease {
+		// "No releases" is only as true as the storage kute reads: helm's
+		// default Secret driver. A release kept by HELM_DRIVER=configmap or
+		// sql exists all the same, so say where the answer came from.
+		blank := lines[len(lines)-1]
+		lines = append(lines[:len(lines)-1], detail.Render("read from helm's default secret storage — releases kept with HELM_DRIVER=configmap or sql aren't listed"), blank)
+	}
 
 	if !m.desc.ClusterScoped {
 		nsLine := key.Render("n") + " " + dim.Render("switch namespace")

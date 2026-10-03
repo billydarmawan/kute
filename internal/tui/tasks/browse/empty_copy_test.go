@@ -60,3 +60,20 @@ func TestEmptyStateNamesADeletedNamespace(t *testing.T) {
 		t.Fatalf("view doesn't say the namespace is gone:\n%s", view)
 	}
 }
+
+// TestHelmEmptyStateNamesTheStorageDriver: kute reads only helm's default
+// Secret storage, so "no releases" must say so — a release kept by the
+// configmap or sql driver exists all the same.
+func TestHelmEmptyStateNamesTheStorageDriver(t *testing.T) {
+	session := newSession()
+	session.Location.Kind = kube.KindHelmRelease
+	m := New(Config{Session: session, Lister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{}}})
+	m.SetSize(160, 36)
+	m = step(t, m, m.Init()())
+	if m.state != tui.TaskStateEmpty {
+		t.Fatalf("state=%s, want empty", m.state)
+	}
+	if view := plain(m.Render()); !strings.Contains(view, "HELM_DRIVER=configmap or sql") {
+		t.Fatalf("helm empty state doesn't name the storage it read:\n%s", view)
+	}
+}
