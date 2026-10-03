@@ -428,6 +428,22 @@ func TestCtrlXTogglesMaskAndPlainXStaysTypeable(t *testing.T) {
 	}
 }
 
+// §27b: an edit still unchanged from its decoded original has nothing to
+// preview, so the will-run band is omitted — not a "no changes" placeholder.
+func TestUnchangedEditOmitsTheWillRunBand(t *testing.T) {
+	secret := secretObj("nva-stage", "nva-secrets", map[string][]byte{"TOKEN": []byte("abc")})
+	m := newModel(t, newSession(), secret, &fakeMutator{secret: secret})
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if strip := m.willRunStrip(m.Theme(), 120); strip != "" {
+		t.Fatalf("an unchanged edit should omit the will-run band entirely, got %q", plain(strip))
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "d"})
+	if strip := plain(m.willRunStrip(m.Theme(), 120)); !strings.Contains(strip, "kubectl patch secret/nva-secrets") {
+		t.Fatalf("a changed edit should preview its patch, got %q", strip)
+	}
+}
+
 // The edit row's inline hint names the mask toggle's real key — a bare M
 // would just type a letter into the buffer.
 func TestEditRowHintNamesCtrlXForTheMaskToggle(t *testing.T) {

@@ -354,14 +354,12 @@ func (m Model) willRunStrip(theme tui.Theme, width int) string {
 		// m.adding is already nil by then (commitAdd clears it before Begin).
 		left += m.overwriteWarning(theme, m.pendingCommit.key) + cmd.Render(kube.SecretDataCommandString(m.namespace, m.name, m.pendingCommit.key, false))
 		right = rightNote.Render("value masked here · sent verbatim")
-	case m.editing != nil:
-		if !m.editing.changed() {
-			left += cmd.Render("no changes — ↵ has nothing to apply")
-		} else {
-			left += cmd.Render(kube.SecretDataCommandString(m.namespace, m.name, m.editing.key, false))
-			right = rightNote.Render("value masked here · sent verbatim")
-		}
+	case m.editing != nil && m.editing.changed():
+		left += cmd.Render(kube.SecretDataCommandString(m.namespace, m.name, m.editing.key, false))
+		right = rightNote.Render("value masked here · sent verbatim")
 	default:
+		// Idle navigation, or an edit still unchanged from its decoded
+		// original: nothing to preview, so no band at all (§27b).
 		hasContent = false
 	}
 	if !hasContent {
