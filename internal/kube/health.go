@@ -154,19 +154,19 @@ func newHealth() *health {
 // this channel from program start, and swapping in a brand-new health (and
 // therefore a brand-new channel) would silently orphan that reader for the
 // rest of the process's life.
+//
+// The fresh state is emitted, not just stored: a switch out of an
+// Unauthenticated/Reconnecting context otherwise left the root's copy — the
+// OFFLINE pill and the mutating-verb gate — on the old context's outage
+// until the new one's first ping. set also wakes the probe timer, which may
+// be parked on the unauthenticated phase's long wait and must recompute
+// against this state instead of inheriting that pause.
 func (h *health) reset() {
 	now := time.Now()
 	h.mu.Lock()
-	h.state = ConnState{Phase: ConnConnected, FetchedAt: now}
 	h.startedAt = now
 	h.mu.Unlock()
-	// The probe timer may be parked on the unauthenticated phase's long wait.
-	// A context switch must make it recompute against this fresh Connected
-	// state instead of inheriting that pause from the old credentials.
-	select {
-	case h.wake <- struct{}{}:
-	default:
-	}
+	h.set(ConnState{Phase: ConnConnected, FetchedAt: now})
 }
 
 // setStaticCredentials records whether the active context authenticates with

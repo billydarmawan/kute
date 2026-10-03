@@ -78,6 +78,25 @@ func TestHealthOnWatchErrorDoesNotResetAttemptWhileReconnecting(t *testing.T) {
 	}
 }
 
+// A context switch resets health; the reset has to reach the root, or the
+// OFFLINE pill and mutating-verb gate keep the old context's outage.
+func TestHealthResetEmitsConnected(t *testing.T) {
+	t.Parallel()
+	h := newHealth()
+	h.recordPing(0, unauthorized(), true, true, time.Now())
+	<-h.ch
+	h.reset()
+
+	select {
+	case msg := <-h.ch:
+		if msg.Phase != ConnConnected {
+			t.Fatalf("got phase %v, want Connected", msg.Phase)
+		}
+	default:
+		t.Fatal("reset emitted nothing: the root keeps the previous context's outage")
+	}
+}
+
 func TestHealthSetEmitsOnChannel(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
