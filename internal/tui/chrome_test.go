@@ -109,13 +109,53 @@ func TestHeaderKeepsConnBadgeWithLongContext(t *testing.T) {
 		if got := ansi.StringWidth(line); got != width {
 			t.Fatalf("width %d: header is %d cells wide:\n%s", width, got, line)
 		}
-		for _, want := range []string{"◌ disconnected", "CustomResourceDefinitions", "…"} {
+		for _, want := range []string{"◌", "CustomResourceDefinitions", "…"} {
 			if !strings.Contains(line, want) {
 				t.Fatalf("width %d: header missing %q:\n%s", width, want, line)
 			}
 		}
 	}
+	if line := renderHeaderV2(h, theme, 120)[0]; !strings.Contains(line, "◌ disconnected") {
+		t.Fatalf("at 120 columns the badge should keep its text:\n%s", line)
+	}
 	if line := renderHeaderV2(h, theme, 120)[0]; !strings.Contains(line, "↑ 0.2.1") || !strings.Contains(line, "⇄ 2") || !strings.Contains(line, "payments-prod") {
 		t.Fatalf("at 120 columns the chips should still fit beside a shrunk context:\n%s", line)
+	}
+}
+
+// TestHeaderCompactsBadgeBeforeSqueezingCrumbs pins the ordering between the
+// two ways the header makes room: a long badge (helmhistory's loading timer)
+// first drops to its glyph, and only then may a crumb fall below
+// crumbMinWidth. It used to go the other way, squeezing every segment to
+// four cells ("te…r › pr…n") to keep the badge's full sentence.
+func TestHeaderCompactsBadgeBeforeSqueezingCrumbs(t *testing.T) {
+	theme := Dark()
+	segments := []string{"team-platform-staging-cluster", "production-workloads", "postgresql-primary"}
+	crumbs := append(BrandCrumbs(theme), Crumb{Text: " │ "})
+	for i, s := range segments {
+		if i > 0 {
+			crumbs = append(crumbs, Crumb{Text: " › "})
+		}
+		crumbs = append(crumbs, Crumb{Text: s})
+	}
+	crumbs = append(crumbs, Crumb{Text: " › "}, Crumb{Text: "History"})
+	h := HeaderState{
+		Crumbs: crumbs,
+		Conn:   ConnBadge{Text: "⣾ loading postgresql-primary history · 0.0s"},
+	}
+	line := ansi.Strip(renderHeaderV2(h, theme, 80)[0])
+	if got := ansi.StringWidth(line); got != 80 {
+		t.Fatalf("header is %d cells wide:\n%s", got, line)
+	}
+	if strings.Contains(line, "loading") || !strings.HasSuffix(strings.TrimRight(line, " "), "⣾") {
+		t.Fatalf("badge should shrink to its spinner glyph:\n%s", line)
+	}
+	body := strings.TrimSuffix(strings.TrimSpace(line), "⣾")
+	_, path, _ := strings.Cut(body, " │ ")
+	for _, seg := range strings.Split(path, " › ") {
+		seg = strings.TrimSpace(seg)
+		if w := ansi.StringWidth(seg); w < crumbMinWidth && seg != "History" {
+			t.Fatalf("segment %q shrunk to %d cells, below the %d-cell floor:\n%s", seg, w, crumbMinWidth, line)
+		}
 	}
 }

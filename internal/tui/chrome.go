@@ -60,6 +60,17 @@ type ConnBadge struct {
 	Style lipgloss.Style
 }
 
+// compact is the badge reduced to its leading glyph — the text before the
+// first space ("◌ disconnected" → "◌", a spinner frame for a loading
+// badge) in the same style. The header falls back to it when the full badge
+// would squeeze the breadcrumbs below their readable floor.
+func (b ConnBadge) compact() ConnBadge {
+	if glyph, _, ok := strings.Cut(b.Text, " "); ok && glyph != "" {
+		b.Text = glyph
+	}
+	return b
+}
+
 // LiveConnBadge builds the header's connection badge from the last
 // kube.ConnStateMsg the screen saw (the root shell forwards it to the active
 // task): connectedText — plus a "· 12ms" latency suffix when known — in
@@ -365,7 +376,8 @@ func insetChromeLine(left, right string, width int) string {
 //
 // The right side is laid out by priority rather than all-or-nothing: the
 // connection badge always shows (it is how 4a announces an outage on
-// screens without a stale strip), then the config, forward and update
+// screens without a stale strip) — shrunk to its glyph when its text would
+// push the crumbs below crumbMinWidth — then the config, forward and update
 // chips, then the sync note, each kept only while the crumbs can still fit
 // at their shrunk minimum. The crumbs then take whatever is left, giving up
 // width from their widest segment first — in practice the context, which
@@ -395,6 +407,14 @@ func renderHeaderV2(h HeaderState, theme Theme, width int) []string {
 		if minLeft+lipgloss.Width(composeRight())+1 > inner {
 			keep[i] = false
 		}
+	}
+	// The badge gives up its text — never itself — before any crumb has to
+	// drop below crumbMinWidth: a lone glyph in the badge's own color still
+	// says connected/loading/offline, a four-cell "te…r" says nothing. The
+	// chips were sized against the full badge, so its text outranks them;
+	// compacting only happens once none of them fit anyway.
+	if minLeft+lipgloss.Width(composeRight())+1 > inner {
+		h.Conn = h.Conn.compact()
 	}
 	right := composeRight()
 	budget := inner
