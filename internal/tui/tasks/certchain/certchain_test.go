@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -354,5 +356,54 @@ func TestSecretRefMissGatesOnTheTLSCacheItRead(t *testing.T) {
 	m := Model{secretRef: ref, haveSecret: true}
 	if !m.reloadsOn(kube.KindTLSSecret) {
 		t.Fatal("a TLS Secret cache change must reload the chain")
+	}
+}
+
+// startedTLSRecordingLister is tlsRecordingLister that can also say whether
+// the shared Secret cache is already running (tui.KindStartedChecker).
+type startedTLSRecordingLister struct {
+	tlsRecordingLister
+	sharedStarted bool
+}
+
+func (l *startedTLSRecordingLister) KindStarted(kind kube.ResourceKind, _ string) bool {
+	return kind != kube.KindSecret || l.sharedStarted
+}
+
+func opaqueCertSecret() *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-tls-cert", Namespace: "shop"},
+		Type:       corev1.SecretTypeOpaque,
+		Data:       map[string][]byte{"tls.crt": []byte("cert")},
+	}
+}
+
+// An Opaque Secret carrying tls.crt, invisible to the kubernetes.io/tls
+// cache, still backs the ref when the shared Secret cache is running.
+func TestSecretRefFindsOpaqueSecretInStartedSharedCache(t *testing.T) {
+	lister := &startedTLSRecordingLister{sharedStarted: true}
+	lister.tlsSynced = true
+	lister.objs = map[kube.ResourceKind][]runtime.Object{kube.KindSecret: {opaqueCertSecret()}}
+	ref, _ := resolveSecretRef(t.Context(), lister, "shop", certWithSecretName("web-tls-cert"))
+	if !ref.Exists || ref.StatusText != "exists" {
+		t.Fatalf("resolveSecretRef = %+v, want the Opaque Secret found", ref)
+	}
+	if len(lister.reads) != 1 || lister.reads[0] != string(kube.KindSecret)+"/shop" {
+		t.Fatalf("ListRaw reads = %v, want one shared Secret read of shop", lister.reads)
+	}
+}
+
+// When the shared Secret cache isn't running, the ref never reads it, and
+// the miss says only kubernetes.io/tls Secrets were checked.
+func TestSecretRefMissNeverStartsSharedSecretCache(t *testing.T) {
+	lister := &startedTLSRecordingLister{}
+	lister.tlsSynced = true
+	lister.objs = map[kube.ResourceKind][]runtime.Object{kube.KindSecret: {opaqueCertSecret()}}
+	ref, _ := resolveSecretRef(t.Context(), lister, "shop", certWithSecretName("web-tls-cert"))
+	if len(lister.reads) != 0 {
+		t.Fatalf("ListRaw reads = %v, want none — the shared Secret cache must stay unstarted", lister.reads)
+	}
+	if ref.Exists || ref.StatusText != "missing as kubernetes.io/tls" {
+		t.Fatalf("resolveSecretRef = %+v, want a miss naming the type checked", ref)
 	}
 }

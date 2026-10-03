@@ -619,9 +619,21 @@ decorators forward it, falling back to the shared cache when nothing filtered si
 underneath, and then answer the `KindTLSSecret` gates from `KindSecret` to match.
 
 The trade: a Secret of some other type that an ingress controller would still accept with a
-`tls.crt` key reads as "secret not found". cert-manager always writes `kubernetes.io/tls`, and
-the API rejects a missing `tls.crt`/`tls.key` only on that type, so it's the type a TLS
-reference is meant to name.
+`tls.crt` key (an Opaque one, say) is invisible to the filtered cache. cert-manager always
+writes `kubernetes.io/tls`, and the API rejects a missing `tls.crt`/`tls.key` only on that
+type, so it's the type a TLS reference is meant to name — but not the only one that works.
+So a miss in the TLS cache falls back to the shared Secret cache **only when that cache is
+already started** for the same namespace scope (`tui.KindStartedChecker`'s
+`KindStarted(KindSecret, ns)` — the Secrets list was opened, say), and has settled without
+an error (`KindsSynced`/`KindsError(KindSecret, ns)`). A lister that can't answer
+`KindStarted` counts as not started. There, a Secret of that name with a `tls.crt` key is
+used as if it were TLS-typed; one without it reads "not a tls secret"; no Secret at all is a
+definitive "secret not found"/"missing", since the shared cache holds every type. The
+fallback never starts the shared cache: when it isn't running, the miss keeps the TLS
+cache's own gating and its Fail state, but names what was checked — "no kubernetes.io/tls
+secret" (routetable), "missing as kubernetes.io/tls" (certchain) — instead of claiming no
+Secret of that name exists. Both screens already reload on `KindSecret` events, which only
+a started shared cache emits, so a fallback hit stays live without widening anything.
 
 `internal/kube/{tlssecrets,cluster,kinds}.go`, `internal/kube/fake/fake.go`,
 `internal/app/app.go`, `internal/tui/tasks/{routetable,certchain}/{load,update}.go`

@@ -975,3 +975,72 @@ func TestIngressTLSMissGatesOnTheTLSCacheItRead(t *testing.T) {
 		t.Fatal("the TLS miss was not gated on any cache")
 	}
 }
+
+// startedTLSCacheLister is tlsCacheLister that can also say whether the
+// shared Secret cache is already running (tui.KindStartedChecker).
+type startedTLSCacheLister struct {
+	tlsCacheLister
+	sharedStarted bool
+}
+
+func (l startedTLSCacheLister) KindStarted(kind kube.ResourceKind, _ string) bool {
+	return kind != kube.KindSecret || l.sharedStarted
+}
+
+func opaqueCertSecret(t *testing.T) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-tls", Namespace: "default"},
+		Type:       corev1.SecretTypeOpaque,
+		Data:       map[string][]byte{"tls.crt": demoCertPEM(t, time.Now().Add(90*24*time.Hour))},
+	}
+}
+
+// An Opaque Secret carrying tls.crt, invisible to the kubernetes.io/tls
+// cache, is still found when the shared Secret cache is already running.
+func TestIngressTLSFindsOpaqueSecretInStartedSharedCache(t *testing.T) {
+	log := &tlsCacheLog{}
+	lister := startedTLSCacheLister{
+		tlsCacheLister: tlsCacheLister{
+			lister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+				kube.KindIngress: {tlsIngress()},
+				kube.KindSecret:  {opaqueCertSecret(t)},
+			}},
+			tlsSynced: true,
+			log:       log,
+		},
+		sharedStarted: true,
+	}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.tlsFacts) != 1 || !strings.HasPrefix(m.tlsFacts[0].expiry, "expires in ") {
+		t.Fatalf("tls facts = %+v, want the Opaque Secret's cert expiry", m.tlsFacts)
+	}
+}
+
+// When the shared Secret cache isn't running, a TLS-cache miss never reads
+// it, and says only kubernetes.io/tls Secrets were checked.
+func TestIngressTLSMissNeverStartsSharedSecretCache(t *testing.T) {
+	log := &tlsCacheLog{}
+	lister := startedTLSCacheLister{
+		tlsCacheLister: tlsCacheLister{
+			lister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+				kube.KindIngress: {tlsIngress()},
+				kube.KindSecret:  {opaqueCertSecret(t)},
+			}},
+			tlsSynced: true,
+			log:       log,
+		},
+	}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if log.sharedSecretReads != 0 {
+		t.Fatalf("read the shared Secret cache %d time(s) while it was not started", log.sharedSecretReads)
+	}
+	if len(m.tlsFacts) != 1 || m.tlsFacts[0].expiry != "no kubernetes.io/tls secret" {
+		t.Fatalf("tls facts = %+v, want a miss naming the type checked", m.tlsFacts)
+	}
+}

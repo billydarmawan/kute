@@ -237,13 +237,30 @@ func tlsSecrets(ctx context.Context, lister resources.RawLister, ns string) ([]r
 	return objs, kube.KindSecret, err
 }
 
+// sharedSecretsLoaded reports whether the shared Secret cache at ns is
+// already running, filled and readable — the only condition under which a
+// cert lookup may consult it after a miss in the TLS cache. A lister that
+// can't say whether the cache is started is treated as not started: reading
+// it on a real cluster would start the cluster-wide, full-payload Secret
+// informer this path exists to avoid (docs/lazy-informers.md §5.7).
+func sharedSecretsLoaded(lister resources.RawLister, ns string) bool {
+	ks, ok := lister.(tui.KindStartedChecker)
+	if !ok || !ks.KindStarted(kube.KindSecret, ns) {
+		return false
+	}
+	return tui.KindsSynced(lister, ns, kube.KindSecret) && tui.KindsError(lister, ns, kube.KindSecret) == nil
+}
+
 // resolveCertExpiry parses a TLS Secret's tls.crt to report expiry, per
 // docs/design README.md §23a: "yellow <30d, red expired". A miss is only
 // "secret not found" once the Secret cache for ns has settled without an
 // error: a still-filling cache reports pending (the caller schedules a
 // retry, since a namespace with no such Secret syncs without an event), and
 // a Forbidden one — common, many users can't list Secrets — says so,
-// neutral, instead of a permanent red claim about the cluster.
+// neutral, instead of a permanent red claim about the cluster. A miss in the
+// filtered TLS cache falls back to the shared Secret cache only when that is
+// already loaded (sharedSecretsLoaded); otherwise the miss names the type it
+// checked, since a Secret of another type may still exist.
 func resolveCertExpiry(ctx context.Context, lister resources.RawLister, ns, secretName string) (text string, class resources.StatusClass, pending bool) {
 	if lister == nil || secretName == "" {
 		return "–", resources.StatusNeutral, false
@@ -259,6 +276,31 @@ func resolveCertExpiry(ctx context.Context, lister resources.RawLister, ns, secr
 			break
 		}
 	}
+	sharedChecked := false
+	if secret == nil && cacheKind == kube.KindTLSSecret && sharedSecretsLoaded(lister, ns) {
+		// A TLS reference may name a Secret of another type carrying a
+		// tls.crt key, which some ingress controllers accept. The filtered
+		// cache can't see it; the shared one can, but only if something
+		// already paid for it — never start it here (§5.7).
+		sharedChecked = true
+		shared, serr := lister.ListRaw(ctx, kube.KindSecret, ns)
+		if serr == nil {
+			for _, obj := range shared {
+				if s, ok := obj.(*corev1.Secret); ok && s.Name == secretName {
+					if _, has := s.Data["tls.crt"]; !has {
+						return "not a tls secret", resources.StatusWarn, false
+					}
+					secret = s
+					break
+				}
+			}
+			if secret == nil {
+				// The shared cache holds every type: a miss there is a
+				// miss, whatever the TLS cache's own state.
+				return "secret not found", resources.StatusFail, false
+			}
+		}
+	}
 	if secret == nil {
 		if !tui.KindsSynced(lister, ns, cacheKind) {
 			return "loading…", resources.StatusNeutral, true
@@ -268,6 +310,11 @@ func resolveCertExpiry(ctx context.Context, lister resources.RawLister, ns, secr
 				return "secrets: permission denied", resources.StatusNeutral, false
 			}
 			return "secrets: unavailable", resources.StatusNeutral, false
+		}
+		if cacheKind == kube.KindTLSSecret && !sharedChecked {
+			// Only kubernetes.io/tls Secrets were checked — say so, rather
+			// than claim no Secret of that name exists at all.
+			return "no kubernetes.io/tls secret", resources.StatusFail, false
 		}
 		return "secret not found", resources.StatusFail, false
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -405,12 +406,68 @@ func resolveSecretRef(ctx context.Context, lister resources.RawLister, namespace
 	if err == nil && existsByName(secrets, secretName) {
 		ref.Exists = true
 	}
+	if !ref.Exists && cacheKind == kube.KindTLSSecret && sharedSecretsLoaded(lister, namespace) {
+		// The filtered cache holds only kubernetes.io/tls Secrets; one of
+		// another type carrying tls.crt can still back the Certificate. Look
+		// in the shared cache, but only when something already paid for it
+		// — never start it here (docs/lazy-informers.md §5.7). A miss there
+		// is a miss, since it holds every type.
+		if shared, serr := lister.ListRaw(ctx, kube.KindSecret, namespace); serr == nil {
+			switch found, hasCert := sharedSecretCert(shared, secretName); {
+			case hasCert:
+				ref.Exists, ref.StatusText = true, "exists"
+			case found:
+				ref.StatusText = "not a tls secret"
+			default:
+				ref.StatusText = "missing"
+			}
+			return ref, true
+		}
+	}
 	if ref.Exists {
 		ref.StatusText = "exists"
 	} else if !markUnknownIn(&ref, cacheKind, lister, namespace, err) {
 		ref.StatusText = "missing"
+		if cacheKind == kube.KindTLSSecret {
+			// Only kubernetes.io/tls Secrets were checked.
+			ref.StatusText = "missing as kubernetes.io/tls"
+		}
 	}
 	return ref, true
+}
+
+// sharedSecretsLoaded reports whether the shared Secret cache at namespace
+// is already running, filled and readable — the only condition under which
+// the Secret ref may consult it after a miss in the TLS cache. A lister that
+// can't say whether the cache is started is treated as not started: on a
+// real cluster reading it starts the cluster-wide, full-payload Secret
+// informer the TLS cache exists to avoid.
+func sharedSecretsLoaded(lister resources.RawLister, namespace string) bool {
+	ks, ok := lister.(tui.KindStartedChecker)
+	if !ok || !ks.KindStarted(kube.KindSecret, namespace) {
+		return false
+	}
+	return tui.KindsSynced(lister, namespace, kube.KindSecret) && tui.KindsError(lister, namespace, kube.KindSecret) == nil
+}
+
+// sharedSecretCert reports whether objs holds a Secret named name, and
+// whether it carries a tls.crt key.
+func sharedSecretCert(objs []runtime.Object, name string) (found, hasCert bool) {
+	for _, o := range objs {
+		switch s := o.(type) {
+		case *corev1.Secret:
+			if s.Name == name {
+				_, has := s.Data["tls.crt"]
+				return true, has
+			}
+		case *unstructured.Unstructured:
+			if s.GetName() == name {
+				_, has, _ := unstructured.NestedFieldNoCopy(s.Object, "data", "tls.crt")
+				return true, has
+			}
+		}
+	}
+	return false, false
 }
 
 // cacheState is one kind's cache answer for namespace: pending while it is
