@@ -4,7 +4,7 @@ nva-worker-9k2ss  ✕ CrashLoopBackOff  ↺ 6 restarts                          
                                                                                                                         
 ▌                                                                                                                       
 ▌ Last termination  exit 137 · OOMKilled · 4m ago                                                                       
-▌ Container worker exceeded memory limit 256Mi. Next backoff ~5m.                                                       
+▌ Container worker exceeded memory limit 240Mi. Next backoff ~5m.                                                       
 ▌                                                                                                                       
                                                                                                                         
 NODE         IP            QOS          CONTROLLER                 AGE                                                  

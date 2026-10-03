@@ -53,12 +53,19 @@ func goldenCrashLoopPod() *corev1.Pod {
 					Image: "nva/worker:1.42.0",
 					Resources: corev1.ResourceRequirements{
 						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("500m"),
-							corev1.ResourceMemory: resource.MustParse("256Mi"),
+							corev1.ResourceCPU:    resource.MustParse("450m"),
+							corev1.ResourceMemory: resource.MustParse("240Mi"),
 						},
 					},
 				},
-				{Name: "metrics-sidecar", Image: "nva/sidecar:0.9.1"},
+				// The sidecar's own limits make the pod-wide limit the bars
+				// divide whole-pod usage by: 500m / 256Mi, as mock 5a shows.
+				{Name: "metrics-sidecar", Image: "nva/sidecar:0.9.1", Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("50m"),
+						corev1.ResourceMemory: resource.MustParse("16Mi"),
+					},
+				}},
 			},
 			Tolerations: []corev1.Toleration{{
 				Key: "node.kubernetes.io/not-ready", Operator: corev1.TolerationOpExists,

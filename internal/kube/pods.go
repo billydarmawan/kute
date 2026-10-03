@@ -32,7 +32,10 @@ type Pod struct {
 	// Exact usage from the metrics API (0 until metrics are merged in).
 	CPUMilli int64
 	MEMBytes int64
-	// Summed container requests/limits from the pod spec (0 when unset).
+	// Summed container requests from the pod spec (0 when unset), and the
+	// pod-wide limits podLimits derives — 0 unless every running container
+	// (native sidecars included) declares one, since metrics usage is
+	// whole-pod and a partial sum would overstate the bar.
 	CPURequestMilli int64
 	CPULimitMilli   int64
 	MEMRequestBytes int64
@@ -134,6 +137,10 @@ type LastTermination struct {
 	// RestartCount is the container's current restart count, used by
 	// NextBackoff to estimate kubelet's CrashLoopBackOff delay.
 	RestartCount int32
+	// MemLimitBytes is the terminated container's own memory limit (0 when
+	// it has none) — the one an OOMKilled container exceeded, which a
+	// pod-wide sum can't name.
+	MemLimitBytes int64
 	// BackingOff reports whether the container is waiting in
 	// CrashLoopBackOff right now. A container that has already restarted
 	// and is Running has no pending backoff, so NextBackoff only means
@@ -173,13 +180,16 @@ func PodFromObject(pod *corev1.Pod) Pod {
 	ready, restarts, reason, unready := containerStatusSummary(pod.Status.ContainerStatuses)
 
 	containers := make([]string, 0, len(pod.Spec.Containers))
-	var cpuReq, cpuLim, memReq, memLim int64
+	var cpuReq, memReq int64
 	for _, container := range pod.Spec.Containers {
 		containers = append(containers, container.Name)
 		cpuReq += container.Resources.Requests.Cpu().MilliValue()
-		cpuLim += container.Resources.Limits.Cpu().MilliValue()
 		memReq += container.Resources.Requests.Memory().Value()
-		memLim += container.Resources.Limits.Memory().Value()
+	}
+	cpuLim, memLim := podLimits(pod)
+	lastTermination := findLastTermination(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses)
+	if lastTermination != nil {
+		lastTermination.MemLimitBytes = containerMemLimit(pod, lastTermination.Container)
 	}
 	if reason == "" {
 		reason = string(pod.Status.Phase)
@@ -215,7 +225,7 @@ func PodFromObject(pod *corev1.Pod) Pod {
 		ContainerInfos:          buildContainerInfos(pod),
 		InitContainerInfos:      buildInitContainerInfos(pod),
 		EphemeralContainerInfos: buildEphemeralContainerInfos(pod),
-		LastTermination:         findLastTermination(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses),
+		LastTermination:         lastTermination,
 		GracePeriodSeconds: func() int64 {
 			if pod.Spec.TerminationGracePeriodSeconds != nil {
 				return *pod.Spec.TerminationGracePeriodSeconds
@@ -436,4 +446,52 @@ func ownerRef(refs []metav1.OwnerReference) string {
 		return ""
 	}
 	return refs[0].Kind + "/" + refs[0].Name
+}
+
+// podLimits is the pod's whole-pod CPU/memory limit: the sum over
+// spec.containers and native sidecars (everything metrics-server counts in
+// the pod's usage), or 0 for a resource any of them leaves unlimited — a
+// bar dividing whole-pod usage by a partial sum would overstate it.
+func podLimits(pod *corev1.Pod) (cpuMilli, memBytes int64) {
+	cpuAll, memAll := true, true
+	add := func(c corev1.Container) {
+		if q, ok := c.Resources.Limits[corev1.ResourceCPU]; ok && !q.IsZero() {
+			cpuMilli += q.MilliValue()
+		} else {
+			cpuAll = false
+		}
+		if q, ok := c.Resources.Limits[corev1.ResourceMemory]; ok && !q.IsZero() {
+			memBytes += q.Value()
+		} else {
+			memAll = false
+		}
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if isRestartableInit(c) {
+			add(c)
+		}
+	}
+	for _, c := range pod.Spec.Containers {
+		add(c)
+	}
+	if !cpuAll {
+		cpuMilli = 0
+	}
+	if !memAll {
+		memBytes = 0
+	}
+	return cpuMilli, memBytes
+}
+
+// containerMemLimit is name's own memory limit from the pod spec, init
+// containers included, or 0 when it declares none.
+func containerMemLimit(pod *corev1.Pod, name string) int64 {
+	for _, list := range [][]corev1.Container{pod.Spec.Containers, pod.Spec.InitContainers} {
+		for _, c := range list {
+			if c.Name == name {
+				return c.Resources.Limits.Memory().Value()
+			}
+		}
+	}
+	return 0
 }

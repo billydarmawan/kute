@@ -226,8 +226,8 @@ func (m Model) terminationBanner(theme tui.Theme, width int) string {
 	bodyStyle := lipgloss.NewStyle().Foreground(theme.BadText).Background(theme.ErrBannerBg)
 	container := lipgloss.NewStyle().Foreground(theme.Warn).Background(theme.ErrBannerBg).Render(lt.Container)
 	what := fmt.Sprintf(" exited with code %d.", lt.ExitCode)
-	if lt.Reason == "OOMKilled" && m.pod.MEMLimitBytes > 0 {
-		what = " exceeded memory limit " + formatBytes(m.pod.MEMLimitBytes) + "."
+	if lt.Reason == "OOMKilled" && lt.MemLimitBytes > 0 {
+		what = " exceeded memory limit " + formatBytes(lt.MemLimitBytes) + "."
 	}
 	if lt.BackingOff {
 		what += fmt.Sprintf(" Next backoff ~%s.", shortDur(lt.NextBackoff()))

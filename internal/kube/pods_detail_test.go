@@ -417,3 +417,35 @@ func TestPodFromObjectHasPreviousInstance(t *testing.T) {
 		}
 	}
 }
+
+// TestPodFromObjectLimitsCoverEveryRunningContainer pins L14(b): metrics
+// usage is whole-pod, so the limit it is divided by counts native sidecars
+// too, and is unset (0, rendered "–") when any running container has none.
+func TestPodFromObjectLimitsCoverEveryRunningContainer(t *testing.T) {
+	t.Parallel()
+	always := corev1.ContainerRestartPolicyAlways
+	limited := func(name, cpu, mem string) corev1.Container {
+		return corev1.Container{Name: name, Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse(cpu), corev1.ResourceMemory: resource.MustParse(mem),
+		}}}
+	}
+	sidecar := limited("proxy", "100m", "64Mi")
+	sidecar.RestartPolicy = &always
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{sidecar, limited("migrate", "2", "1Gi")},
+			Containers:     []corev1.Container{limited("app", "200m", "128Mi")},
+		},
+	}
+	got := PodFromObject(pod)
+	if got.CPULimitMilli != 300 || got.MEMLimitBytes != 192*1024*1024 {
+		t.Fatalf("limits = %dm/%d, want 300m/192Mi (app + native sidecar, not the plain init)", got.CPULimitMilli, got.MEMLimitBytes)
+	}
+
+	pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{Name: "unlimited"})
+	got = PodFromObject(pod)
+	if got.CPULimitMilli != 0 || got.MEMLimitBytes != 0 {
+		t.Fatalf("limits = %dm/%d, want 0 when a container has no limit", got.CPULimitMilli, got.MEMLimitBytes)
+	}
+}
