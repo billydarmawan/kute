@@ -212,8 +212,7 @@ func (m *Model) hasUnrevealedSecretData() bool {
 // updateRevealAllConfirmKey routes keys while the "X reveal all" inline y/N
 // gate is showing (§21a: "X reveals all behind an inline y/N").
 func (m *Model) updateRevealAllConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "y":
+	if msg.String() == verbs.ConfirmAccept.Key {
 		if m.revealed == nil {
 			m.revealed = map[string]bool{}
 		}
