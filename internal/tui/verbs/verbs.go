@@ -48,6 +48,14 @@ type Verb struct {
 	Global bool
 }
 
+// ScaleUpKey and ScaleDownKey are the two key presses behind Scale's
+// display-only "+/−" Key — the minus is the ASCII '-' a terminal sends, not
+// the typographic '−' the keybar shows.
+const (
+	ScaleUpKey   = "+"
+	ScaleDownKey = "-"
+)
+
 // Hint renders the verb as a keybar key/label pair.
 func (v Verb) Hint() tui.KeyHint {
 	return tui.KeyHint{Key: v.Key, Label: v.Label}
@@ -493,6 +501,8 @@ var (
 	// (tasks/browse/scale.go's pendingScale) rather than
 	// actions.Controller's y/N/type-name flow, since Scale needs to gather a
 	// replica count before there's anything to Begin.
+	// Key is the display string; ScaleUpKey/ScaleDownKey are the presses
+	// that fire it.
 	Scale = Verb{
 		ID: "scale", Key: "+/−", Label: "scale",
 		Kinds: []kube.ResourceKind{kube.KindDeployment, kube.KindStatefulSet}, Mutating: true,

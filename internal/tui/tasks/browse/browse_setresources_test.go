@@ -543,3 +543,24 @@ func TestSetResourcesMetricsReadNeverBlocksUpdate(t *testing.T) {
 		t.Fatalf("refresh dropped the usage snapshot: usageOK=%v cpu=%d", m.pendingSetResources.usageOK, m.pendingSetResources.cpuMilli)
 	}
 }
+
+// TestOnlyRegistryKeyOpensSetResources: set-resources is reachable only via
+// verbs.SetResources.Key — no hand-wired alias that would bypass its gates.
+func TestOnlyRegistryKeyOpensSetResources(t *testing.T) {
+	dep := resourcesDeployment("default", "nva-worker")
+	rs, pod := resourcesOwnerChain("default", "nva-worker")
+	session := newSession()
+	session.Location.Kind = kube.KindDeployment
+	m := New(Config{Session: session, Lister: resourcesLister(dep, rs, pod), Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Code: 'V', Text: "V"})
+	if m.pendingSetResources != nil {
+		t.Fatal("V opened set-resources; only verbs.SetResources.Key should")
+	}
+	m = step(t, m, tea.KeyPressMsg{Code: 'r', Text: verbs.SetResources.Key})
+	if m.pendingSetResources == nil {
+		t.Fatal("verbs.SetResources.Key did not open set-resources")
+	}
+}

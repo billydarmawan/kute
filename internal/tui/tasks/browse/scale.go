@@ -161,11 +161,11 @@ func (m *Model) updateScaleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		t.input, cmd = t.input.Update(msg)
 		return m, cmd
-	case "+":
+	case verbs.ScaleUpKey:
 		t.input.SetValue(strconv.Itoa(int(scaleValue(t.input.Value()) + 1)))
 		t.input.CursorEnd()
 		t.typed = true
-	case "-":
+	case verbs.ScaleDownKey:
 		t.input.SetValue(strconv.Itoa(int(max(scaleValue(t.input.Value())-1, 0))))
 		t.input.CursorEnd()
 		t.typed = true

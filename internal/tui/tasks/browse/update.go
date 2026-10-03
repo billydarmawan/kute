@@ -743,16 +743,12 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if task, cmd, ok := m.openSelectedCronJobSchedule(); ok {
 			return task, cmd
 		}
-	case "+":
+	case verbs.ScaleUpKey:
 		m.beginScale(1)
-	case "-":
+	case verbs.ScaleDownKey:
 		m.beginScale(-1)
 	case verbs.SetImage.Key:
 		m.beginSetImage()
-	case "V":
-		if resourceEditable(m.kind) && m.mutator != nil && m.beginSetResources() {
-			return m, m.loadSetResourcesMetrics()
-		}
 	case verbs.Meta.Key:
 		if metapanel.Editable(m.kind) && m.mutator != nil {
 			m.beginMeta()

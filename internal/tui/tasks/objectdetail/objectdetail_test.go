@@ -356,3 +356,26 @@ func TestKeybarGoesOfflineAndHidesDelete(t *testing.T) {
 		t.Fatalf("PillText = %q after reconnect, want DETAIL", kb.PillText)
 	}
 }
+
+// TestArrowKeysMoveSiblings: j/k ≡ ↑↓ everywhere (CLAUDE.md conventions).
+func TestArrowKeysMoveSiblings(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		certificateKind(): {
+			certObj("a", map[string]any{"type": "Ready", "status": "True"}),
+			certObj("b", map[string]any{"type": "Ready", "status": "False"}),
+		},
+	}}
+	m := New(Config{
+		Session: testSession(), Lister: lister, Events: fakeEvents{},
+		Kind: certificateKind(), Namespace: "default", Name: "a",
+		Siblings: []SiblingRef{{Namespace: "default", Name: "a"}, {Namespace: "default", Name: "b"}}, SiblingIndex: 0,
+	})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if m.name != "b" {
+		t.Fatalf("↓ moved to %q, want b", m.name)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	if m.name != "a" {
+		t.Fatalf("↑ moved to %q, want a", m.name)
+	}
+}

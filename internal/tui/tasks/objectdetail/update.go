@@ -200,9 +200,9 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc", "backspace":
 		return m, func() tea.Msg { return tui.BackMsg{} }
-	case "j":
+	case "j", "down":
 		return m, m.moveSibling(1)
-	case "k":
+	case "k", "up":
 		return m, m.moveSibling(-1)
 	case verbs.YAML.Key:
 		if task, cmd, ok := m.openSelectedYAML(); ok {
