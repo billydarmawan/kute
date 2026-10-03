@@ -115,14 +115,14 @@
     ],
     "rules": [
       { "name": "The Theme-Mirror Rule", "body": "Every color on this site except the quiet text tiers is the TUI's own semantic Theme token, not an independent marketing palette. A visitor who installs kute should see the exact hues they just read about.", "section": "colors" },
-      { "name": "The AA Quiet-Tier Rule", "body": "text-dim, text-faint, text-ghost, and light-mode good/warn are deliberately lighter here than the equivalent TUI tokens, to clear 4.5:1 contrast against bg for real prose. TestTextContrastMeetsAA enforces it in CI; do not re-sync these five tokens to the TUI's exact values.", "section": "colors" },
+      { "name": "The AA Quiet-Tier Rule", "body": "text-dim, text-faint and text-ghost are deliberately stronger here than the equivalent TUI tokens, to clear 4.5:1 contrast against bg for real prose. TestTextContrastMeetsAA enforces it in CI; do not re-sync these three tokens to the TUI's exact values.", "section": "colors" },
       { "name": "The One True Accent Rule", "body": "Signal Violet is the only color used to mean \"act here.\" It never doubles as a neutral decoration — if something is violet, it is interactive or it is quoting the product's own selection state.", "section": "colors" },
       { "name": "The Mono-Means-Real Rule", "body": "JetBrains Mono is never used decoratively. If a string is set in mono, it is a literal — a command, a key, a file path, or terminal-mockup content a visitor could actually see on their own screen.", "section": "typography" },
       { "name": "The Flat-by-Default Rule", "body": "A surface earns a shadow only by being a \"floating window\" (a terminal mockup, a panel meant to feel raised off the page) — not by being a card. Most content sits flat on its tonal step.", "section": "elevation" },
       { "name": "The Pill-Or-Container Rule", "body": "If something is clickable on its own (button, badge, nav-star chip), it's a pill. If something holds other content (card, panel, terminal window), it's a soft rectangle. Nothing in between.", "section": "shapes" }
     ],
     "dos": [
-      "Do keep every color token identical in dark and light contexts to its counterpart in internal/tui's semantic Theme, except the five quiet-tier text tokens.",
+      "Do keep every color token identical in dark and light contexts to its counterpart in internal/tui's semantic Theme, except the three quiet-tier text tokens.",
       "Do build and verify anything new in both themes, including under bare prefers-color-scheme with the manual toggle untouched.",
       "Do give any element that removes its default focus affordance a visible :focus-visible ring — the offset 2px accent ring.",
       "Do keep .term mockups pixel-honest to the real product's Theme tokens, glyphs, and layout.",

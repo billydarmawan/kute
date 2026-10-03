@@ -96,18 +96,19 @@ selector and an at-rule. The two light copies are asserted identical by
 | `--accent` | `#a78bfa` | `#6b46d9` |
 | `--accent-hi` | `#c4b5fd` | `#5936b8` |
 | `--sel-bg` | `#1d1633` | `#ece5fb` |
-| `--good` | `#34d17b` | `#13824a` |
-| `--warn` | `#e8c74a` | `#936b09` |
-| `--bad` | `#ef6a6a` | `#cc3a3a` |
-| `--bad-soft` | `#ef8a8a` | `#d95c5c` |
+| `--good` | `#34d17b` | `#117844` |
+| `--warn` | `#e8c74a` | `#866208` |
+| `--bad` | `#ef6a6a` | `#bc3131` |
+| `--bad-soft` | `#ef8a8a` | `#c52e2e` |
 | `--bad-text` | `#f0b7b7` | `#a02c2c` |
-| `--info` | `#6aa8ef` | `#2a6fce` |
+| `--info` | `#6aa8ef` | `#2767bf` |
 
 **The quiet text tiers deliberately do not match the TUI.** `--text-dim`,
-`--text-faint` and `--text-ghost`, plus light `--good` and `--warn`, are
-lighter here than in the terminal. They carry real prose on this page and have
-to clear WCAG AA against `--bg`; a terminal running under the user's own
-colour scheme is not held to that standard. Before the change `--text-ghost`
+`--text-faint` and `--text-ghost` are stronger here than in the terminal.
+They carry real prose on this page and have to clear WCAG AA against `--bg`;
+a terminal running under the user's own colour scheme is not held to that
+standard (the TUI's `TextDim` now clears AA too, but its `TextFaint` and
+`TextGhost` don't, and syncing `--text-dim` alone would invert the ramp). Before the change `--text-ghost`
 was at 2.08:1. `TestTextContrastMeetsAA` fails any token below 4.5:1, so
 re-syncing them to the TUI palette will not pass CI.
 

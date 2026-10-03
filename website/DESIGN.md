@@ -169,7 +169,7 @@ A near-monochrome dark canvas (five stepped tonal surfaces) with one true accent
 ### Named Rules
 **The Theme-Mirror Rule.** Every color on this site except the quiet text tiers is the TUI's own semantic `Theme` token, not an independent marketing palette. A visitor who installs kute should see the exact hues they just read about.
 
-**The AA Quiet-Tier Rule.** `text-dim`, `text-faint`, `text-ghost`, and light-mode `good`/`warn` are deliberately *lighter* here than the equivalent TUI tokens. They carry real prose on a web page and must clear 4.5:1 contrast against `bg` — a terminal running under the user's own color scheme isn't held to that standard, but this site is. `TestTextContrastMeetsAA` enforces it in CI; do not re-sync these five tokens to the TUI's exact values.
+**The AA Quiet-Tier Rule.** `text-dim`, `text-faint` and `text-ghost` are deliberately *stronger* here than the equivalent TUI tokens. They carry real prose on a web page and must clear 4.5:1 contrast against `bg` — a terminal running under the user's own color scheme isn't held to that standard, but this site is. `TestTextContrastMeetsAA` enforces it in CI; do not re-sync these three tokens to the TUI's exact values.
 
 **The One True Accent Rule.** Signal Violet is the only color used to mean "act here." It never doubles as a neutral decoration — if something is violet, it is interactive or it is quoting the product's own selection state.
 
@@ -259,7 +259,7 @@ The `.term` family is the site's proof, not its decoration — a hand-rebuilt HT
 ## Do's and Don'ts
 
 ### Do:
-- **Do** keep every color token identical in dark and light contexts to its counterpart in `internal/tui`'s semantic `Theme`, except the five quiet-tier text tokens, which are intentionally lighter here to clear WCAG AA on real prose.
+- **Do** keep every color token identical in dark and light contexts to its counterpart in `internal/tui`'s semantic `Theme`, except the three quiet-tier text tokens, which are intentionally stronger here to clear WCAG AA on real prose.
 - **Do** build and verify anything new in both themes, including under bare `prefers-color-scheme` with the manual toggle untouched — a selector list ending in a comma before an `@media` block silently drops the whole rule (this shipped a dark nav bar on light mode once).
 - **Do** give any element that removes its default focus affordance (underline-less links, borderless buttons) a visible `:focus-visible` ring — the offset 2px accent ring, positioned to stay legible over filled controls too.
 - **Do** keep `.term` mockups pixel-honest to the real product's Theme tokens, glyphs, and layout. If the TUI's design changes, the mockup that illustrates it changes with it.

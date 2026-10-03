@@ -7,8 +7,7 @@
    product screenshots reproduced in .term-* below.
 
    One deliberate departure from that mirror: the quiet text tiers
-   (--text-dim/-faint/-ghost, plus light --good/--warn) are lighter here than
-   in the TUI. They carry real prose on this page and have to clear WCAG AA
+   (--text-dim/-faint/-ghost) are stronger here than in the TUI. They carry real prose on this page and have to clear WCAG AA
    against --bg; a terminal running under the user's own colour scheme is not
    held to that. Keep any new value above 4.5:1 on both backgrounds.
    ========================================================================== */
@@ -78,12 +77,12 @@
   --accent: #6b46d9;
   --accent-hi: #5936b8;
   --sel-bg: #ece5fb;
-  --good: #13824a;
-  --warn: #936b09;
-  --bad: #cc3a3a;
-  --bad-soft: #d95c5c;
+  --good: #117844;
+  --warn: #866208;
+  --bad: #bc3131;
+  --bad-soft: #c52e2e;
   --bad-text: #a02c2c;
-  --info: #2a6fce;
+  --info: #2767bf;
   --shadow-glow: 0 0 0 1px rgba(107,70,217,.18), 0 8px 30px rgba(107,70,217,.10);
 }
 
@@ -106,12 +105,12 @@
     --accent: #6b46d9;
     --accent-hi: #5936b8;
     --sel-bg: #ece5fb;
-    --good: #13824a;
-    --warn: #936b09;
-    --bad: #cc3a3a;
-    --bad-soft: #d95c5c;
+    --good: #117844;
+    --warn: #866208;
+    --bad: #bc3131;
+    --bad-soft: #c52e2e;
     --bad-text: #a02c2c;
-    --info: #2a6fce;
+    --info: #2767bf;
     --shadow-glow: 0 0 0 1px rgba(107,70,217,.18), 0 8px 30px rgba(107,70,217,.10);
   }
 }
@@ -1436,9 +1435,9 @@ body.editorial-page {
   --accent: #6b46d9;
   --accent-hi: #5936b8;
   --sel-bg: #ece5fb;
-  --good: #13824a;
-  --warn: #936b09;
-  --bad: #cc3a3a;
+  --good: #117844;
+  --warn: #866208;
+  --bad: #bc3131;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) .editorial-page .guide-layout .term {
@@ -1458,9 +1457,9 @@ body.editorial-page {
     --accent: #6b46d9;
     --accent-hi: #5936b8;
     --sel-bg: #ece5fb;
-    --good: #13824a;
-    --warn: #936b09;
-    --bad: #cc3a3a;
+    --good: #117844;
+    --warn: #866208;
+    --bad: #bc3131;
   }
 }
 .home-page .hero h1 {
