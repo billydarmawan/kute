@@ -157,6 +157,9 @@ type Model struct {
 	// screen has no marked-set bulk concept.
 	pendingRun    *jobactions.RunNow
 	pendingResume *jobactions.Resume
+	// lastRunName is the Job name commitRunNow just staged — the run-now
+	// result names it (jobactions.RunNowResultNote).
+	lastRunName string
 
 	// meta is non-nil while 26a's labels/annotations panel is open on this
 	// CronJob (the shared internal/tui/metapanel editor) — mirrors

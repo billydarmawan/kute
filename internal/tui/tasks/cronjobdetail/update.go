@@ -10,6 +10,7 @@ import (
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/metapanel"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
@@ -109,6 +110,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.load()
 			}
 			return m, nil
+		}
+		if jobactions.IsRunNowResult(msg.ActionID) {
+			// §36b, as on the list: the created Job's name on success, a
+			// restage prompt when the generated name was taken since
+			// staging — every other failure stays on the controller's line.
+			if note, ok := jobactions.RunNowResultNote(msg.Err, m.lastRunName); ok {
+				m.execFeedback = note
+				m.actions.DismissResult()
+			}
 		}
 		if msg.Err == nil {
 			m.reloadEpoch++

@@ -51,6 +51,7 @@ func (m *Model) updateRunKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) commitRunNow() tea.Cmd {
 	t := m.pendingRun
 	m.pendingRun = nil
+	m.lastRunName = t.NewName
 	return m.actions.Begin(t.Action(m.isProd(), m.cronJobTriggerCreator(), m.now))
 }
 

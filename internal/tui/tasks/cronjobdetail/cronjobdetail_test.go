@@ -18,6 +18,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube/fake"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // step drains a tea.Cmd chain synchronously — mirrors cronjobschedule_test.go's
@@ -621,6 +622,36 @@ func TestRunNowCommitCreatesJobAndSurvivesReload(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected the manual run %q in Runs after commit+reload, got %+v", newName, m.summary.Runs)
+	}
+}
+
+// TestRunNowResultNamesTheCreatedJob: 36e says every list verb works here
+// unchanged, so a run-now from detail reports what the CronJobs list does —
+// the created Job's name, and a restage prompt when the generated name was
+// taken between staging and commit (review 06 L6: detail showed only the
+// controller's generic line).
+func TestRunNowResultNamesTheCreatedJob(t *testing.T) {
+	t.Parallel()
+	c, _ := newFakeCronJob("default", "nightly")
+	m := newModel(t, c, "default", "nightly")
+	m.beginRunNow()
+	newName := m.pendingRun.NewName
+
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got, want := m.Keybar().RightNote, "✓ job created · "+newName; got != want {
+		t.Errorf("RightNote = %q, want %q", got, want)
+	}
+	if res := m.ActionResult(); res.Text != "" {
+		t.Errorf("ActionResult = %+v, want it dismissed in favour of the named note", res)
+	}
+
+	// Stage again, then let another client take the generated name.
+	m.beginRunNow()
+	taken := m.pendingRun.NewName
+	c.Seed(kube.KindJob, &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: taken, Namespace: "default"}})
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := m.Keybar().RightNote; !strings.Contains(got, "job name taken since staging — press "+verbs.CronJobRunNow.Key+" to restage") {
+		t.Errorf("RightNote = %q, want the restage prompt", got)
 	}
 }
 

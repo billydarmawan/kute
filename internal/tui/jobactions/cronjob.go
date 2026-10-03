@@ -1,6 +1,7 @@
 package jobactions
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -95,6 +96,29 @@ func (r RunNow) Action(prod bool, creator string, now time.Time) (actions.Reques
 			StagedAt:       now,
 		},
 	}
+}
+
+// IsRunNowResult reports whether an actions.ResultMsg's ActionID is a
+// run-now's — the one result RunNowResultNote reads.
+func IsRunNowResult(actionID string) bool {
+	return strings.HasPrefix(actionID, "cronjob-run-now-")
+}
+
+// RunNowResultNote is how a run-now's result reads (§36b: "on success,
+// remain ... show the created name"): the created Job's name on success,
+// and for the one race worth a distinct message — the generated name lost
+// to a Job created between staging and commit — a prompt to restage
+// against the now-current Job list rather than silently picking another
+// name. ok is false for any other failure, which the controller's own
+// result line reports. newName is the name the commit staged.
+func RunNowResultNote(err error, newName string) (note string, ok bool) {
+	switch {
+	case errors.Is(err, kube.ErrManualJobNameConflict):
+		return "job name taken since staging — press " + verbs.CronJobRunNow.Key + " to restage", true
+	case err == nil:
+		return "✓ job created · " + newName, true
+	}
+	return "", false
 }
 
 // ActiveNames names the active Jobs the overlap card lists.

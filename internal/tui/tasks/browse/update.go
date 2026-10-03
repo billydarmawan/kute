@@ -1,7 +1,6 @@
 package browse
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/metapanel"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
@@ -370,22 +370,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
-		if strings.HasPrefix(msg.ActionID, "cronjob-run-now-") {
+		if jobactions.IsRunNowResult(msg.ActionID) {
 			// §36b: "On success, remain on the list, show the created name" —
 			// the Job watch event (auxKinds' KindJob reload) adds it to
 			// history/ACT on its own; this only supplies the transient
-			// confirmation text. errors.Is(ErrManualJobNameConflict) names
-			// the one race worth a distinct message: the generated name lost
-			// to a Job created between staging and commit — pressing ctrl-r
-			// again restages against the now-current Job list rather than
-			// silently picking a different name (0.8.0 plan §3 Phase 2 task
-			// 14).
-			switch {
-			case errors.Is(msg.Err, kube.ErrManualJobNameConflict):
-				m.execFeedback = "job name taken since staging — press ctrl+r to restage"
-				m.actions.DismissResult()
-			case msg.Err == nil:
-				m.execFeedback = "✓ job created · " + m.lastCronJobRunName
+			// confirmation text (jobactions.RunNowResultNote, which also
+			// names the one race worth its own message: a generated name
+			// lost to a Job created between staging and commit).
+			if note, ok := jobactions.RunNowResultNote(msg.Err, m.lastCronJobRunName); ok {
+				m.execFeedback = note
 				m.actions.DismissResult()
 			}
 			return m, m.load()

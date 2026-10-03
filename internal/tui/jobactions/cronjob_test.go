@@ -2,6 +2,7 @@ package jobactions
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -216,5 +217,22 @@ func TestSuspendHintFollowsDirection(t *testing.T) {
 	}
 	if h := SuspendHint(true); h.Key != verbs.CronJobSuspend.Key || h.Label != "resume" {
 		t.Errorf("SuspendHint(true) = %+v", h)
+	}
+}
+
+func TestRunNowResultNote(t *testing.T) {
+	if !IsRunNowResult("cronjob-run-now-ns/nightly") || IsRunNowResult("cronjob-resume-ns/nightly") {
+		t.Fatal("IsRunNowResult misreads an action id")
+	}
+	if note, ok := RunNowResultNote(nil, "nightly-manual-1230"); !ok || note != "✓ job created · nightly-manual-1230" {
+		t.Errorf("success note = %q, %v", note, ok)
+	}
+	conflict := fmt.Errorf("%w: exists", kube.ErrManualJobNameConflict)
+	note, ok := RunNowResultNote(conflict, "nightly-manual-1230")
+	if !ok || note != "job name taken since staging — press "+verbs.CronJobRunNow.Key+" to restage" {
+		t.Errorf("conflict note = %q, %v — the restage key must be the registry's", note, ok)
+	}
+	if _, ok := RunNowResultNote(errors.New("forbidden"), "x"); ok {
+		t.Error("an ordinary failure must stay on the controller's own result line")
 	}
 }
