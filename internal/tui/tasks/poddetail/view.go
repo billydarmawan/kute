@@ -611,7 +611,7 @@ func (m Model) eventsBlock(theme tui.Theme, width int) string {
 				typeStyle = bad
 			}
 		}
-		age := shortAge(e.LastSeen)
+		age := shortAge(m.now, e.LastSeen)
 		prefix := fmt.Sprintf("%s  %s  %s  ",
 			typeStyle.Render(padTo(e.Type, 8)),
 			dim.Render(padTo(e.Reason, 16)),
@@ -811,8 +811,8 @@ func padTo(s string, width int) string {
 // shortAge renders how long ago t was — mirrors resources.shortAge's
 // compact "12m"/"3h"/"5d" shape (that helper is unexported in the resources
 // package, so poddetail's EVENTS grid needs its own copy).
-func shortAge(t time.Time) string {
-	return shortDur(time.Since(t))
+func shortAge(now, t time.Time) string {
+	return shortDur(now.Sub(t))
 }
 
 // shortDur is shortAge for an already-computed duration — the termination

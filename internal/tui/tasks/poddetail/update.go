@@ -2,6 +2,7 @@ package poddetail
 
 import (
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -198,6 +199,8 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	m.found = true
 	m.eventRows = msg.events
 	m.eventsErr = msg.eventsErr
+	// Event ages render against this stamp, never the clock (pure render).
+	m.now = time.Now()
 	// "no events" is a claim about the cluster: a cache that stopped filling
 	// (Forbidden, a failing LIST) says why instead, and one still on its
 	// first LIST says it's loading and retries — a pod with genuinely no

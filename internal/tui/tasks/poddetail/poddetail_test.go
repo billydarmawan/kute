@@ -1316,3 +1316,19 @@ func TestUsagePollsOnTheSyncIntervalNotOnWatchEvents(t *testing.T) {
 		t.Fatal("a retired chain's tick must not poll")
 	}
 }
+
+// TestEventAgeRendersFromStampedNow pins L4: render is pure — EVENTS ages
+// come from the model's own now (stamped on load), not the wall clock.
+func TestEventAgeRendersFromStampedNow(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {crashLoopPod("worker-0", "default", "node-a")},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Namespace: "default", Name: "worker-0"})
+	m.SetSize(120, 40)
+	m = step(t, m, m.Init()())
+	m.now = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	m.eventRows = []kube.Event{{Type: "Warning", Reason: "BackOff", Message: "x", LastSeen: m.now.Add(-7 * time.Minute)}}
+	if out := plain(m.Render()); !strings.Contains(out, "7m") {
+		t.Fatalf("event age should render from m.now (7m):\n%s", out)
+	}
+}

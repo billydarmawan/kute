@@ -177,6 +177,9 @@ type Model struct {
 	// Also carries kubectl edit's exit message (editResultMsg) — same
 	// transient channel, same reasoning.
 	execFeedback string
+	// now is the clock as of the last load — EVENTS ages render from it so
+	// View stays a pure function of the model.
+	now time.Time
 	// shellProbing is set while the 'x' async shell probe (debug.go) is in
 	// flight, so a repeat 'x' is ignored instead of starting a second probe.
 	shellProbing bool
