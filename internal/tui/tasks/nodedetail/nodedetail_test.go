@@ -572,3 +572,38 @@ func TestDrainConfirmBorderIsRed(t *testing.T) {
 		t.Fatalf("expected the drain card's top-left corner drawn in ConfirmBorder (%q)", red)
 	}
 }
+
+// TestPgDownPagesWithoutDraining: ctrl+u pages up, but its natural pair
+// ctrl+d is Drain on this screen, so paging down a node's pods used to open
+// a drain confirm. pgdown/pgup page in both normal and filter mode.
+func TestPgDownPagesWithoutDraining(t *testing.T) {
+	var pods []runtime.Object
+	for i := range 40 {
+		pods = append(pods, schedPod("default", fmt.Sprintf("p-%02d", i), "node-a", "64Mi"))
+	}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {testNode("node-a")},
+		kube.KindPod:  pods,
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, NodeName: "node-a", Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if m.actions.Active() {
+		t.Fatal("pgdown opened a confirm")
+	}
+	if m.selected == 0 {
+		t.Fatal("pgdown didn't move the selection")
+	}
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyPgUp})
+	if m.selected != 0 {
+		t.Fatalf("pgup left the selection at %d, want 0", m.selected)
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: verbs.Filter.Key})
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if !m.filterActive || m.selected == 0 {
+		t.Fatalf("pgdown in filter mode: filterActive=%v selected=%d", m.filterActive, m.selected)
+	}
+}

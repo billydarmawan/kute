@@ -678,8 +678,13 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.moveSelection(-1)
 	case "down", "j":
 		m.moveSelection(1)
-	case "ctrl+u":
+	case "ctrl+u", verbs.PageUp.Key:
 		m.moveHalfPage(-1)
+	// ctrl+d is Drain on a node here, so pgdown is the half-page-down
+	// that works in both modes — paging a node's pods must never open a
+	// drain confirm.
+	case verbs.PageDown.Key:
+		m.moveHalfPage(1)
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		if m.state == tui.TaskStateReady {
 			m.handleSortKey(int(msg.String()[0] - '0'))
@@ -1195,9 +1200,9 @@ func (m *Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.moveSelection(-1)
 	case "down", "ctrl+j":
 		m.moveSelection(1)
-	case "ctrl+d":
+	case "ctrl+d", verbs.PageDown.Key:
 		m.moveHalfPage(1)
-	case "ctrl+u":
+	case "ctrl+u", verbs.PageUp.Key:
 		m.moveHalfPage(-1)
 	case verbs.MarkAll.Key:
 		// 20a: "filter-then-mark is the bulk grammar" — '*' marks every row

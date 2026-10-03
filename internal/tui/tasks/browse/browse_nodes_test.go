@@ -734,3 +734,29 @@ func TestDrainConfirmBorderIsRed(t *testing.T) {
 		t.Fatalf("expected the drain card's top-left corner drawn in ConfirmBorder (%q)", red)
 	}
 }
+
+// TestPgDownPagesNodesWithoutDraining: ctrl+u pages up, but ctrl+d is
+// Drain on the Nodes list — pgdown/pgup are the page pair that works there.
+func TestPgDownPagesNodesWithoutDraining(t *testing.T) {
+	var nodes []runtime.Object
+	for i := range 60 {
+		nodes = append(nodes, nodeObj(fmt.Sprintf("node-%02d", i), true, false))
+	}
+	session := newSession()
+	session.Location.Kind = kube.KindNode
+	m := New(Config{Session: session, Lister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindNode: nodes}}, Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if m.actions.Active() {
+		t.Fatal("pgdown opened a confirm")
+	}
+	if m.selected == 0 {
+		t.Fatal("pgdown didn't move the selection")
+	}
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyPgUp})
+	if m.selected != 0 {
+		t.Fatalf("pgup left the selection at %d, want 0", m.selected)
+	}
+}
