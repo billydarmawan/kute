@@ -11,9 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// metricsGone is what the metrics client returns when the metrics.k8s.io
+// errMetricsGone is what the metrics client returns when the metrics.k8s.io
 // API isn't served at all — a 404, i.e. no metrics-server.
-var metricsGone = apierrors.NewNotFound(schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "")
+var errMetricsGone = apierrors.NewNotFound(schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "")
 
 // allocationModel is a ready 11b model with both bar groups populated.
 func allocationModel(t *testing.T, usedOK bool) Model {
@@ -29,7 +29,7 @@ func allocationModel(t *testing.T, usedOK bool) Model {
 	})
 	msg := metricsLoadedMsg{epoch: m.metricsEpoch, used: allocation{cpuMilli: 940, memBytes: 8 * giByte}, usedOK: true}
 	if !usedOK {
-		msg = metricsLoadedMsg{epoch: m.metricsEpoch, usedErr: metricsGone}
+		msg = metricsLoadedMsg{epoch: m.metricsEpoch, usedErr: errMetricsGone}
 	}
 	return step(t, m, msg)
 }
@@ -60,7 +60,7 @@ func TestUsedBlockNamesWhyThereIsNoReading(t *testing.T) {
 		msg  metricsLoadedMsg
 		want string
 	}{
-		{"api not served", metricsLoadedMsg{usedErr: metricsGone}, "no metrics-server installed"},
+		{"api not served", metricsLoadedMsg{usedErr: errMetricsGone}, "no metrics-server installed"},
 		{"forbidden", metricsLoadedMsg{usedErr: forbidden}, "not permitted to read metrics-server"},
 		{"timeout", metricsLoadedMsg{usedErr: context.DeadlineExceeded}, "metrics-server unavailable"},
 		{"node not scraped", metricsLoadedMsg{}, "no reading for this node yet"},

@@ -49,9 +49,9 @@ func (f *fakeNodeMetrics) NodeMetrics(_ context.Context) (map[string]kube.NodeMe
 	return f.metrics, f.err
 }
 
-// metricsGone is what the metrics client returns when the metrics.k8s.io
+// errMetricsGone is what the metrics client returns when the metrics.k8s.io
 // API isn't served at all — a 404, i.e. no metrics-server.
-var metricsGone = apierrors.NewNotFound(schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "")
+var errMetricsGone = apierrors.NewNotFound(schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "")
 
 func testNode(name string, ready, cordoned bool, cpuMilli, memBytes, pods int64) *corev1.Node {
 	status := corev1.ConditionTrue
@@ -169,7 +169,7 @@ func step(t *testing.T, m Model, msg tea.Msg) Model {
 }
 
 func TestLoadAggregatesNodesPodsAndRecentChanges(t *testing.T) {
-	m := New(Config{Session: newSession(), Lister: baseLister(), NodeMetrics: &fakeNodeMetrics{err: metricsGone}})
+	m := New(Config{Session: newSession(), Lister: baseLister(), NodeMetrics: &fakeNodeMetrics{err: errMetricsGone}})
 	m.SetSize(120, 36)
 	m = step(t, m, m.Init()())
 
