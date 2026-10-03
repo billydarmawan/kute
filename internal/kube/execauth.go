@@ -204,6 +204,14 @@ func (s *stderrCapture) append(p []byte) {
 // duration, hence the lock: ProbeContexts builds clients for several contexts
 // concurrently, and client construction does no I/O, so serialising it costs
 // nothing.
+//
+// captureMu serialises the writers only. Anything else that reads os.Stderr
+// during the window — klog, a panic, a goroutine logging on its own — races
+// the assignment and may write into the pipe (where it would surface as
+// plugin output) or see the real stderr. Accepted: the window is a client
+// build with no I/O, and no such reader has been observed during one. The
+// way out, if it ever matters, is client-go accepting an Authenticator
+// stderr writer through rest.Config.ExecProvider.
 var captureMu sync.Mutex
 
 func (s *stderrCapture) capture(fn func()) {
