@@ -1,6 +1,10 @@
 package kube
 
-import "strings"
+import (
+	"strings"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+)
 
 // ParseFluxInventoryID splits one status.inventory entry id of a Flux
 // Kustomization: "<namespace>_<name>_<group>_<Kind>", with an empty first
@@ -88,4 +92,85 @@ func FluxManager(labels map[string]string) (kind ResourceKind, namespace, name s
 		return ResourceKind("Kustomization"), labels[fluxKustomizeNamespaceLabel], n, true
 	}
 	return "", "", "", false
+}
+
+// fluxSourceRefPaths are the three places a Flux reconciler names what it
+// reconciles from: a Kustomization's spec.sourceRef, a HelmRelease's
+// spec.chart.spec.sourceRef (its chart names the repository it comes from),
+// and a HelmRelease's spec.chartRef (an OCIRepository or HelmChart it
+// installs from directly). Every screen reads them through FluxSourceOf —
+// a copy that drifted once lost the ref's namespace.
+var fluxSourceRefPaths = [][]string{
+	{"spec", "sourceRef"},
+	{"spec", "chart", "spec", "sourceRef"},
+	{"spec", "chartRef"},
+}
+
+// FluxSourceOf resolves what a Flux reconciler reconciles from. A ref with
+// no namespace of its own defaults to defaultNS (the object's own) — Flux's
+// own rule; a HelmRelease in an app namespace pointing at a HelmRepository
+// in flux-system is the common layout, not the exception. ok is false for
+// an object with no sourceRef, such as the source kinds themselves.
+func FluxSourceOf(obj map[string]any, defaultNS string) (kind ResourceKind, namespace, name string, ok bool) {
+	for _, path := range fluxSourceRefPaths {
+		ref, found, _ := unstructured.NestedMap(obj, path...)
+		if !found {
+			continue
+		}
+		k, _, _ := unstructured.NestedString(ref, "kind")
+		n, _, _ := unstructured.NestedString(ref, "name")
+		if n == "" {
+			continue
+		}
+		ns, _, _ := unstructured.NestedString(ref, "namespace")
+		if ns == "" {
+			ns = defaultNS
+		}
+		return ResourceKind(k), ns, n, true
+	}
+	return "", "", "", false
+}
+
+// FluxCondition is one status condition of a Flux object.
+type FluxCondition struct {
+	Status, Reason, Message, LastTransition string
+}
+
+// FluxConditionOf finds one status condition by type.
+func FluxConditionOf(obj map[string]any, typ string) (FluxCondition, bool) {
+	conds, _, _ := unstructured.NestedSlice(obj, "status", "conditions")
+	for _, c := range conds {
+		cm, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _, _ := unstructured.NestedString(cm, "type"); t != typ {
+			continue
+		}
+		status, _, _ := unstructured.NestedString(cm, "status")
+		reason, _, _ := unstructured.NestedString(cm, "reason")
+		message, _, _ := unstructured.NestedString(cm, "message")
+		lt, _, _ := unstructured.NestedString(cm, "lastTransitionTime")
+		return FluxCondition{Status: status, Reason: reason, Message: message, LastTransition: lt}, true
+	}
+	return FluxCondition{}, false
+}
+
+// ShortFluxSourceKind abbreviates a sourceRef kind to the design's compact
+// form ("git/nebula-config", not "GitRepository/nebula-config").
+func ShortFluxSourceKind(kind string) string {
+	switch kind {
+	case "GitRepository":
+		return "git"
+	case "OCIRepository":
+		return "oci"
+	case "HelmRepository":
+		return "helm"
+	case "HelmChart":
+		return "chart"
+	case "Bucket":
+		return "bucket"
+	default:
+		return strings.ToLower(kind)
+	}
 }

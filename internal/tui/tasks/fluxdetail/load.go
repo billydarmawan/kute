@@ -109,28 +109,13 @@ func buildChain(ctx context.Context, lister resources.RawLister, kind kube.Resou
 	}
 
 	// A ref with no namespace of its own defaults to the object's — Flux's
-	// own rule. A HelmRelease in an app namespace pointing at a
-	// HelmRepository in flux-system is the common layout, not the exception.
-	for _, base := range [][]string{
-		{"spec", "sourceRef"},
-		{"spec", "chart", "spec", "sourceRef"},
-		{"spec", "chartRef"}, // HelmRelease installing an OCIRepository/HelmChart directly
-	} {
-		k := nested(u, append(append([]string{}, base...), "kind")...)
-		n := nested(u, append(append([]string{}, base...), "name")...)
-		if n == "" {
-			continue
-		}
-		ns := nested(u, append(append([]string{}, base...), "namespace")...)
-		if ns == "" {
-			ns = namespace
-		}
-		c.SourceKind, c.SourceName, c.SourceNamespace = kube.ResourceKind(k), n, ns
-		c.SourceDisplay = shortSourceKind(k) + "/" + n
+	// own rule (kube.FluxSourceOf).
+	if k, ns, n, ok := kube.FluxSourceOf(u.Object, namespace); ok {
+		c.SourceKind, c.SourceName, c.SourceNamespace = k, n, ns
+		c.SourceDisplay = kube.ShortFluxSourceKind(string(k)) + "/" + n
 		if ns != namespace {
 			c.SourceDisplay += " in " + ns
 		}
-		break
 	}
 
 	// The source object's artifact revision — the "available" half of the
@@ -439,18 +424,18 @@ func sortInventory(items []inventoryItem) {
 // buildFailure assembles §31a's top band, including the drill-through to
 // the object the failure is actually about.
 func buildFailure(u *unstructured.Unstructured, inv []inventoryItem, now time.Time) *failure {
-	cond, ok := fluxCondition(u, "Ready")
-	if !ok || cond.status == "True" {
+	cond, ok := kube.FluxConditionOf(u.Object, "Ready")
+	if !ok || cond.Status == "True" {
 		return nil
 	}
 	// A reconciling object is progressing, not failing — the card is for
 	// trouble, and §30a's whole point is not to call progress a failure.
-	if rec, ok := fluxCondition(u, "Reconciling"); ok && rec.status == "True" {
+	if rec, ok := kube.FluxConditionOf(u.Object, "Reconciling"); ok && rec.Status == "True" {
 		return nil
 	}
 
-	f := &failure{Reason: cond.reason, Message: cond.message}
-	if t, err := time.Parse(time.RFC3339, cond.lastTransition); err == nil {
+	f := &failure{Reason: cond.Reason, Message: cond.Message}
+	if t, err := time.Parse(time.RFC3339, cond.LastTransition); err == nil {
 		f.Since = t
 		if d := retryInterval(u); d > 0 {
 			f.RetryAt, f.RetryEvery = t.Add(d), d
@@ -574,27 +559,6 @@ func retryInterval(u *unstructured.Unstructured) time.Duration {
 	return 0
 }
 
-type condition struct{ status, reason, message, lastTransition string }
-
-func fluxCondition(u *unstructured.Unstructured, typ string) (condition, bool) {
-	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
-	for _, c := range conds {
-		cm, ok := c.(map[string]any)
-		if !ok {
-			continue
-		}
-		if t, _, _ := unstructured.NestedString(cm, "type"); t != typ {
-			continue
-		}
-		st, _, _ := unstructured.NestedString(cm, "status")
-		reason, _, _ := unstructured.NestedString(cm, "reason")
-		msg, _, _ := unstructured.NestedString(cm, "message")
-		lt, _, _ := unstructured.NestedString(cm, "lastTransitionTime")
-		return condition{st, reason, msg, lt}, true
-	}
-	return condition{}, false
-}
-
 func nested(u *unstructured.Unstructured, path ...string) string {
 	v, _, _ := unstructured.NestedString(u.Object, path...)
 	return v
@@ -609,21 +573,4 @@ func metaNameNamespace(o runtime.Object) (name, namespace string, ok bool) {
 		return m.GetName(), m.GetNamespace(), true
 	}
 	return "", "", false
-}
-
-func shortSourceKind(kind string) string {
-	switch kind {
-	case "GitRepository":
-		return "git"
-	case "OCIRepository":
-		return "oci"
-	case "HelmRepository":
-		return "helm"
-	case "HelmChart":
-		return "chart"
-	case "Bucket":
-		return "bucket"
-	default:
-		return strings.ToLower(kind)
-	}
 }

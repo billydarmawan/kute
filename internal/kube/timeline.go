@@ -517,9 +517,17 @@ func argoMessageRevision(message string) string {
 	return rev
 }
 
-// ShortFluxRevision collapses "master@sha1:efd398be…" to "master@efd398b",
-// and a bare "sha256:d83a…" digest to its first 7 hex characters. A plain
-// version string is returned unchanged.
+// ShortFluxRevision collapses a Flux revision to the form that fits a
+// column and that a human actually compares. Flux uses three shapes for it,
+// all three seen on one real cluster:
+//
+//	main@sha1:efd398bed98a…  (git)   → main@efd398b
+//	sha256:d83a8a3354d98907… (helm index, no ref) → d83a8a3
+//	v1.21.0                  (chart version) → unchanged
+//
+// The second shape is why this can't just split on "@": a HelmRepository's
+// artifact revision is a bare 64-character digest, which left whole is
+// wider than the entire table.
 func ShortFluxRevision(rev string) string {
 	ref := ""
 	digest := rev

@@ -325,11 +325,11 @@ func TestShortRevisionCoversEveryShapeFluxUses(t *testing.T) {
 		{"", ""},
 	}
 	for _, tc := range tests {
-		if got := shortRevision(tc.in); got != tc.want {
-			t.Errorf("shortRevision(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := kube.ShortFluxRevision(tc.in); got != tc.want {
+			t.Errorf("ShortFluxRevision(%q) = %q, want %q", tc.in, got, tc.want)
 		}
-		if got := shortRevision(tc.in); len(got) > 24 {
-			t.Errorf("shortRevision(%q) = %q, too wide for a column at %d chars", tc.in, got, len(got))
+		if got := kube.ShortFluxRevision(tc.in); len(got) > 24 {
+			t.Errorf("ShortFluxRevision(%q) = %q, too wide for a column at %d chars", tc.in, got, len(got))
 		}
 	}
 }

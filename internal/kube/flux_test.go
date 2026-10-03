@@ -60,3 +60,34 @@ func TestRegistryKindFor(t *testing.T) {
 		}
 	}
 }
+
+// TestFluxSourceOf: the one sourceRef reader every Flux screen shares —
+// all three ref shapes, and the ref's own namespace winning over the
+// object's default.
+func TestFluxSourceOf(t *testing.T) {
+	ref := func(path ...string) map[string]any {
+		obj := map[string]any{}
+		cur := obj
+		for _, p := range path {
+			next := map[string]any{}
+			cur[p] = next
+			cur = next
+		}
+		cur["kind"], cur["name"] = "HelmRepository", "bitnami"
+		return obj
+	}
+	for _, path := range [][]string{{"spec", "sourceRef"}, {"spec", "chart", "spec", "sourceRef"}, {"spec", "chartRef"}} {
+		kind, ns, name, ok := FluxSourceOf(ref(path...), "apps")
+		if !ok || kind != "HelmRepository" || ns != "apps" || name != "bitnami" {
+			t.Errorf("%v = (%q, %q, %q, %v)", path, kind, ns, name, ok)
+		}
+	}
+	cross := ref("spec", "sourceRef")
+	cross["spec"].(map[string]any)["sourceRef"].(map[string]any)["namespace"] = "flux-system"
+	if _, ns, _, _ := FluxSourceOf(cross, "apps"); ns != "flux-system" {
+		t.Errorf("a ref's own namespace must win, got %q", ns)
+	}
+	if _, _, _, ok := FluxSourceOf(map[string]any{}, "apps"); ok {
+		t.Error("an object with no ref has no source")
+	}
+}

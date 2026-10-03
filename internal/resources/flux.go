@@ -9,7 +9,6 @@
 package resources
 
 import (
-	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -179,32 +178,32 @@ func fluxStatus(u *unstructured.Unstructured, suspended bool) (glyph string, cla
 	if suspended {
 		return "‖", StatusNeutral, "suspended" // ‖
 	}
-	if cond, ok := fluxCondition(u, "Stalled"); ok && cond.status == "True" {
+	if cond, ok := fluxCondition(u, "Stalled"); ok && cond.Status == "True" {
 		return "✕", StatusFail, "False" // ✕
 	}
 	readyCond, hasReady := fluxCondition(u, "Ready")
 	switch {
-	case hasReady && readyCond.status == "True":
+	case hasReady && readyCond.Status == "True":
 		return "●", StatusOK, "True" // ●
-	case hasReady && readyCond.status == "False":
+	case hasReady && readyCond.Status == "False":
 		// Reconciling alongside a False Ready is progress, not failure.
-		if rec, ok := fluxCondition(u, "Reconciling"); ok && rec.status == "True" {
+		if rec, ok := fluxCondition(u, "Reconciling"); ok && rec.Status == "True" {
 			return "◌", StatusWarn, "False" // ◌
 		}
 		return "✕", StatusFail, "False" // ✕
 	case hasReady:
 		// Ready=Unknown + Reconciling=True is Flux's ordinary in-progress
 		// state, the one every reconcile passes through.
-		if rec, ok := fluxCondition(u, "Reconciling"); ok && rec.status == "True" {
-			return "◌", StatusWarn, readyCond.status // ◌
+		if rec, ok := fluxCondition(u, "Reconciling"); ok && rec.Status == "True" {
+			return "◌", StatusWarn, readyCond.Status // ◌
 		}
-		return "▲", StatusWarn, readyCond.status // ▲ (Unknown)
+		return "▲", StatusWarn, readyCond.Status // ▲ (Unknown)
 	}
 	// No Ready condition at all. Unlike 14a's neutral "no status semantics"
 	// fallback this is a real pending state — every Flux kind has a status
 	// subresource its controller always writes — and keeping Neutral to mean
 	// exactly "suspended" is what keeps the strip's suspended count honest.
-	if rec, ok := fluxCondition(u, "Reconciling"); ok && rec.status == "True" {
+	if rec, ok := fluxCondition(u, "Reconciling"); ok && rec.Status == "True" {
 		return "◌", StatusWarn, "–" // ◌
 	}
 	return "▲", StatusWarn, "–" // ▲
@@ -245,32 +244,15 @@ func fluxSubLine(u *unstructured.Unstructured, suspended bool) string {
 		return ""
 	}
 	cond, ok := fluxCondition(u, "Ready")
-	if !ok || cond.status == "True" || cond.message == "" {
+	if !ok || cond.Status == "True" || cond.Message == "" {
 		return ""
 	}
-	return cond.message
+	return cond.Message
 }
 
-type fluxCond struct{ status, reason, message, lastTransition string }
-
 // fluxCondition finds one condition by type.
-func fluxCondition(u *unstructured.Unstructured, typ string) (fluxCond, bool) {
-	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
-	for _, c := range conds {
-		cm, ok := c.(map[string]any)
-		if !ok {
-			continue
-		}
-		if t, _, _ := unstructured.NestedString(cm, "type"); t != typ {
-			continue
-		}
-		status, _, _ := unstructured.NestedString(cm, "status")
-		reason, _, _ := unstructured.NestedString(cm, "reason")
-		message, _, _ := unstructured.NestedString(cm, "message")
-		lt, _, _ := unstructured.NestedString(cm, "lastTransitionTime")
-		return fluxCond{status: status, reason: reason, message: message, lastTransition: lt}, true
-	}
-	return fluxCond{}, false
+func fluxCondition(u *unstructured.Unstructured, typ string) (kube.FluxCondition, bool) {
+	return kube.FluxConditionOf(u.Object, typ)
 }
 
 // fluxRevision is what this object actually has deployed, across the three
@@ -282,7 +264,7 @@ func fluxRevision(u *unstructured.Unstructured) string {
 		{"status", "lastAttemptedRevision"}, // HelmRelease (applied is null)
 	} {
 		if v, _, _ := unstructured.NestedString(u.Object, path...); v != "" {
-			return shortRevision(v)
+			return kube.ShortFluxRevision(v)
 		}
 	}
 	// HelmRelease's real deployed version lives in its history head.
@@ -297,42 +279,6 @@ func fluxRevision(u *unstructured.Unstructured) string {
 	return "–"
 }
 
-// shortRevision collapses a Flux revision to the form that fits a column
-// and that a human actually compares. Flux uses three shapes for it, all
-// three seen on one real cluster:
-//
-//	main@sha1:efd398bed98a…  (git)   → main@efd398b
-//	sha256:d83a8a3354d98907… (helm index, no ref) → d83a8a3
-//	v1.21.0                  (chart version) → unchanged
-//
-// The second shape is why this can't just split on "@": a HelmRepository's
-// artifact revision is a bare 64-character digest, which left whole is
-// wider than the entire table.
-func shortRevision(rev string) string {
-	ref := ""
-	digest := rev
-	if at := strings.LastIndex(rev, "@"); at >= 0 {
-		ref, digest = rev[:at], rev[at+1:]
-	}
-	colon := strings.Index(digest, ":")
-	if colon < 0 {
-		// No algorithm prefix: a plain version like "v1.21.0", which is
-		// already the readable form and must not be truncated.
-		return rev
-	}
-	digest = digest[colon+1:]
-	if len(digest) > 7 {
-		digest = digest[:7]
-	}
-	switch {
-	case digest == "":
-		return ref
-	case ref == "":
-		return digest
-	}
-	return ref + "@" + digest
-}
-
 // FluxSourceRef is the object a Flux reconciler reconciles from.
 type FluxSourceRef struct {
 	Kind      kube.ResourceKind
@@ -340,29 +286,14 @@ type FluxSourceRef struct {
 	Name      string
 }
 
-// fluxSource resolves what this object reconciles from. A ref with no
-// namespace of its own defaults to the object's — Flux's own rule; a
-// HelmRelease in an app namespace pointing at a HelmRepository in
-// flux-system is the common layout, not the exception. Zero for the source
-// kinds themselves, which have no sourceRef.
+// fluxSource resolves what this object reconciles from (kube.FluxSourceOf).
+// Zero for the source kinds themselves, which have no sourceRef.
 func fluxSource(u *unstructured.Unstructured, namespace string) FluxSourceRef {
-	for _, base := range [][]string{
-		{"spec", "sourceRef"},
-		{"spec", "chart", "spec", "sourceRef"}, // HelmRelease
-		{"spec", "chartRef"},                   // HelmRelease with an OCI chart
-	} {
-		kind, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, base...), "kind")...)
-		name, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, base...), "name")...)
-		if name == "" {
-			continue
-		}
-		ns, _, _ := unstructured.NestedString(u.Object, append(append([]string{}, base...), "namespace")...)
-		if ns == "" {
-			ns = namespace
-		}
-		return FluxSourceRef{Kind: kube.ResourceKind(kind), Namespace: ns, Name: name}
+	kind, ns, name, ok := kube.FluxSourceOf(u.Object, namespace)
+	if !ok {
+		return FluxSourceRef{}
 	}
-	return FluxSourceRef{}
+	return FluxSourceRef{Kind: kind, Namespace: ns, Name: name}
 }
 
 // fluxSourceCell renders the SOURCE cell. The source kinds themselves read
@@ -374,7 +305,7 @@ func fluxSourceCell(src FluxSourceRef, namespace string) string {
 	}
 	cell := src.Name
 	if src.Kind != "" {
-		cell = shortSourceKind(string(src.Kind)) + "/" + src.Name
+		cell = kube.ShortFluxSourceKind(string(src.Kind)) + "/" + src.Name
 	}
 	if src.Namespace != namespace {
 		cell += " in " + src.Namespace
@@ -382,34 +313,15 @@ func fluxSourceCell(src FluxSourceRef, namespace string) string {
 	return cell
 }
 
-// shortSourceKind abbreviates a sourceRef kind to the design's compact form
-// ("git/nebula-config", not "GitRepository/nebula-config").
-func shortSourceKind(kind string) string {
-	switch kind {
-	case "GitRepository":
-		return "git"
-	case "OCIRepository":
-		return "oci"
-	case "HelmRepository":
-		return "helm"
-	case "HelmChart":
-		return "chart"
-	case "Bucket":
-		return "bucket"
-	default:
-		return strings.ToLower(kind)
-	}
-}
-
 // fluxReconciled is how long ago the Ready condition last changed — the
 // closest honest answer to "when did this last do something". Flux records
 // no separate reconcile timestamp.
 func fluxReconciled(u *unstructured.Unstructured) string {
 	cond, ok := fluxCondition(u, "Ready")
-	if !ok || cond.lastTransition == "" {
+	if !ok || cond.LastTransition == "" {
 		return "–"
 	}
-	ts, err := time.Parse(time.RFC3339, cond.lastTransition)
+	ts, err := time.Parse(time.RFC3339, cond.LastTransition)
 	if err != nil {
 		return "–"
 	}

@@ -382,38 +382,18 @@ func sourceRevisionCell(apiKind, revision string, updated time.Time) string {
 	return text
 }
 
-// sourceRefOf reads the reference that makes this object part of a chain: a
-// Kustomization's own spec.sourceRef, a HelmRelease's
-// spec.chart.spec.sourceRef (its chart names the repository it comes from),
-// or a HelmRelease's spec.chartRef (an OCIRepository or HelmChart it installs
-// from directly).
-// A ref with no namespace of its own defaults to the object's, which is
-// Flux's own rule.
+// sourceRefOf reads the reference that makes this object part of a chain
+// (kube.FluxSourceOf). The namespace defaults to defaultNS, Flux's own rule,
+// and is defaultNS too when there is no ref.
 func sourceRefOf(u *unstructured.Unstructured, defaultNS string) (kube.ResourceKind, string, string) {
 	if u == nil {
 		return "", "", defaultNS
 	}
-	for _, path := range [][]string{
-		{"spec", "sourceRef"},
-		{"spec", "chart", "spec", "sourceRef"},
-		{"spec", "chartRef"},
-	} {
-		ref, ok, _ := unstructured.NestedMap(u.Object, path...)
-		if !ok {
-			continue
-		}
-		kind, _, _ := unstructured.NestedString(ref, "kind")
-		name, _, _ := unstructured.NestedString(ref, "name")
-		if name == "" {
-			continue
-		}
-		ns, _, _ := unstructured.NestedString(ref, "namespace")
-		if ns == "" {
-			ns = defaultNS
-		}
-		return kube.ResourceKind(kind), name, ns
+	kind, ns, name, ok := kube.FluxSourceOf(u.Object, defaultNS)
+	if !ok {
+		return "", "", defaultNS
 	}
-	return "", "", defaultNS
+	return kind, name, ns
 }
 
 func artifactRevision(u *unstructured.Unstructured) string {
