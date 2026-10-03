@@ -91,10 +91,19 @@ func (m Model) Strips(width int) []string {
 	countLine := insetStripLine(padBetween(count.Render(label), "", stripInnerWidth(width)), width)
 
 	consumersLeft := dim.Render("no consumers found")
-	if len(m.consumers) > 0 {
-		parts := make([]string, len(m.consumers))
-		for i, c := range m.consumers {
-			parts[i] = consumerRefText(theme, c)
+	if len(m.consumers)+len(m.fixedConsumers) > 0 {
+		parts := make([]string, 0, len(m.consumers)+len(m.fixedConsumers))
+		for _, c := range m.consumers {
+			parts = append(parts, consumerRefText(theme, c))
+		}
+		for i, c := range m.fixedConsumers {
+			// One marker ahead of the group, so a truncated strip still
+			// says ctrl-r leaves these alone.
+			ref := fixedConsumerRefText(theme, c)
+			if i == 0 {
+				ref = dim.Render("not restartable: ") + ref
+			}
+			parts = append(parts, ref)
 		}
 		consumersLeft = strings.Join(parts, dim.Render(" · "))
 	}
@@ -114,8 +123,21 @@ func consumerRefText(theme tui.Theme, c configMapConsumer) string {
 	return name + arrow
 }
 
+// fixedConsumerRefText renders a Job/CronJob/bare-Pod consumer all faint,
+// "job/migrate ↗ volume" — the strip groups these after a "not
+// restartable:" marker, since ctrl-r leaves them alone.
+func fixedConsumerRefText(theme tui.Theme, c configMapConsumer) string {
+	return lipgloss.NewStyle().Foreground(theme.TextFaint).Render(shortWorkloadArg(c.Kind) + "/" + c.Name + " ↗ " + c.refKind)
+}
+
 func shortWorkloadArg(kind kube.ResourceKind) string {
 	switch kind {
+	case kube.KindCronJob:
+		return "cj"
+	case kube.KindJob:
+		return "job"
+	case kube.KindPod:
+		return "pod"
 	case kube.KindStatefulSet:
 		return "sts"
 	case kube.KindDaemonSet:
@@ -304,7 +326,7 @@ func (m Model) pendingAddRowLine(theme tui.Theme, width int, pc *configMapPendin
 // too when the pending commit is ctrl-r's apply + restart.
 func (m Model) confirmNote(verb string) string {
 	if pc := m.pendingCommit; pc != nil && pc.restartConsumers && len(pc.consumers) > 0 {
-		return "confirm to " + verb + " + restart " + consumerCount(len(pc.consumers)) + " · y/N"
+		return "confirm to " + verb + " + restart " + restartScope(len(pc.consumers), len(pc.skipped)) + " · y/N"
 	}
 	return "confirm to " + verb + " · y/N"
 }
@@ -329,6 +351,13 @@ func (m Model) restartConfirmModal(width, height int) string {
 		}
 		if len(names) > 0 {
 			ownerLine = "restarts " + strings.Join(names, " · ")
+		}
+		if len(pc.skipped) > 0 {
+			skipped := make([]string, len(pc.skipped))
+			for i, c := range pc.skipped {
+				skipped[i] = shortWorkloadArg(c.Kind) + "/" + c.Name
+			}
+			detail = append(detail, "not restartable, left alone: "+strings.Join(skipped, " · "))
 		}
 		detail = append(detail, "will run: "+m.commandForKey(pc.key))
 		for _, c := range pc.consumers {

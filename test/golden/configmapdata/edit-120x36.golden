@@ -1,7 +1,7 @@
   kute │ test-cluster › nva-stage › cm/nva-config › Data                                            ● connected · 12ms  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   2 keys                                                                                                                
-  deploy/nva-worker ↗ env · sts/nva-gateway ↗ volume                         pods don't reload configmaps on their own  
+  deploy/nva-worker ↗ env · sts/nva-gateway ↗ volume · not restartable: pod/nva-debug ↗ volume                          
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   KEY                         VALUE                                                                               SIZE  
 › FEATURE_X                   was on · debug                                                                       2 B  

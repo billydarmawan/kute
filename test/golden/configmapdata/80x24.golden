@@ -1,7 +1,7 @@
   kute │ test-cluster › nva-stage › cm/nva-config › Data    ● connected · 12ms  
 ────────────────────────────────────────────────────────────────────────────────
   2 keys                                                                        
-  deploy/nva-worker ↗ env · sts/nva-gateway ↗ volume                            
+  deploy/nva-worker ↗ env · sts/nva-gateway ↗ volume · not restartable: pod/nva…
 ────────────────────────────────────────────────────────────────────────────────
   KEY                   VALUE                                             SIZE  
 › FEATURE_X             on                                                 2 B  

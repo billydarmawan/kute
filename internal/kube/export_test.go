@@ -38,3 +38,11 @@ func (c *Cluster) allStartedKindsSynced() bool {
 	defer c.mu.Unlock()
 	return c.allStartedKindsReadyLocked()
 }
+
+// NewLazyTestCluster and ListedResources expose the lazy-start test fixture
+// to package kube_test, whose tests drive a screen's own load against a real
+// Cluster to prove which informers opening it starts.
+var (
+	NewLazyTestCluster = newLazyTestCluster
+	ListedResources    = listedResources
+)

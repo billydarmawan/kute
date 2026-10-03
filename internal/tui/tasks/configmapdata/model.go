@@ -10,7 +10,9 @@
 // Two things this screen has that 27b doesn't:
 //   - A consumer strip under the header (which Deployment/StatefulSet/
 //     DaemonSet pod templates reference this ConfigMap, and how — env or
-//     volume), computed fresh off the watch on every load().
+//     volume), computed fresh off the watch on every load(). Jobs, CronJobs
+//     and bare Pods referencing it are listed too, marked not restartable,
+//     when their caches are already running.
 //   - ctrl-r: apply the edited value *and* chain a rollout-restart of every
 //     consumer (kute never restarts consumers on a plain ↵ apply — 27a's own
 //     "pods don't reload configmaps on their own").
@@ -50,7 +52,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/kute-dev/kute/internal/tui/components/textfield"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
@@ -190,6 +194,9 @@ type configMapPendingCommit struct {
 	overwrite        bool
 	restartConsumers bool
 	consumers        []configMapConsumer
+	// skipped is the not-restartable consumers a ctrl-r commit leaves
+	// alone — named in its confirm so it doesn't claim to cover them.
+	skipped []configMapConsumer
 	// resourceVersion is the precondition the patch carried — what a
 	// failed commit's restored buffer goes back to.
 	resourceVersion string
@@ -210,6 +217,10 @@ type Model struct {
 	keys      []configMapKeyRow
 	selected  int
 	consumers []configMapConsumer
+	// fixedConsumers are the Jobs, CronJobs and bare Pods that reference
+	// this ConfigMap, read only from already-running caches: shown in the
+	// strip as "not restartable", never handed to ctrl-r.
+	fixedConsumers []configMapConsumer
 	// resourceVersion is the ConfigMap's resourceVersion as of the last
 	// load.
 	resourceVersion string
@@ -268,6 +279,7 @@ type loadedMsg struct {
 	found           bool
 	keys            []configMapKeyRow
 	consumers       []configMapConsumer
+	fixedConsumers  []configMapConsumer
 	resourceVersion string
 	err             error
 }
@@ -340,8 +352,8 @@ func (m Model) load() tea.Cmd {
 		if !found {
 			return loadedMsg{epoch: epoch, found: false}
 		}
-		consumers := findConfigMapConsumers(ctx, lister, namespace, name)
-		return loadedMsg{epoch: epoch, found: true, keys: keys, consumers: consumers, resourceVersion: resourceVersion}
+		consumers, fixed := findConfigMapConsumers(ctx, lister, namespace, name)
+		return loadedMsg{epoch: epoch, found: true, keys: keys, consumers: consumers, fixedConsumers: fixed, resourceVersion: resourceVersion}
 	}
 }
 
@@ -381,9 +393,19 @@ func (m Model) selectedKeyRow() (configMapKeyRow, bool) {
 // configMapConsumerKinds is the fixed set of pod-template kinds 27a's
 // consumer strip/ctrl-r restart scan over — the same three "workload" kinds
 // 24a/25a already treat uniformly elsewhere in this app (Deployment/
-// StatefulSet/DaemonSet all carry a corev1.PodSpec-shaped template; bare
-// Pods/Jobs/CronJobs are out of scope, matching that existing precedent).
+// StatefulSet/DaemonSet all carry a corev1.PodSpec-shaped template and are
+// the only kinds `kubectl rollout restart` takes).
 var configMapConsumerKinds = []kube.ResourceKind{kube.KindDeployment, kube.KindStatefulSet, kube.KindDaemonSet}
+
+// fixedConsumerKinds are the kinds that can reference a ConfigMap but that
+// no rollout restart reaches: a CronJob's next run, a Job's pods, a bare Pod
+// (no controller). 27a lists them as "not restartable" so ctrl-r doesn't
+// look like it covered them — but only from a cache that is already
+// running (tui.KindCached): opening a ConfigMap must never start the Job or
+// CronJob informer (CLAUDE.md, "the app pays for the screen you're on").
+// Pod is eager, so in a plain kute it's always read; under
+// --namespace-scoped it's read only once that namespace's Pod cache runs.
+var fixedConsumerKinds = []kube.ResourceKind{kube.KindCronJob, kube.KindJob, kube.KindPod}
 
 // findConfigMapConsumers scans every Deployment/StatefulSet/DaemonSet in
 // namespace for a pod-template reference to the named ConfigMap — envFrom or
@@ -391,42 +413,80 @@ var configMapConsumerKinds = []kube.ResourceKind{kube.KindDeployment, kube.KindS
 // A workload matching both is reported as "env" (display priority, since an
 // env reference is the more common/impactful reload case). Sorted by kind
 // then name for deterministic rendering/tests.
-func findConfigMapConsumers(ctx context.Context, lister resources.RawLister, namespace, name string) []configMapConsumer {
+//
+// fixed is the same scan over fixedConsumerKinds, skipping any kind whose
+// cache isn't already running and filled, any Pod with a controller (its
+// owner is the consumer, restartable or not), and any Job a CronJob controls
+// when CronJobs were read (the CronJob is listed instead).
+func findConfigMapConsumers(ctx context.Context, lister resources.RawLister, namespace, name string) (restartable, fixed []configMapConsumer) {
 	if lister == nil {
+		return nil, nil
+	}
+	for _, kind := range configMapConsumerKinds {
+		restartable = append(restartable, scanConsumers(ctx, lister, kind, namespace, name, false)...)
+	}
+	cronJobsRead := false
+	for _, kind := range fixedConsumerKinds {
+		if !tui.KindCached(lister, kind, namespace) {
+			continue
+		}
+		if kind == kube.KindCronJob {
+			cronJobsRead = true
+		}
+		fixed = append(fixed, scanConsumers(ctx, lister, kind, namespace, name, cronJobsRead)...)
+	}
+	sortConsumers(restartable)
+	sortConsumers(fixed)
+	return restartable, fixed
+}
+
+// scanConsumers lists kind in namespace and returns the objects whose pod
+// spec references the named ConfigMap. skipCronJobOwned drops Jobs a CronJob
+// controls.
+func scanConsumers(ctx context.Context, lister resources.RawLister, kind kube.ResourceKind, namespace, name string, skipCronJobOwned bool) []configMapConsumer {
+	objs, err := lister.ListRaw(ctx, kind, namespace)
+	if err != nil {
 		return nil
 	}
 	var out []configMapConsumer
-	for _, kind := range configMapConsumerKinds {
-		objs, err := lister.ListRaw(ctx, kind, namespace)
-		if err != nil {
+	for _, obj := range objs {
+		if meta, ok := obj.(metav1.Object); ok {
+			owner := metav1.GetControllerOfNoCopy(meta)
+			if kind == kube.KindPod && owner != nil {
+				continue
+			}
+			if kind == kube.KindJob && skipCronJobOwned && owner != nil && owner.Kind == string(kube.KindCronJob) {
+				continue
+			}
+		}
+		podSpec, objName, ok := podTemplateSpec(kind, obj)
+		if !ok {
 			continue
 		}
-		for _, obj := range objs {
-			podSpec, objName, ok := podTemplateSpec(kind, obj)
-			if !ok {
-				continue
-			}
-			refKind, matched := configMapRefKind(podSpec, name)
-			if !matched {
-				continue
-			}
-			out = append(out, configMapConsumer{
-				ConfigMapConsumerRef: kube.ConfigMapConsumerRef{Kind: kind, Name: objName},
-				refKind:              refKind,
-			})
+		refKind, matched := configMapRefKind(podSpec, name)
+		if !matched {
+			continue
 		}
+		out = append(out, configMapConsumer{
+			ConfigMapConsumerRef: kube.ConfigMapConsumerRef{Kind: kind, Name: objName},
+			refKind:              refKind,
+		})
 	}
-	slices.SortFunc(out, func(a, b configMapConsumer) int {
+	return out
+}
+
+func sortConsumers(cs []configMapConsumer) {
+	slices.SortFunc(cs, func(a, b configMapConsumer) int {
 		return cmp.Or(
 			cmp.Compare(a.Kind, b.Kind),
 			cmp.Compare(a.Name, b.Name),
 		)
 	})
-	return out
 }
 
 // podTemplateSpec extracts obj's pod template PodSpec + name for one of the
-// three configMapConsumerKinds — ok is false for any other kind/type.
+// configMapConsumerKinds or fixedConsumerKinds — ok is false for any other
+// kind/type.
 func podTemplateSpec(kind kube.ResourceKind, obj any) (corev1.PodSpec, string, bool) {
 	switch kind {
 	case kube.KindDeployment:
@@ -440,6 +500,18 @@ func podTemplateSpec(kind kube.ResourceKind, obj any) (corev1.PodSpec, string, b
 	case kube.KindDaemonSet:
 		if d, ok := obj.(*appsv1.DaemonSet); ok {
 			return d.Spec.Template.Spec, d.Name, true
+		}
+	case kube.KindCronJob:
+		if c, ok := obj.(*batchv1.CronJob); ok {
+			return c.Spec.JobTemplate.Spec.Template.Spec, c.Name, true
+		}
+	case kube.KindJob:
+		if j, ok := obj.(*batchv1.Job); ok {
+			return j.Spec.Template.Spec, j.Name, true
+		}
+	case kube.KindPod:
+		if p, ok := obj.(*corev1.Pod); ok {
+			return p.Spec, p.Name, true
 		}
 	}
 	return corev1.PodSpec{}, "", false

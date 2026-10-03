@@ -7,6 +7,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
@@ -17,7 +19,8 @@ import (
 // goldenConfigMapDataModel builds a deterministic 27a Data view: docs/
 // design/v.0.2.0.dc.html's own §27a mockup scenario — cm/nva-config in
 // nva-stage with a short key, one consumer of each reference kind, so the
-// consumer strip has something real to show.
+// consumer strip has something real to show, plus a bare Pod consumer to
+// pin the not-restartable rendering.
 func goldenConfigMapDataModel(t *testing.T, width, height int) Model {
 	t.Helper()
 	cm := cmObj("nva-stage", "nva-config", map[string]string{
@@ -28,6 +31,8 @@ func goldenConfigMapDataModel(t *testing.T, width, height int) Model {
 		kube.KindConfigMap:   {cm},
 		kube.KindDeployment:  {deploymentEnvFrom("nva-stage", "nva-worker", "nva-config")},
 		kube.KindStatefulSet: {statefulSetVolume("nva-stage", "nva-gateway", "nva-config")},
+		// A bare Pod: listed, but marked not restartable.
+		kube.KindPod: {&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "nva-debug", Namespace: "nva-stage"}, Spec: volumeSpec("nva-config")}},
 	}}
 	sess := newSession()
 	sess.Location.Namespace = "nva-stage"

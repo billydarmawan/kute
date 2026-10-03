@@ -72,7 +72,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// changing out from under us) should refresh both the grid and the
 		// consumer strip.
 		switch msg.Kind {
-		case kube.KindConfigMap, kube.KindDeployment, kube.KindStatefulSet, kube.KindDaemonSet:
+		case kube.KindConfigMap, kube.KindDeployment, kube.KindStatefulSet, kube.KindDaemonSet,
+			// The not-restartable consumers' kinds: an event only arrives
+			// from a cache something else already started, which is the
+			// only kind of cache load() reads them from.
+			kube.KindCronJob, kube.KindJob, kube.KindPod:
 			m.reloadEpoch++
 			return m, m.load()
 		}
@@ -152,6 +156,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.keys = msg.keys
 	m.consumers = msg.consumers
+	m.fixedConsumers = msg.fixedConsumers
 	m.resourceVersion = m.ownWrites.Resolve(msg.resourceVersion)
 	if m.bufferRVFollows {
 		m.bufferRV = m.resourceVersion
@@ -425,6 +430,7 @@ func (m *Model) beginCommit(key, value string, isEdit bool, original string, res
 	m.pendingCommit = &configMapPendingCommit{
 		key: key, value: value, isEdit: isEdit, original: original, overwrite: overwrite,
 		restartConsumers: restart, consumers: m.consumers, resourceVersion: m.bufferRV,
+		skipped: m.fixedConsumers,
 	}
 	m.message, m.lastError = "", ""
 	// ctrl-r with consumers to restart is RestartConfigMapConsumers — the
@@ -447,7 +453,7 @@ func (m *Model) beginCommit(key, value string, isEdit bool, original string, res
 		id = "edit-configmap-key-" + m.namespace + "/" + m.name + "/" + key
 	}
 	if verb.ID == verbs.RestartConfigMapConsumers.ID {
-		label += " and restart " + consumerCount(len(m.consumers))
+		label += " and restart " + restartScope(len(m.consumers), len(m.fixedConsumers))
 	}
 	return m.actions.Begin(actions.Request{Verb: verb, Prod: m.isProd(), Overwrite: overwrite}, tui.TaskAction{
 		ID:    id,
@@ -652,6 +658,17 @@ func (m *Model) restoreBuffer(pc *configMapPendingCommit) {
 		valueInput.Focus()
 		m.adding = &addKeyState{keyInput: keyInput, valueInput: valueInput, onValue: true}
 	}
+}
+
+// restartScope is what a ctrl-r restarts: "N consumers", plus how many it
+// can't ("· 1 not restartable"), so the confirm never reads as covering
+// every consumer the strip lists.
+func restartScope(restartable, fixed int) string {
+	s := consumerCount(restartable)
+	if fixed > 0 {
+		s += fmt.Sprintf(" · %d not restartable", fixed)
+	}
+	return s
 }
 
 // consumerCount is "1 consumer" / "N consumers".
