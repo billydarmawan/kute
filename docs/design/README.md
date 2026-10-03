@@ -373,7 +373,7 @@ The file in this bundle (`Kute Spec.dc.html`, plus its runtime `support.js`) is 
 
 ### 28a — Update chip (ambient, status bar)
 - Zero chrome when no update is pending (13d's rule). With one available, a quiet chip renders left of the connection dot: `↑ 0.2.1` in yellow — same "worth knowing, not urgent" hue as other passive facts; no banner, no flash, nothing steals focus mid-incident. The keybar's right slot names the key while live: `U 0.2.1 available — what's new`.
-- **Check hygiene:** one GET against the releases feed per 24h, cached in the state dir; offline/airgapped → silently no chip, no retry storm. `update.check: false` in config disables it entirely (relevant behind egress-flagging proxies).
+- **Check hygiene:** one GET against the releases feed per 24h, cached in the state dir; offline/airgapped → silently no chip, no retry storm (a failed check is retried at most once an hour). `update.check: false` in config disables it entirely (relevant behind egress-flagging proxies).
 - Per-version dismissal: opening 28b for a version (or `x` skip there) hides the chip until the *next* release — it never re-nags for a version already seen. Pre-releases only surface if you're already running one.
 - `U` opens 28b from anywhere.
 
@@ -604,7 +604,7 @@ The file in this bundle (`Kute Spec.dc.html`, plus its runtime `support.js`) is 
 - `editBuffer`: YAML edit state {baseResourceVersion, text, dirty, dryRunResult|conflict} — exists only in edit mode.
 - `timeline`: merged feed window (events + restarts + rollout revisions) per scope.
 - `imageHistory`: per-workload tag history derived from the watch (controller revisions where available + cross-namespace image sightings) — feeds 24a, no network calls of its own.
-- `updateCheck`: {lastChecked, latestVersion, seenVersions} — cached in the state dir, drives the 28a chip and 28b's per-version dismissal; absent/inert when `update.check: false`.
+- `updateCheck`: {lastChecked, lastAttempt, latestVersion, seenVersions} — cached in the state dir, drives the 28a chip and 28b's per-version dismissal; `lastAttempt` holds a failed check's retry back to once an hour; absent/inert when `update.check: false`.
 - Watch streams update the table in place; metrics poll on the `sync` interval shown in the header.
 
 ## Design Tokens — semantic, two themes

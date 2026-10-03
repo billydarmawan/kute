@@ -22,6 +22,11 @@ const updateCheckTimeout = 10 * time.Second
 // check hygiene (docs/design README.md §28a).
 const updateCheckInterval = 24 * time.Hour
 
+// updateRetryInterval is how soon a launch may try again after a check
+// that didn't succeed: a failure never advances LastChecked, and without
+// this an offline or proxy-blocked user would GET the feed on every launch.
+const updateRetryInterval = time.Hour
+
 // githubRepo is kute's own repo — the feed updateCheckCmd polls and the
 // same one scripts/release-notes.sh publishes changelog.json against.
 const githubRepo = "kute-dev/kute"
@@ -50,7 +55,8 @@ func buildChecker(Config) update.Checker {
 // 'r' key (force=true, the panel's Config.Recheck). Returns nil when
 // there's nothing to do: update.check is disabled in config (this always
 // wins, even for a forced recheck — "kills it entirely", docs/design
-// README.md §28a), or (force=false only) the 24h cache is still fresh.
+// README.md §28a), or (force=false only) the 24h cache is still fresh or
+// a check was started within the last hour (updateRetryInterval).
 // Network/parse failures return a tui.UpdateCheckedMsg with Err set, which
 // the root shell (and tasks/update) both treat as "do nothing" — no chip,
 // no error banner, no retry storm. A non-nil Cmd marks the session's
@@ -63,8 +69,13 @@ func updateCheckCmd(sess *tui.Session, checker update.Checker, force bool) tea.C
 	if !force && !last.IsZero() && time.Since(last) < updateCheckInterval {
 		return nil
 	}
+	attempt := sess.State.UpdateCheck.LastAttempt
+	if !force && !attempt.IsZero() && time.Since(attempt) < updateRetryInterval {
+		return nil
+	}
 	parent := sess.Context() // the process context: a release check outlives any one kube-context
 	sess.UpdateChecking = true
+	sess.State.UpdateCheck.LastAttempt = time.Now()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, updateCheckTimeout)
 		defer cancel()

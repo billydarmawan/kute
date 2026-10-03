@@ -133,6 +133,31 @@ func TestUpdateCheckCmdMarksTheCheckInFlight(t *testing.T) {
 	}
 }
 
+// TestUpdateCheckCmdBacksOffAfterARecentAttempt: a failed check never
+// advances LastChecked, so the ambient check waits out updateRetryInterval
+// after any attempt instead of hitting the feed on every launch (14 L11a);
+// 'r' still forces one.
+func TestUpdateCheckCmdBacksOffAfterARecentAttempt(t *testing.T) {
+	t.Parallel()
+	sess := testAppSession()
+	sess.State.UpdateCheck.LastAttempt = time.Now().Add(-10 * time.Minute)
+	if cmd := updateCheckCmd(sess, &fakeChecker{}, false); cmd != nil {
+		t.Fatal("expected no ambient check within an hour of the last attempt")
+	}
+	if cmd := updateCheckCmd(sess, &fakeChecker{}, true); cmd == nil {
+		t.Fatal("expected a forced recheck to ignore the backoff")
+	}
+
+	sess = testAppSession()
+	sess.State.UpdateCheck.LastAttempt = time.Now().Add(-2 * time.Hour)
+	if cmd := updateCheckCmd(sess, &fakeChecker{}, false); cmd == nil {
+		t.Fatal("expected a check once the retry interval has passed")
+	}
+	if time.Since(sess.State.UpdateCheck.LastAttempt) > time.Minute {
+		t.Fatalf("LastAttempt = %v, want it stamped when the check was handed out", sess.State.UpdateCheck.LastAttempt)
+	}
+}
+
 func TestUpdateCheckCmdErrYieldsErrMsg(t *testing.T) {
 	t.Parallel()
 	sess := testAppSession()

@@ -183,6 +183,28 @@ func TestLoadMigratesV1FileToV2(t *testing.T) {
 	}
 }
 
+// TestLoadMigratesV3FileToV4 pins the version-4 schema bump
+// (UpdateCheck.LastAttempt, 28a's failed-check backoff): a v3 file loads at
+// v4 with its update cache intact and no attempt recorded.
+func TestLoadMigratesV3FileToV4(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "state.json")
+	v3 := `{"version": 3, "updateCheck": {"lastChecked": "2026-07-20T12:00:00Z", "latestVersion": "0.2.1"}}`
+	if err := os.WriteFile(path, []byte(v3), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := loadFrom(path)
+	if got.Version != CurrentVersion {
+		t.Fatalf("Version = %d, want %d", got.Version, CurrentVersion)
+	}
+	if got.UpdateCheck.LatestVersion != "0.2.1" || got.UpdateCheck.LastChecked.IsZero() {
+		t.Fatalf("UpdateCheck = %+v, want migrated data preserved", got.UpdateCheck)
+	}
+	if !got.UpdateCheck.LastAttempt.IsZero() {
+		t.Fatalf("LastAttempt = %v, want zero from a v3 file", got.UpdateCheck.LastAttempt)
+	}
+}
+
 func TestLoadMigratesV2FileToV3(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "state.json")

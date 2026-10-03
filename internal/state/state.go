@@ -17,7 +17,7 @@ import (
 
 // CurrentVersion is the schema version stamped on every save. Bump it and
 // extend migrate whenever the schema changes.
-const CurrentVersion = 3
+const CurrentVersion = 4
 
 // MaxRecent caps every Recent* list, most-recent-first. 11, not some
 // rounder number: 6a/7a's numbered recent-pick (tui.recentNumbers) excludes
@@ -78,13 +78,18 @@ type State struct {
 	base *State
 }
 
-// UpdateCheckState is the persisted trio 28a's ambient chip needs even in a
-// session that never re-checks (28a's own 24h-cadence check runs at most
-// once per launch) — everything richer (release notes, changelog entries)
-// is refetched on demand and never written here, per that section's
-// "cached in the state dir" being scoped to exactly these three fields.
+// UpdateCheckState is what 28a's ambient chip needs even in a session that
+// never re-checks (28a's own 24h-cadence check runs at most once per
+// launch) — everything richer (release notes, changelog entries) is
+// refetched on demand and never written here.
 type UpdateCheckState struct {
-	LastChecked   time.Time `json:"lastChecked,omitzero"`
+	// LastChecked is the last *successful* check: the 24h cadence.
+	LastChecked time.Time `json:"lastChecked,omitzero"`
+	// LastAttempt is the last check started, successful or not — schema v4.
+	// A failure never advances LastChecked, so without it an offline or
+	// proxy-blocked user would GET the feed on every launch; it backs a
+	// shorter retry interval instead.
+	LastAttempt   time.Time `json:"lastAttempt,omitzero"`
 	LatestVersion string    `json:"latestVersion,omitempty"`
 	SeenVersions  []string  `json:"seenVersions,omitempty"`
 }
@@ -175,8 +180,9 @@ func capRecent(items []string) []string {
 	return items
 }
 
-// migrate upgrades s to CurrentVersion. v1 -> v2 (UpdateCheck, 28a/28b) and
-// v2 -> v3 (PerContext.RecentDebugImages, §41b/§41c) both add no field that
+// migrate upgrades s to CurrentVersion. v1 -> v2 (UpdateCheck, 28a/28b),
+// v2 -> v3 (PerContext.RecentDebugImages, §41b/§41c) and v3 -> v4
+// (UpdateCheck.LastAttempt, 28a's failed-check backoff) all add no field that
 // needs a data transform — JSON decoding an older file already leaves the
 // new field at its zero value — so, like every bump so far, this is just
 // the version stamp; the hook is here for the next bump that actually needs
@@ -294,6 +300,9 @@ func merge(disk, base, mine State) State {
 	if mine.UpdateCheck.LastChecked.After(disk.UpdateCheck.LastChecked) {
 		out.UpdateCheck.LastChecked = mine.UpdateCheck.LastChecked
 		out.UpdateCheck.LatestVersion = mine.UpdateCheck.LatestVersion
+	}
+	if mine.UpdateCheck.LastAttempt.After(disk.UpdateCheck.LastAttempt) {
+		out.UpdateCheck.LastAttempt = mine.UpdateCheck.LastAttempt
 	}
 	return out
 }
