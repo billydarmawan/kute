@@ -441,8 +441,11 @@ func splitFluxRevisionEvents(events []kube.Event) (flux, plain []kube.Event) {
 // commit" event — whose message names the subject but not the SHA — can be
 // paired with one.
 //
-// Reads only kinds already in the cache; an un-started informer yields no
-// pairing rather than starting one from the update loop.
+// ListRaw starts the named source kind's informer if nothing has read it
+// yet. That is deliberate and narrow: only source kinds named by a matching
+// "stored artifact" event are read, each at most once per load, from this
+// load's tea.Cmd rather than the update loop — never a sweep of every Flux
+// kind. A cache still filling simply yields no pairing this load.
 func sourceRevisionOf(ctx context.Context, lister resources.RawLister, namespace string) func(string) string {
 	cache := map[string]string{}
 	return func(object string) string {
