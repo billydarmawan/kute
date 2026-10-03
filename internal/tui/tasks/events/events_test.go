@@ -690,3 +690,19 @@ func TestEnterOnAFluxHelmReleaseEventOpensTheFluxObject(t *testing.T) {
 		}
 	}
 }
+
+// TestFailingPodDoesNotRedASameNamedOtherKind: m.failing is keyed by pod
+// name, so only a Pod's own Warning may turn red off it.
+func TestFailingPodDoesNotRedASameNamedOtherKind(t *testing.T) {
+	m := New(Config{Session: newSession(), Events: fakeEvents{}, Namespace: "default"})
+	m.failing = map[string]bool{"default/redis": true}
+	theme := m.Theme()
+	pod := kube.EventGroup{Type: "Warning", Object: "Pod/redis", Namespace: "default"}
+	svc := kube.EventGroup{Type: "Warning", Object: "Service/redis", Namespace: "default"}
+	if got := m.severityStyle(theme, pod).GetForeground(); got != theme.Bad {
+		t.Fatalf("failing Pod/redis warning = %v, want Bad", got)
+	}
+	if got := m.severityStyle(theme, svc).GetForeground(); got != theme.Warn {
+		t.Fatalf("Service/redis warning = %v, want Warn, not red off the same-named failing pod", got)
+	}
+}

@@ -304,7 +304,7 @@ func (m Model) renderRow(theme tui.Theme, r displayRow, selected bool, width int
 
 // severityStyle is 9b's red-vs-yellow-vs-blue rule (docs/design README.md
 // §9b): Warning groups render red when the involved object is a currently
-// StatusFail pod (m.failing, load.go's best-effort cross-check keyed by
+// StatusFail pod — a Pod, not any same-named object (m.failing, load.go's best-effort cross-check keyed by
 // "namespace/name" so all-namespaces mode can't confuse two same-named pods
 // in different namespaces), yellow otherwise; Normal groups are always the
 // neutral Info color.
@@ -312,7 +312,9 @@ func (m Model) severityStyle(theme tui.Theme, g kube.EventGroup) lipgloss.Style 
 	if g.Type != "Warning" {
 		return lipgloss.NewStyle().Foreground(theme.Info)
 	}
-	if m.failing[g.Namespace+"/"+objectName(g.Object)] {
+	// m.failing is keyed by pod name alone, so a Warning on Service/redis
+	// must not turn red because Pod/redis is crashlooping.
+	if strings.HasPrefix(g.Object, "Pod/") && m.failing[g.Namespace+"/"+objectName(g.Object)] {
 		return lipgloss.NewStyle().Foreground(theme.Bad)
 	}
 	return lipgloss.NewStyle().Foreground(theme.Warn)
