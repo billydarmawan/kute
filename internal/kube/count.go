@@ -66,6 +66,11 @@ func (c *Cluster) resourceFor(kind ResourceKind) (gvr schema.GroupVersionResourc
 	if tk, found := typedKinds[kind]; found {
 		return tk.gvr, tk.clusterScoped, true
 	}
+	// The CRD list's own kind is known before 14b ever starts its informer,
+	// and a palette count must not wait for that.
+	if kind == KindCustomResourceDefinition {
+		return crdGVR, true, true
+	}
 	if info, found := c.getDynKind(kind, ""); found {
 		return info.gvr, !info.namespaced, true
 	}

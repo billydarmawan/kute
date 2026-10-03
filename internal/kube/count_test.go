@@ -66,6 +66,22 @@ func TestCountLiveIgnoresNamespaceForClusterScopedKinds(t *testing.T) {
 	}
 }
 
+// TestCountLiveCountsCRDsBeforeTheirInformer: the CRD kind isn't in
+// typedKinds and has no dynamic entry until 14b is opened, so without its own
+// case the palette showed – for CRDs forever.
+func TestCountLiveCountsCRDsBeforeTheirInformer(t *testing.T) {
+	crdGVK := schema.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"}
+	c := newCountTestCluster(partial(crdGVK, "", "a.example.com"), partial(crdGVK, "", "b.example.com"))
+
+	n, err := c.CountLive(t.Context(), KindCustomResourceDefinition, "default")
+	if err != nil {
+		t.Fatalf("CountLive(CustomResourceDefinition): %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("CountLive(CustomResourceDefinition) = %d, want 2", n)
+	}
+}
+
 func TestCountLiveUnknownKindErrors(t *testing.T) {
 	c := newCountTestCluster()
 	if _, err := c.CountLive(t.Context(), ResourceKind("Nonexistent"), ""); err == nil {
