@@ -53,6 +53,7 @@ func argoDescriptor(dk kube.DiscoveredKind) Descriptor {
 		Argo:            true,
 		StatusSemantics: true,
 		APIGroup:        dk.Group,
+		APIResource:     dk.Plural,
 		APIVersion:      dk.GVR.Version,
 		Project:         projectArgoResource,
 		HealthLabel:     argoHealthLabel,

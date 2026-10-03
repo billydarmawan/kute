@@ -47,6 +47,7 @@ func CustomDescriptor(dk kube.DiscoveredKind) Descriptor {
 		ClusterScoped: dk.ClusterScoped,
 		Custom:        true,
 		APIGroup:      dk.Group,
+		APIResource:   dk.Plural,
 		APIVersion:    dk.GVR.Version,
 		Project:       projectCustomResource(dk),
 	}
@@ -209,6 +210,7 @@ func httpRouteDescriptor(dk kube.DiscoveredKind) Descriptor {
 		ClusterScoped: dk.ClusterScoped,
 		Custom:        true,
 		APIGroup:      dk.Group,
+		APIResource:   dk.Plural,
 		APIVersion:    dk.GVR.Version,
 		Project:       projectHTTPRoute(dk),
 	}

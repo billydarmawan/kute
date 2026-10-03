@@ -46,6 +46,7 @@ func fluxDescriptor(dk kube.DiscoveredKind) Descriptor {
 		Flux:            true,
 		StatusSemantics: true,
 		APIGroup:        dk.Group,
+		APIResource:     dk.Plural,
 		APIVersion:      dk.GVR.Version,
 		Project:         projectFluxResource,
 		HealthLabel:     fluxHealthLabel,

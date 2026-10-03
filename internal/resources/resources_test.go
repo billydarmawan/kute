@@ -671,4 +671,14 @@ func TestRBACResourceQualifiesTheAPIGroup(t *testing.T) {
 	if got := RBACResource(crd); got != "certificates.cert-manager.io" {
 		t.Errorf("RBACResource(Certificate) = %q", got)
 	}
+	// Display is decorated for a colliding discovered kind; RBAC names the
+	// discovered plural, never the display text.
+	flux := fluxDescriptor(kube.DiscoveredKind{Group: "helm.toolkit.fluxcd.io", Kind: "HelmRelease", Plural: "helmreleases"})
+	if got := RBACResource(flux); got != "helmreleases.helm.toolkit.fluxcd.io" {
+		t.Errorf("RBACResource(Flux HelmRelease) = %q (display %q)", got, flux.Display)
+	}
+	helm, _ := reg.Descriptor(kube.KindHelmRelease)
+	if got := RBACResource(helm); got != "secrets" {
+		t.Errorf("RBACResource(Helm Releases) = %q, want the release Secrets' resource", got)
+	}
 }

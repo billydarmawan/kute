@@ -53,6 +53,7 @@ func certificateDescriptor(dk kube.DiscoveredKind) Descriptor {
 		Custom:          true,
 		StatusSemantics: true,
 		APIGroup:        dk.Group,
+		APIResource:     dk.Plural,
 		APIVersion:      dk.GVR.Version,
 		Project:         projectCertificate,
 		Health:          certificateHealth,

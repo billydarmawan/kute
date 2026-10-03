@@ -60,6 +60,7 @@ func whoCanResourceItems(sess *Session, current string) []palette.Item {
 		return nil
 	}
 	seen := make(map[kube.ResourceKind]bool)
+	seenResource := make(map[string]bool)
 	var items []palette.Item
 	for _, group := range sess.Groups {
 		for _, kind := range group.Kinds {
@@ -72,6 +73,10 @@ func whoCanResourceItems(sess *Session, current string) []palette.Item {
 				continue
 			}
 			resource := resources.RBACResource(desc)
+			if seenResource[resource] {
+				continue // Helm Releases are stored as, and governed by, secrets
+			}
+			seenResource[resource] = true
 			item := palette.Item{Label: resource, Detail: desc.Display, Data: whoCanResourceTarget{resource: resource}}
 			if resource == current {
 				item.Tag = "current"

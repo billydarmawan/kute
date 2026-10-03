@@ -283,6 +283,14 @@ type Descriptor struct {
 	// palette's type label (14c) uses it instead of the built-in Group
 	// taxonomy.
 	APIGroup string
+	// APIResource is the plural API resource RBAC rules name this kind by
+	// ("certificates", or "secrets" for the synthetic Helm Releases kind,
+	// which is stored as release Secrets) — set for every discovered kind
+	// and for a synthetic kind backed by another resource. Empty for a
+	// typed kind, whose resource comes from kube's typed table. Never
+	// derived from Display, which carries decorations ("Flux HelmReleases",
+	// "Services (example.io)").
+	APIResource string
 	// APIVersion is the discovered kind's display version (e.g. "v1") —
 	// non-empty only when Custom is true. 14a's breadcrumb combines it with
 	// APIGroup for the dim "cert-manager.io/v1" tag (docs/design README.md

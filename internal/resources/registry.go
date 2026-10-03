@@ -106,7 +106,7 @@ func DefaultRegistry() Registry {
 		{Kind: kube.KindNamespace, Group: GroupCluster, Display: "Namespaces", Icon: "⬡", Columns: []string{"Name", "Status", "Age"}, Describe: "cluster resource partitions", ClusterScoped: true, Project: projectNamespace},
 		{Kind: kube.KindEvent, Group: GroupObservability, Display: "Events", Icon: "∿", Columns: []string{"Type", "Reason", "Object", "Age"}, Describe: "cluster activity and warnings", Project: projectEvent},
 		{Kind: kube.KindForward, Group: GroupCluster, Display: "Forwards", Icon: "⇄", Columns: []string{"Local", "Target", "Namespace", "Uptime", "Traffic"}, FlexColumn: "Target", Describe: "active kubectl port-forward sessions", ClusterScoped: true, Project: projectForward, HealthLabel: forwardHealthLabel},
-		{Kind: kube.KindHelmRelease, Group: GroupCluster, Display: "Helm Releases", Icon: "⎈", Columns: []string{"Release", "Chart", "Latest", "App Ver", "Rev", "Status", "Updated"}, FlexColumn: "Release", Describe: "deployed Helm chart releases", Project: projectHelmRelease, Health: helmReleaseHealth, HealthLabel: helmReleaseHealthLabel, HealthGlyph: helmReleaseHealthGlyph},
+		{Kind: kube.KindHelmRelease, Group: GroupCluster, Display: "Helm Releases", APIResource: "secrets", Icon: "⎈", Columns: []string{"Release", "Chart", "Latest", "App Ver", "Rev", "Status", "Updated"}, FlexColumn: "Release", Describe: "deployed Helm chart releases", Project: projectHelmRelease, Health: helmReleaseHealth, HealthLabel: helmReleaseHealthLabel, HealthGlyph: helmReleaseHealthGlyph},
 	}
 	// CustomResourceDefinition (14b) is always present, like Forward — a
 	// built-in, not a discovered kind — registered here with a nil counter
@@ -237,11 +237,15 @@ func nodeHealthLabel(class StatusClass) string {
 // it: the plural resource qualified by its API group ("deployments.apps",
 // bare "secrets" for the core group), so who-can (22a) matches a rule's
 // apiGroups and not just its resource name. A typed kind reads both from
-// the typed table; a discovered kind pairs its lowercased plural Display
-// with its CRD group.
+// the typed table; a discovered kind pairs its discovered plural with its
+// CRD group; a synthetic kind (Helm Releases) names the resource
+// it's stored as.
 func RBACResource(desc Descriptor) string {
 	if resource, group, ok := kube.BuiltinRBACResource(desc.Kind); ok {
 		return kube.JoinRBACResource(resource, group)
+	}
+	if desc.APIResource != "" {
+		return kube.JoinRBACResource(desc.APIResource, desc.APIGroup)
 	}
 	return kube.JoinRBACResource(strings.ToLower(desc.Display), desc.APIGroup)
 }
