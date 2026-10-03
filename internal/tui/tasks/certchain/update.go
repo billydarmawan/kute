@@ -61,11 +61,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // reloadsOn reports whether a change to kind could change this screen —
-// its own kind, any kind actually present in the resolved chain, or either
-// ref's kind. Never a blanket "reload on anything," which would defeat the
-// point of the narrow reads load() already does.
+// any of the four chain kinds (a freshly created Order or Challenge extends
+// the chain before anything already in it changes, so waiting for it to be
+// present would miss exactly that event; all four are namespace-scoped,
+// cache-local reads), any other kind present in the resolved chain, or
+// either ref's kind. Never a blanket "reload on anything," which would
+// defeat the point of the narrow reads load() already does.
 func (m Model) reloadsOn(kind kube.ResourceKind) bool {
-	if kind == kube.KindCertificate || kind == kube.KindCertificateRequest {
+	switch kind {
+	case kube.KindCertificate, kube.KindCertificateRequest, kube.KindOrder, kube.KindChallenge:
 		return true
 	}
 	for _, n := range m.chain {

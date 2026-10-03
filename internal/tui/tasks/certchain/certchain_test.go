@@ -171,6 +171,19 @@ func TestReloadsOnIsNarrow(t *testing.T) {
 	}
 }
 
+// TestReloadsOnANewOrderOrChallengeBeforeItIsInTheChain pins that a chain
+// still ending at its CertificateRequest reloads when the Order (or its
+// Challenge) is first created — the event that extends the chain arrives
+// before anything already in it changes.
+func TestReloadsOnANewOrderOrChallengeBeforeItIsInTheChain(t *testing.T) {
+	m := Model{chain: []chainNode{{Kind: kube.KindCertificate}, {Kind: kube.KindCertificateRequest}}}
+	for _, kind := range []kube.ResourceKind{kube.KindOrder, kube.KindChallenge} {
+		if !m.reloadsOn(kind) {
+			t.Errorf("expected reloadsOn(%s) = true before it joins the chain", kind)
+		}
+	}
+}
+
 // recordingLister answers ListRaw from objs and records which kind/namespace
 // pairs were read.
 type recordingLister struct {
