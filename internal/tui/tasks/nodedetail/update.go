@@ -476,7 +476,8 @@ func (m *Model) cancelInlineConfirm() {
 // updateFilterKey drives the pods list's live "/" filter — same shape as
 // browse's updateFilterKey, flattened for this package's ungrouped list:
 // esc clears and exits, backspace edits the query, up/down still move the
-// selection (plain j/k stay typeable into the query, same as browse).
+// selection, as do ctrl+k/ctrl+j (plain j/k stay typeable into the query,
+// same as browse).
 func (m *Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -484,9 +485,9 @@ func (m *Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.filterInput.SetValue("")
 		m.filterInput.Blur()
 		m.recomputeFiltered()
-	case "up":
+	case "up", "ctrl+k":
 		m.moveSelection(-1)
-	case "down":
+	case "down", "ctrl+j":
 		m.moveSelection(1)
 	case "ctrl+d", verbs.PageDown.Key:
 		m.moveHalfPage(1)

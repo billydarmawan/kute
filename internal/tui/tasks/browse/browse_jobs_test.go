@@ -12,6 +12,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/config"
 	"github.com/kute-dev/kute/internal/kube"
+	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui/actions"
 )
 
@@ -232,6 +233,15 @@ func TestRStagesJobRerunThenCreatesOnEnter(t *testing.T) {
 	}
 	if len(mut.retriedJobs) != 0 {
 		t.Fatalf("expected no retry before enter, got %v", mut.retriedJobs)
+	}
+	// No text buffer here, so j/k toggle the choice like ↑↓.
+	m = step(t, m, tea.KeyPressMsg{Code: 'j', Text: "j"})
+	if m.pendingJobRerun.choice != resources.JobRerunReplace {
+		t.Fatalf("choice = %v after j, want replace", m.pendingJobRerun.choice)
+	}
+	m = step(t, m, tea.KeyPressMsg{Code: 'k', Text: "k"})
+	if m.pendingJobRerun.choice != resources.JobRerunCreate {
+		t.Fatalf("choice = %v after k, want create", m.pendingJobRerun.choice)
 	}
 
 	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})

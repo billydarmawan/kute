@@ -47,7 +47,7 @@ func (m *Model) updateRerunKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.pendingRerun = nil
-	case "up", "down":
+	case "up", "down", "k", "j":
 		t := m.pendingRerun
 		if t.choice == resources.JobRerunCreate {
 			t.choice = resources.JobRerunReplace

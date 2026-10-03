@@ -106,6 +106,17 @@ func TestPodsListFilters(t *testing.T) {
 	if len(m.pods) != 2 {
 		t.Fatalf("filtered pods = %d, want 2 (api-server excluded)", len(m.pods))
 	}
+	// ctrl+j/ctrl+k move the selection while filtering, as in browse;
+	// plain j/k stay typeable.
+	m.selected = 0
+	m = step(t, m, tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
+	if m.selected != 1 {
+		t.Fatalf("selected = %d after ctrl+j, want 1", m.selected)
+	}
+	m = step(t, m, tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	if m.selected != 0 || m.filterInput.Value() != "worker" {
+		t.Fatalf("after ctrl+k: selected = %d, query = %q; want 0 and the query untouched", m.selected, m.filterInput.Value())
+	}
 	if len(m.allPods) != 3 {
 		t.Fatal("expected allPods to stay intact while filtering")
 	}

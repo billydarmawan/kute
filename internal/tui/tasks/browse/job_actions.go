@@ -63,12 +63,13 @@ func (m *Model) beginJobRerun(row resources.Row) bool {
 }
 
 // updateJobRerunKey routes keys while pendingJobRerun's preflight is
-// showing: esc cancels, ↑↓ toggles create/replace, enter commits.
+// showing: esc cancels, ↑↓ (or j/k — there's no text buffer here)
+// toggles create/replace, enter commits.
 func (m *Model) updateJobRerunKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.pendingJobRerun = nil
-	case "up", "down":
+	case "up", "down", "k", "j":
 		t := m.pendingJobRerun
 		if t.choice == resources.JobRerunCreate {
 			t.choice = resources.JobRerunReplace

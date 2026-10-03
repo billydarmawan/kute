@@ -93,6 +93,21 @@ func TestBeginRerunStagesCreateChoiceByDefault(t *testing.T) {
 	}
 }
 
+// The create/replace choice has no text buffer, so j/k toggle it like ↑↓.
+func TestRerunChoiceTogglesOnJK(t *testing.T) {
+	c, _ := newFakeJob("default", "batch-1")
+	m := newModel(t, c, "default", "batch-1")
+	m.beginRerun()
+	m = step(t, m, tea.KeyPressMsg{Code: 'j', Text: "j"})
+	if m.pendingRerun.choice != resources.JobRerunReplace {
+		t.Fatalf("choice = %v after j, want replace", m.pendingRerun.choice)
+	}
+	m = step(t, m, tea.KeyPressMsg{Code: 'k', Text: "k"})
+	if m.pendingRerun.choice != resources.JobRerunCreate {
+		t.Fatalf("choice = %v after k, want create", m.pendingRerun.choice)
+	}
+}
+
 func TestCommitRerunCreateExecutesImmediately(t *testing.T) {
 	c, _ := newFakeJob("default", "batch-1")
 	m := newModel(t, c, "default", "batch-1")
