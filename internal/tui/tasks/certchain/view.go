@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
@@ -313,15 +314,21 @@ func statusColor(theme tui.Theme, c resources.StatusClass) color.Color {
 	}
 }
 
+// wrap breaks s into lines of at most width display cells, measured in
+// cells rather than bytes so a multi-byte rune is never cut in half. The
+// message is plain text (no ANSI), so head is a byte prefix of s.
 func wrap(s string, width int) []string {
-	if width <= 0 || len(s) <= width {
+	if width <= 0 || ansi.StringWidth(s) <= width {
 		return []string{s}
 	}
 	var out []string
-	for len(s) > width {
-		cut := strings.LastIndex(s[:width], " ")
+	for ansi.StringWidth(s) > width {
+		// Breaks only at spaces (a hyphenated DNS name stays whole), and
+		// mid-word on a grapheme boundary when a word outruns the line.
+		head := ansi.Truncate(s, width, "")
+		cut := strings.LastIndex(head, " ")
 		if cut <= 0 {
-			cut = width
+			cut = len(head)
 		}
 		out = append(out, strings.TrimSpace(s[:cut]))
 		s = strings.TrimSpace(s[cut:])

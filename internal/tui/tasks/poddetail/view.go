@@ -807,11 +807,11 @@ func (m Model) deleteConfirmModal(width, height int) string {
 	return components.TypeNameModal(title, ownerLine, detail, target, m.actions.TypedInput(), "delete", m.isProd(), styles, width, height)
 }
 
+// padTo fits s to exactly width display cells — by cell width, not bytes,
+// so an event reason or condition type carrying a multi-byte rune is never
+// cut mid-rune or mis-measured.
 func padTo(s string, width int) string {
-	if len(s) >= width {
-		return s[:width]
-	}
-	return s + strings.Repeat(" ", width-len(s))
+	return components.Pad(s, width)
 }
 
 // shortAge renders how long ago t was — mirrors resources.shortAge's
