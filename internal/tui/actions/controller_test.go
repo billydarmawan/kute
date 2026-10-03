@@ -19,7 +19,7 @@ import (
 // typed-name gating) independent of which verb gets which tier, which
 // verbs' TestResolvePolicyTable and TestBeginResolvesPolicy pin instead.
 func beginAt(c *Controller, tier Tier, action tui.TaskAction) tea.Cmd {
-	return c.begin(verbs.Policy{Tier: tier, TypedName: tier == TierModal}, action)
+	return c.begin(Request{}, verbs.Policy{Tier: tier, TypedName: tier == TierModal}, action)
 }
 
 // typeRune feeds a single character into the type-ahead buffer via

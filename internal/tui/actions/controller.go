@@ -2,8 +2,8 @@
 // operations. A screen embeds a Controller, calls Begin with the action's
 // registry verb when the user presses a mutating key — Begin resolves the
 // confirm policy itself (verbs.Resolve), so no call site picks a tier —
-// routes confirm-state keys to Confirm/Cancel/HandleTypeKey/Escalate
-// while the controller is Active, and feeds ResultMsg back through
+// routes every key to HandleConfirmKey while the controller is Active
+// (rendering ConfirmHints on a y/N's keybar), and feeds ResultMsg back through
 // HandleResult. Execution runs through kube.Mutator, so no screen calls a
 // write verb directly and the confirmation gate is enforced in exactly one
 // place.
@@ -121,6 +121,12 @@ type Controller struct {
 	mutator kube.Mutator
 	pending *tui.TaskAction
 	tier    Tier
+	// requested is the registry verb ID the pending action was Begun under
+	// (Request.Verb) and prod its Request.Prod — what HandleConfirmKey
+	// escalates a force delete under, and why the debug panel's CLEAN UP
+	// (verbs.DebugCleanup, a "delete" Scope) is never offered one.
+	requested string
+	prod      bool
 	// typed is the pending confirm's verbs.Policy.TypedName: a TierModal
 	// confirm that types the name (a marked set: the count) rather than
 	// answering a y/N card.
@@ -293,7 +299,7 @@ func (c *Controller) Refuse(message string) {
 // (and whether the modal types the name) so screens render the right
 // surface.
 func (c *Controller) Begin(r Request, action tui.TaskAction) tea.Cmd {
-	return c.begin(verbs.Resolve(r.Verb, target(r, action.Scope), r.Prod), action)
+	return c.begin(r, verbs.Resolve(r.Verb, target(r, action.Scope), r.Prod), action)
 }
 
 // target derives Resolve's Target from the request and the action's Scope.
@@ -307,7 +313,7 @@ func target(r Request, scope tui.TaskScope) verbs.Target {
 	}
 }
 
-func (c *Controller) begin(p verbs.Policy, action tui.TaskAction) tea.Cmd {
+func (c *Controller) begin(r Request, p verbs.Policy, action tui.TaskAction) tea.Cmd {
 	if c.refuseIfOffline() {
 		return nil
 	}
@@ -327,6 +333,7 @@ func (c *Controller) begin(p verbs.Policy, action tui.TaskAction) tea.Cmd {
 	}
 	c.seq++
 	c.pending = &action
+	c.requested, c.prod = r.Verb.ID, r.Prod
 	c.tier = p.Tier
 	c.typed = p.TypedName
 	c.typedInput = textfield.New()
@@ -419,16 +426,20 @@ func (c *Controller) PasteTarget() tui.PasteTarget {
 // delete included, which has no force-delete form — is left untouched, so a
 // modal's caller can hand an unclaimed chord on to its text buffer.
 func (c *Controller) EscalateForceDelete(isProd bool) bool {
-	p := c.pending
-	if !c.Active() || p == nil || p.Scope.Verb != verbs.Delete.ID || len(p.Scope.BulkTargets) > 0 {
+	if !c.deleteEscalates() {
 		return false
 	}
-	kind := kube.ResourceKind(p.Scope.ResourceKind)
-	if !verbs.ForceDelete.AppliesTo(kind) {
-		return false
-	}
+	kind := kube.ResourceKind(c.pending.Scope.ResourceKind)
 	c.escalate(verbs.ForceDelete.ID, verbs.Resolve(verbs.ForceDelete, verbs.Target{Kind: kind}, isProd))
 	return true
+}
+
+// deleteEscalates reports whether the pending confirm is a single-target
+// Delete of a kind ForceDelete applies to — EscalateForceDelete's gate.
+func (c Controller) deleteEscalates() bool {
+	p := c.pending
+	return c.Active() && p != nil && p.Scope.Verb == verbs.Delete.ID && len(p.Scope.BulkTargets) == 0 &&
+		verbs.ForceDelete.AppliesTo(kube.ResourceKind(p.Scope.ResourceKind))
 }
 
 // escalate switches the pending action to verb under policy p. The tier

@@ -678,6 +678,34 @@ var (
 	OpenTLSSecret = Verb{ID: "open-tls-secret", Key: "↵", Label: "open secret"}
 )
 
+// The confirm vocabulary: the answers every confirm takes, whatever verb
+// it guards. actions.Controller.HandleConfirmKey matches on these keys and
+// ConfirmHints renders them, so a screen's y/N keybar and the keys its
+// confirm actually answers to come from one place (review 10 L5: the
+// copy-pasted routers and hand-built hints are how ctrl+k's force delete
+// came to be advertised under one key and handled under another).
+var (
+	// ConfirmAccept answers a y/N confirm (inline, or a modal y/N card).
+	ConfirmAccept = Verb{ID: "confirm-accept", Key: "y", Label: "confirm"}
+	// ConfirmDecline is n, the y/N confirm's unadvertised second way out —
+	// ConfirmCancel is the one the keybar shows.
+	ConfirmDecline = Verb{ID: "confirm-decline", Key: "n", Label: "cancel"}
+	// ConfirmCancel abandons any confirm, the type-the-name modal included.
+	ConfirmCancel = Verb{ID: "confirm-cancel", Key: "esc", Label: "cancel"}
+	// ConfirmSubmit is the type-the-name modal's ↵, which executes only once
+	// the typed name (a marked set: the count) matches. Its Key is the key
+	// press's name, not a display glyph: the modal draws its own ↵ key row.
+	ConfirmSubmit = Verb{ID: "confirm-submit", Key: "enter", Label: "confirm"}
+)
+
+// ConfirmHints is a y/N confirm's keybar group — the bespoke gates outside
+// actions.Controller (the kubectl edit/debug handoffs, 13a's stop-all) use
+// it directly; a Controller confirm uses Controller.ConfirmHints, which adds
+// the force-delete escalation when it applies.
+func ConfirmHints() []tui.KeyHint {
+	return []tui.KeyHint{ConfirmAccept.Hint(), ConfirmCancel.Hint()}
+}
+
 // All is every registered verb, for the help overlay's fixed SCOPE/GLOBAL
 // columns and for ByID lookups.
 var All = []Verb{
@@ -698,6 +726,7 @@ var All = []Verb{
 	SecretMaskToggle, SecretPaste, ConfigMapBufferApply, MetaRemoveKey, MetaCopyKeyValue,
 	Forward, StopForward, RestartForward, StopAllForwards, CopyForwardURL, CopyServiceClusterIP, CopyServiceExternalIP,
 	CopyRouteURL, OpenParentGateway, CopyRouteYAML, FocusTLSStrip, OpenTLSSecret,
+	ConfirmAccept, ConfirmDecline, ConfirmCancel, ConfirmSubmit,
 }
 
 // ByID looks up a registered verb by its stable ID.

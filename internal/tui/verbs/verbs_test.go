@@ -131,6 +131,7 @@ func TestAllRegistersEveryDefinedVerb(t *testing.T) {
 		SecretMaskToggle, SecretPaste, ConfigMapBufferApply, MetaRemoveKey, MetaCopyKeyValue,
 		Forward, StopForward, RestartForward, StopAllForwards, CopyForwardURL, CopyServiceClusterIP, CopyServiceExternalIP,
 		CopyRouteURL, OpenParentGateway, CopyRouteYAML, FocusTLSStrip, OpenTLSSecret,
+		ConfirmAccept, ConfirmDecline, ConfirmCancel, ConfirmSubmit,
 	}
 	for _, v := range defined {
 		if _, ok := ByID(v.ID); !ok {
