@@ -220,10 +220,17 @@ func sectionTitle(theme tui.Theme, text string) string {
 func (m Model) capacityLines(theme tui.Theme) []string {
 	lines := []string{sectionTitle(theme, "CAPACITY")}
 	if m.metricsAvailable {
+		usage := m.clusterUsage()
 		lines = append(lines,
-			allocationBarLine("cpu", m.capCPUUsed, m.capCPUTotal, theme, func(v int64) string { return fmt.Sprintf("%dm", v) }),
-			allocationBarLine("mem", m.capMemUsed, m.capMemTotal, theme, formatBytes),
+			allocationBarLine("cpu", usage.cpuUsed, usage.cpuTotal, theme, func(v int64) string { return fmt.Sprintf("%dm", v) }),
+			allocationBarLine("mem", usage.memUsed, usage.memTotal, theme, formatBytes),
 		)
+		if usage.reporting < len(m.nodeCapacity) {
+			// The bars cover only the nodes that reported — say so, rather
+			// than pass a partial sum off as the whole cluster.
+			lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render(
+				fmt.Sprintf("cpu / mem — %d/%d nodes reporting", usage.reporting, len(m.nodeCapacity))))
+		}
 	} else if m.nodeMetrics != nil && !m.metricsPolled {
 		// The first poll is still in flight — not yet a claim either way.
 		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — reading metrics-server…"))

@@ -118,9 +118,13 @@ type Model struct {
 	metricsAvailable bool
 	// metricsErr is why the last poll failed, nil when it answered — it
 	// picks CAPACITY's note when there's no reading to draw.
-	metricsErr                error
-	capCPUUsed, capCPUTotal   int64
-	capMemUsed, capMemTotal   int64
+	metricsErr error
+	// nodeUsage is the last poll's reading for every node that reported
+	// one, nodeCapacity the last load's per-node capacity; clusterUsage
+	// joins them, so CAPACITY's cpu/mem only ever divide usage by the
+	// capacity of the nodes that usage came from.
+	nodeUsage                 map[string]kube.NodeMetric
+	nodeCapacity              map[string]kube.NodeResources
 	capPodsUsed, capPodsTotal int64
 
 	// nodeTrouble/podTrouble are the unhealthy (Warn/Fail, or cordoned for
@@ -181,12 +185,12 @@ type loadedMsg struct {
 // sync interval only").
 type metricsTickMsg struct{ epoch int }
 
-// metricsLoadedMsg carries one poll's cluster-wide usage sum.
+// metricsLoadedMsg carries one poll's per-node usage — only the nodes
+// that reported a real reading.
 type metricsLoadedMsg struct {
-	epoch            int
-	available        bool
-	cpuUsed, memUsed int64
-	err              error
+	epoch int
+	usage map[string]kube.NodeMetric
+	err   error
 }
 
 // loadedData is every field load() computes in one pass — applied onto
@@ -198,8 +202,7 @@ type loadedData struct {
 	podCount  int
 	nsCount   int
 
-	capCPUTotal               int64
-	capMemTotal               int64
+	nodeCapacity              map[string]kube.NodeResources
 	capPodsUsed, capPodsTotal int64
 
 	nodeTrouble []resources.Row

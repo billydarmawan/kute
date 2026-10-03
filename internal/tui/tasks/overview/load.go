@@ -106,7 +106,7 @@ func (m Model) loadMetrics() tea.Cmd {
 		ctx, cancel := context.WithTimeout(parent, timeout)
 		defer cancel()
 		msg := metricsLoadedMsg{epoch: epoch}
-		msg.available, msg.cpuUsed, msg.memUsed, msg.err = readClusterUsage(ctx, src)
+		msg.usage, msg.err = readClusterUsage(ctx, src)
 		return msg
 	}
 }
@@ -137,27 +137,53 @@ func (m Model) pollsMetrics() bool {
 	return m.nodeMetrics != nil && !m.conn.Offline()
 }
 
-// readClusterUsage sums every node's live usage from one NodeMetrics poll.
-func readClusterUsage(ctx context.Context, src NodeMetricsReader) (available bool, cpuUsed, memUsed int64, err error) {
+// readClusterUsage reads every node's live usage from one NodeMetrics
+// poll, keeping only the nodes with a real reading. "n/a"/"" is
+// kube.NodeMetric's own no-reading sentinel (browse/nodes.go's
+// nodeMetricCell checks the same thing per row) — a node reporting it is
+// left out, and if every node does the map comes back empty, so
+// capacityLines shows a note instead of a misleadingly flatlined 0-used bar.
+func readClusterUsage(ctx context.Context, src NodeMetricsReader) (map[string]kube.NodeMetric, error) {
 	metrics, err := src.NodeMetrics(ctx)
 	if err != nil {
-		return false, 0, 0, err
+		return nil, err
 	}
-	for _, nm := range metrics {
-		// "n/a"/"" is kube.NodeMetric's own no-metrics-server sentinel
-		// (browse/nodes.go's nodeMetricCell checks the same thing per
-		// row) — a node reporting it contributes nothing, and if every
-		// node does (demo mode always does), available must stay false
-		// so capacityLines shows the "no metrics-server" note instead of
-		// a misleadingly flatlined 0-used bar.
+	usage := make(map[string]kube.NodeMetric, len(metrics))
+	for name, nm := range metrics {
 		if nm.CPU == "" || nm.CPU == "n/a" {
 			continue
 		}
-		available = true
-		cpuUsed += nm.CPUMilli
-		memUsed += nm.MemBytes
+		usage[name] = nm
 	}
-	return available, cpuUsed, memUsed, nil
+	return usage, nil
+}
+
+// usageSum is CAPACITY's cpu/mem over the nodes that reported usage.
+type usageSum struct {
+	cpuUsed, cpuTotal int64
+	memUsed, memTotal int64
+	// reporting is how many of the cluster's nodes that covers.
+	reporting int
+}
+
+// clusterUsage sums usage and capacity over the nodes present in both the
+// last poll and the last load — only those: a NotReady or just-joined node
+// has capacity but no usage, and counting its capacity anyway would
+// understate the percentage for every node that does report.
+func (m Model) clusterUsage() usageSum {
+	var sum usageSum
+	for name, nm := range m.nodeUsage {
+		capacity, ok := m.nodeCapacity[name]
+		if !ok {
+			continue
+		}
+		sum.cpuUsed += nm.CPUMilli
+		sum.memUsed += nm.MemBytes
+		sum.cpuTotal += capacity.CPUMilli
+		sum.memTotal += capacity.MemBytes
+		sum.reporting++
+	}
+	return sum
 }
 
 func loadOverview(ctx context.Context, lister resources.RawLister, registry resources.Registry) (loadedData, error) {
@@ -182,9 +208,10 @@ func loadOverview(ctx context.Context, lister resources.RawLister, registry reso
 			// metrics-server's whole-node usage (kube.NodeCapacity explains
 			// why mixing that with Allocatable reads hot); pods divides by
 			// Allocatable, which is what the scheduler will actually place.
-			capacity := kube.NodeCapacity(n)
-			data.capCPUTotal += capacity.CPUMilli
-			data.capMemTotal += capacity.MemBytes
+			if data.nodeCapacity == nil {
+				data.nodeCapacity = make(map[string]kube.NodeResources, len(nodeObjs))
+			}
+			data.nodeCapacity[n.Name] = kube.NodeCapacity(n)
 			data.capPodsTotal += kube.NodeAllocatable(n).Pods
 			if v := n.Status.NodeInfo.KubeletVersion; v != "" {
 				versions[v]++

@@ -35,8 +35,8 @@ func TestWatchEventsDebounceReloadsAndNeverQueryMetricsServer(t *testing.T) {
 	m := New(Config{Session: newSession(), Lister: baseLister(), NodeMetrics: metrics})
 	m.SetSize(120, 36)
 	m = step(t, m, m.Init()())
-	if metrics.calls != 1 || m.capCPUUsed != 100 {
-		t.Fatalf("after open: node metrics calls=%d cpu=%d, want 1 and 100", metrics.calls, m.capCPUUsed)
+	if metrics.calls != 1 || m.clusterUsage().cpuUsed != 100 {
+		t.Fatalf("after open: node metrics calls=%d cpu=%d, want 1 and 100", metrics.calls, m.clusterUsage().cpuUsed)
 	}
 
 	m, first := update(m, kube.ResourceChangedMsg{Kind: kube.KindPod})
@@ -54,8 +54,8 @@ func TestWatchEventsDebounceReloadsAndNeverQueryMetricsServer(t *testing.T) {
 	if metrics.calls != 1 {
 		t.Fatalf("a watch-driven reload queried metrics-server: %d calls, want 1", metrics.calls)
 	}
-	if m.capCPUUsed != 100 || !m.metricsAvailable {
-		t.Fatalf("reload dropped the last usage reading: cpu=%d available=%v", m.capCPUUsed, m.metricsAvailable)
+	if m.clusterUsage().cpuUsed != 100 || !m.metricsAvailable {
+		t.Fatalf("reload dropped the last usage reading: cpu=%d available=%v", m.clusterUsage().cpuUsed, m.metricsAvailable)
 	}
 	if _, cmd := update(m, kube.ResourceChangedMsg{Kind: kube.KindPod}); cmd == nil {
 		t.Fatal("an event after the reload fired must schedule the next one")
@@ -64,8 +64,8 @@ func TestWatchEventsDebounceReloadsAndNeverQueryMetricsServer(t *testing.T) {
 	metrics.cpu = 900
 	m, poll := update(m, metricsTickMsg{epoch: m.metricsEpoch})
 	m = step(t, m, poll())
-	if metrics.calls != 2 || m.capCPUUsed != 900 {
-		t.Fatalf("tick poll: calls=%d cpu=%d, want 2 and 900", metrics.calls, m.capCPUUsed)
+	if metrics.calls != 2 || m.clusterUsage().cpuUsed != 900 {
+		t.Fatalf("tick poll: calls=%d cpu=%d, want 2 and 900", metrics.calls, m.clusterUsage().cpuUsed)
 	}
 }
 

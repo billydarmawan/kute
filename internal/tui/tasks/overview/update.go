@@ -54,8 +54,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.metricsErr = msg.err
 			return m, m.scheduleMetricsTick(m.metricsEpoch)
 		}
-		m.metricsAvailable, m.metricsErr = msg.available, msg.err
-		m.capCPUUsed, m.capMemUsed = msg.cpuUsed, msg.memUsed
+		m.metricsAvailable, m.metricsErr = len(msg.usage) > 0, msg.err
+		m.nodeUsage = msg.usage
 		return m, m.scheduleMetricsTick(m.metricsEpoch)
 	case spinner.TickMsg:
 		if m.state != tui.TaskStateLoading {
@@ -141,7 +141,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	m.nodeCount = d.nodeCount
 	m.podCount = d.podCount
 	m.nsCount = d.nsCount
-	m.capCPUTotal, m.capMemTotal = d.capCPUTotal, d.capMemTotal
+	m.nodeCapacity = d.nodeCapacity
 	m.capPodsUsed, m.capPodsTotal = d.capPodsUsed, d.capPodsTotal
 	m.nodeTrouble, m.nodeHealthy = d.nodeTrouble, d.nodeHealthy
 	m.podTrouble, m.podHealthy = d.podTrouble, d.podHealthy

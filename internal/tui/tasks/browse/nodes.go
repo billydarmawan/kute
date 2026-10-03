@@ -251,35 +251,47 @@ func (m Model) nodeMajorityVersion() string {
 // nodeSummaryText is 11a's health-strip right side: "5 nodes · 125 pods ·
 // cluster cpu 46% · mem 71%" — the cluster cpu/mem clause is omitted
 // entirely until the first metrics poll lands (no metrics-server installed
-// degrades to just the node/pod counts).
+// degrades to just the node/pod counts). When only some nodes report usage
+// (NotReady, just joined) the clause says over how many: "(4/5 nodes)".
 func (m Model) nodeSummaryText() string {
 	text := fmt.Sprintf("%d nodes · %d pods", len(m.rows), m.clusterPodTotal)
-	if cpuPct, memPct, ok := m.clusterUsagePct(); ok {
+	if cpuPct, memPct, reporting, ok := m.clusterUsagePct(); ok {
 		text += fmt.Sprintf(" · cluster cpu %d%% · mem %d%%", cpuPct, memPct)
+		if reporting < len(m.nodeCapacity) {
+			text += fmt.Sprintf(" (%d/%d nodes)", reporting, len(m.nodeCapacity))
+		}
 	}
 	return text
 }
 
-func (m Model) clusterUsagePct() (cpuPct, memPct int, ok bool) {
+// clusterUsagePct is usage over capacity summed across the nodes that
+// reported a reading — only those: a NotReady or just-joined node has
+// capacity but no usage, and counting its capacity anyway would understate
+// the percentage for every node that does report. reporting is how many
+// nodes that is.
+func (m Model) clusterUsagePct() (cpuPct, memPct, reporting int, ok bool) {
 	if len(m.nodeMetrics) == 0 {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 	var usedCPU, usedMem, capCPU, capMem int64
 	for name, cap := range m.nodeCapacity {
+		nm, found := m.nodeMetrics[name]
+		if !found || nm.CPU == "" || nm.CPU == "n/a" {
+			continue
+		}
 		// Capacity, matching the per-row bars above — this clause and those
 		// bars are the same statement at two scales, so they must divide by
 		// the same thing.
 		capCPU += cap.capacity.CPUMilli
 		capMem += cap.capacity.MemBytes
-		if nm, found := m.nodeMetrics[name]; found {
-			usedCPU += nm.CPUMilli
-			usedMem += nm.MemBytes
-		}
+		usedCPU += nm.CPUMilli
+		usedMem += nm.MemBytes
+		reporting++
 	}
 	if capCPU == 0 || capMem == 0 {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
-	return int(usedCPU * 100 / capCPU), int(usedMem * 100 / capMem), true
+	return int(usedCPU * 100 / capCPU), int(usedMem * 100 / capMem), reporting, true
 }
 
 // beginCordon toggles row's schedulable state — TierNone (verbs.Cordon), so
