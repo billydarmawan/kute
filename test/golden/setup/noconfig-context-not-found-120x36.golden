@@ -1,0 +1,36 @@
+  kute                                                                                                    ○ no cluster  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                            ██  ██  ██  ██  ██████  ██████                                                              
+                            ██ ██   ██  ██    ██    ██        kute                                                      
+                            ████    ██  ██    ██    █████     a console for your clusters                               
+                            ██ ██   ██  ██    ██    ██                                                                  
+                            ██  ██   ████     ██    ██████    v0.1.0-dev                                                
+                                                                                                                        
+                            context typo not found in kubeconfig                                                        
+                            ╭─────────────────────────────────╮                                                         
+                            │  LOOKED IN                      │                                                         
+                            │  context "typo" does not exist  │                                                         
+                            ╰─────────────────────────────────╯                                                         
+                                   get a kubeconfig from your cluster provider or run                                   
+                aws eks update-kubeconfig · gcloud container clusters get-credentials · microk8s config                 
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   SETUP  r retry  k enter kubeconfig path                                                                 ctrl+q quit  

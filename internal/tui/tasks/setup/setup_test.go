@@ -437,3 +437,31 @@ func TestRebuildKeysIgnoredWhileRetrying(t *testing.T) {
 		t.Errorf("SwitchToContext called %d times after the first rebuild failed, want ↵ to work again", switches)
 	}
 }
+
+// 02 M8: 10b said "no kubeconfig found" for every load error — including a
+// mistyped --context against a perfectly good file.
+func TestNoConfigTitleNamesWhatWentWrong(t *testing.T) {
+	cases := []struct {
+		err  error
+		want string
+	}{
+		{&kube.ConfigLookupError{Paths: []kube.PathCheck{{Label: "$KUBECONFIG", Reason: "not set"}}}, "no kubeconfig found"},
+		{fmt.Errorf("build cluster: %w", &kube.ContextNotFoundError{Name: "typo"}), "context typo not found in kubeconfig"},
+		{kube.NewKubeconfigLoadError("/home/dev/.kube/config", errors.New("yaml: line 4: did not find expected node content")), "kubeconfig couldn't be loaded"},
+		{errors.New("open /home/dev/.kube/config: permission denied"), "kubeconfig couldn't be loaded"},
+	}
+	for _, tc := range cases {
+		m := New(Config{State: NoConfig, Err: tc.err})
+		m.SetSize(120, 36)
+		view := ansi.Strip(m.Render())
+		if !strings.Contains(view, tc.want) {
+			t.Errorf("%v: view lacks title %q:\n%s", tc.err, tc.want, view)
+		}
+		if tc.want != "no kubeconfig found" && strings.Contains(view, "no kubeconfig found") {
+			t.Errorf("%v: view still says no kubeconfig found", tc.err)
+		}
+		if _, isLookup := errors.AsType[*kube.ConfigLookupError](tc.err); !isLookup && !strings.Contains(view, tc.err.Error()) {
+			t.Errorf("%v: LOOKED IN box lacks the real message:\n%s", tc.err, view)
+		}
+	}
+}

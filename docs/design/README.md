@@ -158,7 +158,8 @@ The file in this bundle (`Kute Spec.dc.html`, plus its runtime `support.js`) is 
 
 ### 10b — First run · no kubeconfig
 - The only screen with the wordmark (ASCII-art logo, `#33334a`) + tagline + version. Header shows `○ no cluster` in the connection-state slot.
-- **`LOOKED IN` box** (border `#1c1c2c`, bg `#0c0c12`): each path checked with why it failed — `✕ $KUBECONFIG — not set`, `✕ ~/.kube/config — no such file`.
+- **Title names what went wrong**, under the wordmark: `no kubeconfig found` only when there is none — the file is missing, or holds no configuration at all; `context <name> not found in kubeconfig` when the file loads but lacks the context asked for (a mistyped `--context`, or a remembered context since removed); `kubeconfig couldn't be loaded` for anything else (unreadable, malformed, a context pointing at a missing cluster or cert). The screen is the same in all three; only the title changes.
+- **`LOOKED IN` box** (border `#1c1c2c`, bg `#0c0c12`): each path checked with why it failed — `✕ $KUBECONFIG — not set`, `✕ ~/.kube/config — no such file` (or `— empty`). For a kubeconfig that exists but failed, the box carries the real error message instead, verbatim.
 - One dim line of provider hints (`aws eks update-kubeconfig · gcloud … · microk8s config`). No in-app wizard.
 - Keys: `r retry` (after fetching credentials) · `k enter kubeconfig path` · `ctrl+q quit`. Keybar pill `SETUP` (neutral gray `#1c1c2c`/`#9a9ab2`).
 

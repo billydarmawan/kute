@@ -263,3 +263,95 @@ users: []
 		t.Errorf("NewClientForContext with no kubeconfig = %v, want a *ConfigLookupError", err)
 	}
 }
+
+// 10b titles its screen by what actually went wrong, so the three ways a
+// kubeconfig can fail to produce a client come back as three types: none
+// there (ConfigLookupError), a context it doesn't have
+// (ContextNotFoundError), and anything else (KubeconfigLoadError).
+func TestClientConfigErrorTypes(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	good := write("good", `
+apiVersion: v1
+kind: Config
+current-context: dev
+contexts:
+- name: dev
+  context: {cluster: dev}
+clusters:
+- name: dev
+  cluster: {server: https://dev.example.invalid}
+users: []
+`)
+	staleCurrent := write("stale", `
+apiVersion: v1
+kind: Config
+current-context: gone
+contexts:
+- name: dev
+  context: {cluster: dev}
+clusters:
+- name: dev
+  cluster: {server: https://dev.example.invalid}
+users: []
+`)
+	brokenCluster := write("broken", `
+apiVersion: v1
+kind: Config
+current-context: dev
+contexts:
+- name: dev
+  context: {cluster: missing}
+clusters: []
+users: []
+`)
+	malformed := write("malformed", "apiVersion: v1\nkind: Config\ncontexts: [this is: not yaml\n")
+	empty := write("empty", "")
+
+	cases := []struct {
+		name, path, context string
+		check               func(error) bool
+		want                string
+	}{
+		{"unknown --context", good, "typo", func(err error) bool {
+			e, ok := errors.AsType[*ContextNotFoundError](err)
+			return ok && e.Name == "typo"
+		}, "ContextNotFoundError{typo}"},
+		{"stale current-context", staleCurrent, "", func(err error) bool {
+			e, ok := errors.AsType[*ContextNotFoundError](err)
+			return ok && e.Name == "gone"
+		}, "ContextNotFoundError{gone}"},
+		{"context naming a missing cluster", brokenCluster, "", func(err error) bool {
+			_, ok := errors.AsType[*KubeconfigLoadError](err)
+			return ok
+		}, "KubeconfigLoadError"},
+		{"malformed file", malformed, "", func(err error) bool {
+			_, ok := errors.AsType[*KubeconfigLoadError](err)
+			return ok
+		}, "KubeconfigLoadError"},
+		{"empty file", empty, "", func(err error) bool {
+			e, ok := errors.AsType[*ConfigLookupError](err)
+			return ok && len(e.Paths) > 0 && e.Paths[0].Reason == "empty"
+		}, "ConfigLookupError with the file marked empty"},
+		{"missing file", filepath.Join(dir, "nope"), "", func(err error) bool {
+			_, ok := errors.AsType[*ConfigLookupError](err)
+			return ok
+		}, "ConfigLookupError"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("KUBECONFIG", tc.path)
+			_, err := NewClientForContext(tc.context)
+			if err == nil || !tc.check(err) {
+				t.Fatalf("NewClientForContext(%q) = %T %v, want %s", tc.context, err, err, tc.want)
+			}
+		})
+	}
+}

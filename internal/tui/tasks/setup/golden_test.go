@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,12 +53,25 @@ func goldenNoConfigModel(width, height int) Model {
 	return model
 }
 
+// goldenNoConfigErrModel builds a 10b screen for a kubeconfig that exists
+// but failed some other way — the title names it and the LOOKED IN box
+// carries the real message.
+func goldenNoConfigErrModel(err error, width, height int) Model {
+	model := New(Config{State: NoConfig, Err: err})
+	model.SetSize(width, height)
+	return model
+}
+
 func goldenFixtures() map[string]string {
 	return map[string]string{
 		"unreachable-120x36.golden": goldentest.Plain(goldenUnreachableModel(120, 36).Render()),
 		"unreachable-80x24.golden":  goldentest.Plain(goldenUnreachableModel(80, 24).Render()),
 		"noconfig-120x36.golden":    goldentest.Plain(goldenNoConfigModel(120, 36).Render()),
 		"noconfig-80x24.golden":     goldentest.Plain(goldenNoConfigModel(80, 24).Render()),
+		"noconfig-context-not-found-120x36.golden": goldentest.Plain(goldenNoConfigErrModel(
+			&kube.ContextNotFoundError{Name: "typo"}, 120, 36).Render()),
+		"noconfig-invalid-120x36.golden": goldentest.Plain(goldenNoConfigErrModel(
+			kube.NewKubeconfigLoadError("/home/dev/.kube/config", errors.New("error loading config file \"/home/dev/.kube/config\": yaml: line 4: did not find expected node content")), 120, 36).Render()),
 	}
 }
 

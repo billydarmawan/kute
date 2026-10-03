@@ -146,10 +146,74 @@ func buildConfigLookupError(explicitPath, explicitLabel, defaultPath string, cau
 	return &ConfigLookupError{Paths: checks, cause: cause}
 }
 
+// ContextNotFoundError is a kubeconfig that loaded but has no context by
+// the name asked for — a mistyped --context, or a context 7a/4c remembered
+// that has since been removed from the file. Error() is client-go's own
+// message.
+type ContextNotFoundError struct {
+	Name  string
+	cause error
+}
+
+func (e *ContextNotFoundError) Error() string {
+	if e.cause == nil {
+		return fmt.Sprintf("context %q does not exist", e.Name)
+	}
+	return e.cause.Error()
+}
+
+func (e *ContextNotFoundError) Unwrap() error { return e.cause }
+
+// KubeconfigLoadError is a kubeconfig that exists but couldn't be turned
+// into a client config: unreadable, malformed, or pointing at something
+// missing (a cert file, a cluster entry). Distinct from ConfigLookupError,
+// which means there is no kubeconfig at all. Error() is the underlying
+// message, unchanged.
+type KubeconfigLoadError struct {
+	Path  string
+	cause error
+}
+
+// NewKubeconfigLoadError wraps cause as a load failure of the kubeconfig
+// at path — for fixtures that need one without a real file.
+func NewKubeconfigLoadError(path string, cause error) *KubeconfigLoadError {
+	return &KubeconfigLoadError{Path: path, cause: cause}
+}
+
+func (e *KubeconfigLoadError) Error() string {
+	if e.cause == nil {
+		return "couldn't load kubeconfig " + e.Path
+	}
+	return e.cause.Error()
+}
+func (e *KubeconfigLoadError) Unwrap() error { return e.cause }
+
+// classifyKubeconfigError types a ClientConfig failure against a kubeconfig
+// that does exist: a context the file doesn't have, or any other failure to
+// load it.
+func classifyKubeconfigError(clientConfig clientcmd.ClientConfig, contextName, path string, err error) error {
+	if raw, rawErr := clientConfig.RawConfig(); rawErr == nil {
+		name := contextName
+		if name == "" {
+			name = raw.CurrentContext
+		}
+		if _, ok := raw.Contexts[name]; name != "" && !ok {
+			return &ContextNotFoundError{Name: name, cause: err}
+		}
+	}
+	return &KubeconfigLoadError{Path: path, cause: err}
+}
+
 // kubeconfigMissing reports whether err from building a client config means
 // there is no kubeconfig to read: the resolved file doesn't exist, or holds
-// no configuration at all.
-func kubeconfigMissing(err error, path string) bool {
+// no configuration at all. A file with any context, cluster or user in it
+// is a kubeconfig, even when client-go calls the result empty (a context
+// whose cluster entry is missing reads as "no configuration has been
+// provided").
+func kubeconfigMissing(clientConfig clientcmd.ClientConfig, err error, path string) bool {
+	if raw, rawErr := clientConfig.RawConfig(); rawErr == nil && !clientcmdapi.IsConfigEmpty(&raw) {
+		return false
+	}
 	if clientcmd.IsEmptyConfig(err) {
 		return true
 	}
@@ -166,6 +230,9 @@ func pathFailureReason(path string) string {
 			return "no such file"
 		}
 		return err.Error()
+	}
+	if cfg, err := clientcmd.LoadFromFile(path); err == nil && clientcmdapi.IsConfigEmpty(cfg) {
+		return "empty"
 	}
 	return "invalid kubeconfig"
 }
@@ -215,8 +282,8 @@ func newClientForContext(contextName string) (Client, error) {
 		// cert file — is about a kubeconfig that does exist: falling back
 		// would connect to the pod's own API server while the header and
 		// prod tagging still named the context that was asked for.
-		if !kubeconfigMissing(err, loadingRules.ExplicitPath) {
-			return Client{}, err
+		if !kubeconfigMissing(clientConfig, err, loadingRules.ExplicitPath) {
+			return Client{}, classifyKubeconfigError(clientConfig, contextName, loadingRules.ExplicitPath, err)
 		}
 		if inClusterConfig, inClusterErr := rest.InClusterConfig(); inClusterErr == nil {
 			restConfig = inClusterConfig

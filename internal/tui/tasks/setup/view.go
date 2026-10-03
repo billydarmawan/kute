@@ -354,7 +354,7 @@ func (m Model) noConfigBody(width, height int) string {
 	hintLine := lipgloss.NewStyle().Width(hw).Align(lipgloss.Center)
 
 	lines := strings.Split(wordmark.Render(noConfigWordmark()), "\n")
-	lines = append(lines, "", text.Render("no kubeconfig found"))
+	lines = append(lines, "", text.Render(components.Truncate(noConfigTitle(m.err), bw)))
 	lines = append(lines, m.lookedInBox(theme)...)
 	lines = append(lines, hintLine.Render(faint.Render("get a kubeconfig from your cluster provider or run")))
 	lines = append(lines, providerHintLines(dim, faint, hw)...)
@@ -362,6 +362,24 @@ func (m Model) noConfigBody(width, height int) string {
 	lines = append(lines, m.statusLines(theme, bw)...)
 
 	return centerBlock(lines, bw, width, height)
+}
+
+// noConfigTitle is 10b's title line, naming what actually went wrong (docs/
+// design README.md §10b): "no kubeconfig found" only when there is none (a
+// *kube.ConfigLookupError — missing or empty), the context's name when the
+// file lacks it, and a plain "couldn't be loaded" for anything else, whose
+// real message the LOOKED IN box below carries.
+func noConfigTitle(err error) string {
+	if err == nil {
+		return "no kubeconfig found"
+	}
+	if missing, ok := errors.AsType[*kube.ContextNotFoundError](err); ok {
+		return "context " + missing.Name + " not found in kubeconfig"
+	}
+	if _, ok := asConfigLookupError(err); ok {
+		return "no kubeconfig found"
+	}
+	return "kubeconfig couldn't be loaded"
 }
 
 // providerHintLines wraps 10b's three copy-pasteable provider commands
