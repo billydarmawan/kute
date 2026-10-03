@@ -43,8 +43,9 @@ func (m *Model) applyPortsLoaded(msg portsLoadedMsg) {
 	}
 	m.resolvedPod = msg.resolvedPod
 	m.rows = make([]portRow, len(msg.ports))
+	held := m.heldLocalPorts()
 	for i, p := range msg.ports {
-		chosen, busyFrom := pickLocalPort(preferredLocalPort(p.Port))
+		chosen, busyFrom := pickLocalPort(preferredLocalPort(p.Port), held)
 		m.rows[i] = portRow{PortOption: p, localPort: chosen, busyFrom: busyFrom}
 		if i < len(msg.podPorts) {
 			m.rows[i].podPort = msg.podPorts[i]
@@ -194,6 +195,16 @@ func (m *Model) startSelected() tea.Cmd {
 	if row.editing {
 		m.commitEdit()
 		row = m.rows[m.selected]
+	}
+	// A local port another forward owns would leave this one looping in
+	// Reconnecting forever, never able to bind: bump it the same way the
+	// pre-fill does and stay, so the row says so before anything starts.
+	if held := m.heldLocalPorts(); held[row.localPort] {
+		chosen, busyFrom := pickLocalPort(row.localPort, held)
+		if busyFrom != 0 {
+			m.rows[m.selected].localPort, m.rows[m.selected].busyFrom = chosen, busyFrom
+			return nil
+		}
 	}
 	// The whole PortOption goes through, not just Port: for a Service the
 	// manager dials the targetPort resolved against the backing pod, never

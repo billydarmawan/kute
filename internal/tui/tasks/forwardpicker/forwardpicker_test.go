@@ -145,12 +145,51 @@ func TestPickLocalPortSkipsBusyPort(t *testing.T) {
 	defer func() { _ = ln.Close() }()
 	busy := ln.Addr().(*net.TCPAddr).Port
 
-	chosen, busyFrom := pickLocalPort(busy)
+	chosen, busyFrom := pickLocalPort(busy, nil)
 	if chosen == busy {
 		t.Fatalf("pickLocalPort(%d) chose the busy port itself", busy)
 	}
 	if busyFrom != busy {
 		t.Fatalf("busyFrom = %d, want %d", busyFrom, busy)
+	}
+}
+
+// TestEnterOnAPortAnotherForwardOwnsBumpsInsteadOfStarting pins that a
+// local port an existing forward holds — even one Reconnecting with no
+// listener bound — is skipped by the pre-fill and refused on enter, rather
+// than starting a second forward that can never bind.
+func TestEnterOnAPortAnotherForwardOwnsBumpsInsteadOfStarting(t *testing.T) {
+	t.Parallel()
+	mgr := kube.NewForwardManager()
+	m := New(Config{
+		Session:  &tui.Session{Theme: tui.Dark()},
+		Lister:   fakeLister{objs: []runtime.Object{podWithPort("default", "web-0", 80)}},
+		Resolver: stubResolver{pod: "web-0"},
+		Dialer:   fake.NewForwardDialer(),
+		Manager:  mgr,
+		Target:   kube.ForwardTarget{Kind: kube.KindPod, Namespace: "default", Name: "web-0"},
+	})
+	defer mgr.StopAll()
+	m = loadPorts(t, m)
+	owned := m.rows[0].localPort
+	// Another forward takes the pre-filled port after the picker loaded.
+	mgr.Start(fake.NewForwardDialer(), stubResolver{pod: "web-0"}, kube.ForwardTarget{Kind: kube.KindPod, Namespace: "default", Name: "web-0"}, "web-0", owned, 80, "")
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	next := updated.(*Model)
+	if cmd != nil {
+		t.Fatalf("expected enter on an owned port to stay on the picker, got %T", cmd())
+	}
+	if len(mgr.List()) != 1 {
+		t.Fatalf("List() = %d sessions, want only the original forward", len(mgr.List()))
+	}
+	if next.rows[0].busyFrom != owned || next.rows[0].localPort == owned {
+		t.Fatalf("row = local %d busyFrom %d, want bumped past %d", next.rows[0].localPort, next.rows[0].busyFrom, owned)
+	}
+
+	// A fresh picker never pre-fills the owned port in the first place.
+	if chosen, _ := pickLocalPort(owned, map[int]bool{owned: true}); chosen == owned {
+		t.Fatalf("pickLocalPort chose port %d an existing forward owns", owned)
 	}
 }
 
@@ -170,6 +209,7 @@ func TestEscPopsBack(t *testing.T) {
 func TestEnterStartsForwardAndPopsBack(t *testing.T) {
 	t.Parallel()
 	mgr := kube.NewForwardManager()
+	defer mgr.StopAll()
 	m := New(Config{
 		Session:  &tui.Session{Theme: tui.Dark()},
 		Lister:   fakeLister{objs: []runtime.Object{podWithPort("default", "web-0", 80)}},

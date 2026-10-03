@@ -11,9 +11,11 @@ package forwardpicker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -165,12 +167,14 @@ func preferredLocalPort(remote int32) int {
 
 // pickLocalPort probes preferred for an available local bind, walking
 // upward on a busy port (docs/design README.md §13a: "if the pre-fill is
-// busy, the row says so inline and pre-fills the next free one"). Returns
-// the chosen port and, if it differs from preferred, the busy port that was
-// skipped.
-func pickLocalPort(preferred int) (chosen, busyFrom int) {
-	for port := preferred; port < preferred+64; port++ {
-		if portFree(port) {
+// busy, the row says so inline and pre-fills the next free one"). A port in
+// held — one an existing forward owns — counts as busy even when nothing is
+// bound to it, since a Reconnecting forward holds no listener during its
+// backoff. Returns the chosen port and, if it differs from preferred, the
+// busy port that was skipped.
+func pickLocalPort(preferred int, held map[int]bool) (chosen, busyFrom int) {
+	for port := preferred; port < preferred+64 && port <= 65535; port++ {
+		if !held[port] && portFree(port) {
 			if port != preferred {
 				return port, preferred
 			}
@@ -180,11 +184,34 @@ func pickLocalPort(preferred int) (chosen, busyFrom int) {
 	return preferred, 0
 }
 
+// portFree reports whether port can be bound on both loopbacks a forward
+// listens on — client-go binds 127.0.0.1 and ::1, and the copied
+// "localhost:<port>" may resolve to either. A host with no IPv6 loopback
+// can't bind ::1 at all, which isn't a collision, so only "address in use"
+// counts as busy there.
 func portFree(port int) bool {
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	ln, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return false
 	}
 	_ = ln.Close()
+	ln6, err := net.Listen("tcp6", net.JoinHostPort("::1", strconv.Itoa(port)))
+	if err != nil {
+		return !errors.Is(err, syscall.EADDRINUSE)
+	}
+	_ = ln6.Close()
 	return true
+}
+
+// heldLocalPorts is the set of local ports every existing forward owns,
+// whatever its state.
+func (m Model) heldLocalPorts() map[int]bool {
+	held := map[int]bool{}
+	if m.manager == nil {
+		return held
+	}
+	for _, s := range m.manager.List() {
+		held[s.LocalPort] = true
+	}
+	return held
 }
