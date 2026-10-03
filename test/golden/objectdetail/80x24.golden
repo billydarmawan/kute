@@ -21,4 +21,4 @@ Normal    Requested         3m      Created new CertificateRequest resource…
                                                                                 
                                                                                 
 ────────────────────────────────────────────────────────────────────────────────
-   DETAIL  j/k next/prev │ D delete                                     ? help  
+   DETAIL  j/k next/prev │ 1 owner │ D delete                           ? help  

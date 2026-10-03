@@ -168,10 +168,9 @@ func statusColor(theme tui.Theme, class resources.StatusClass) color.Color {
 // excluding the always-present leading Name and trailing Age) with the
 // loaded object's projected cells — purely data-driven, no per-CRD code —
 // plus one appended OWNER line when the object carries an ownerReference,
-// rendered the same purple-accent-plus-↗ way poddetail's own Owner field
-// does (docs/design README.md §14d: "reusing the goto machinery" is read as
-// visual parity, not literal navigation — poddetail's own RELATED isn't
-// navigable either).
+// rendered the same purple-accent-plus-↗ way poddetail's RELATED entries
+// are — and, like them, '1' (the keybar's "1 owner") jumps to it through the
+// goto machinery (docs/design README.md §14d; update.go's openOwner).
 func (m Model) metaGrid(theme tui.Theme) string {
 	label := lipgloss.NewStyle().Foreground(theme.TextFaint)
 	value := lipgloss.NewStyle().Foreground(theme.TextPrimary)

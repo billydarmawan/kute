@@ -221,6 +221,11 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.moveSibling(1)
 	case "k", "up":
 		return m, m.moveSibling(-1)
+	case "1":
+		// The OWNER link's jump — poddetail's numbered RELATED grammar.
+		if cmd := m.openOwner(); cmd != nil {
+			return m, cmd
+		}
 	case verbs.YAML.Key:
 		if task, cmd, ok := m.openSelectedYAML(); ok {
 			return task, cmd
@@ -379,6 +384,23 @@ func (m *Model) beginDelete() tea.Cmd {
 // either; an irregular plural just reads slightly off, not wrong.
 func singularDisplay(plural string) string {
 	return strings.TrimSuffix(plural, "s")
+}
+
+// openOwner jumps to the loaded object's first ownerReference through the
+// same navigation the goto palette's resource picks fire (tui.GotoResource),
+// keyed by the registry key for the owner's group and Kind — never the bare
+// Kind, which a colliding CRD would misroute. nil when there's no owner.
+func (m Model) openOwner() tea.Cmd {
+	if m.obj == nil {
+		return nil
+	}
+	refs := m.obj.GetOwnerReferences()
+	if len(refs) == 0 {
+		return nil
+	}
+	ref := refs[0]
+	kind := kube.RegistryKindFor(kube.APIGroupOf(ref.APIVersion), ref.Kind)
+	return tui.GotoResource(m.session, kind, m.namespace, ref.Name)
 }
 
 // firstOwnerRef renders obj's first ownerReference as "Kind/Name" for the

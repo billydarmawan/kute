@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -392,5 +393,34 @@ func TestEventAgeRendersFromStampedNow(t *testing.T) {
 	m.eventRows = []kube.Event{{Type: "Normal", Reason: "Issuing", Message: "x", LastSeen: m.now.Add(-7 * time.Minute)}}
 	if out := m.Render(); !strings.Contains(out, "7m") {
 		t.Fatalf("event age should render from m.now (7m):\n%s", out)
+	}
+}
+
+// TestOwnerKeyJumpsToOwner: 14d's OWNER ↗ link is navigable — '1' fires the
+// goto machinery at the owner, keyed by its registry kind (a colliding CRD
+// owner gets its group-qualified key, never the built-in's).
+func TestOwnerKeyJumpsToOwner(t *testing.T) {
+	cases := []struct {
+		apiVersion, kind string
+		want             kube.ResourceKind
+	}{
+		{"apps/v1", "Deployment", kube.KindDeployment},
+		{"serving.knative.dev/v1", "Service", kube.QualifiedKind("Service", "serving.knative.dev")},
+	}
+	for _, tc := range cases {
+		obj := certObj("a", map[string]any{"type": "Ready", "status": "True"})
+		obj.SetNamespace("default")
+		obj.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: tc.apiVersion, Kind: tc.kind, Name: "web"}})
+		lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{certificateKind(): {obj}}}
+		m := New(Config{Session: testSession(), Lister: lister, Events: fakeEvents{}, Kind: certificateKind(), Namespace: "default", Name: "a"})
+		m.Update(m.load()())
+		_, cmd := m.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
+		if cmd == nil {
+			t.Fatalf("%s: '1' fired nothing", tc.kind)
+		}
+		got, ok := cmd().(tui.GotoResourceMsg)
+		if !ok || got.Kind != tc.want || got.Namespace != "default" || got.Name != "web" {
+			t.Fatalf("%s: got %#v, want goto %s default/web", tc.kind, got, tc.want)
+		}
 	}
 }

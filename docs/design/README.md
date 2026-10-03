@@ -239,7 +239,7 @@ The file in this bundle (`Kute Spec.dc.html`, plus its runtime `support.js`) is 
 - **CONDITIONS verbatim:** glyph · type · status · message · age. The message text IS the diagnosis (`Issuing certificate as Secret does not exist`) — never paraphrase it.
 - **EVENTS (newest first):** the object's events, same grid as 5a.
 - **If the object has no conditions and no events, `↵` skips this screen and opens YAML (8a) directly** — an empty detail screen is worse than the manifest.
-- Keys: `esc back · j/k next/prev │ y yaml · e events · D delete`. Keybar pill `DETAIL`.
+- Keys: `esc back · j/k next/prev │ 1 owner │ y yaml · e events · D delete`. `1` (shown only when the object has an ownerReference) jumps to the OWNER link's object, like 5a's numbered RELATED entries. Keybar pill `DETAIL`.
 
 ### 15a — Loading a kind
 - The **full shell paints in the first frame** — breadcrumb, column headers, keybar. Loading replaces only the rows, never the app.

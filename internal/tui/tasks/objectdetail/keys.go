@@ -61,6 +61,9 @@ func (m Model) Keybar() tui.Keybar {
 	if len(m.siblings) > 1 {
 		groups = append(groups, []tui.KeyHint{{Key: "j/k", Label: "next/prev"}})
 	}
+	if firstOwnerRef(m.obj) != "" {
+		groups = append(groups, []tui.KeyHint{{Key: "1", Label: "owner"}})
+	}
 	if m.mutator != nil && !verbs.Delete.HiddenWhileOffline(m.conn.Offline()) {
 		groups = append(groups, []tui.KeyHint{verbs.Delete.Hint()})
 	}
