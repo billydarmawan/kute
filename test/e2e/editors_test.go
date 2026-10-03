@@ -118,7 +118,7 @@ func TestSecretUnmaskAddAndRemoveKey(t *testing.T) {
 	// departure from a blind edit — and the round trip through base64 is the
 	// half a fake cannot prove.
 	a.Enter()
-	a.WaitForAll(Settle, "KUTE-E2E-SECRET-VALUE", "ctrl-x")
+	a.WaitForAll(Settle, "KUTE-E2E-SECRET-VALUE", "ctrl+x re-mask")
 	// ctrl-x re-masks whatever buffer is open. Plain x has to stay typeable,
 	// which is why the toggle is a control key at all.
 	a.Press("ctrl-x")
