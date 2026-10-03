@@ -800,7 +800,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		if m.kind == kube.KindHelmRelease && m.mutator != nil {
+		if m.kind == kube.KindHelmRelease && m.state == tui.TaskStateReady && m.mutator != nil {
 			if row, ok := m.selectedRow(); ok {
 				return m, m.beginRollback(row)
 			}

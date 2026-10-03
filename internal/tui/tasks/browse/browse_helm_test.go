@@ -516,6 +516,46 @@ func TestRollbackInlineConfirmNonProd(t *testing.T) {
 	}
 }
 
+// TestRollbackRefusesWithNothingToRollBackTo: on revision 1 (or a row whose
+// decoded release isn't in helmReleases) R must not confirm "revision 0" /
+// "revision -1" over a command that runs helm's own default — it answers
+// with an inline refusal and never calls the mutator.
+func TestRollbackRefusesWithNothingToRollBackTo(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		revision int
+		forget   bool
+	}{{"first revision", 1, false}, {"release not in the map", 3, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+				kube.KindHelmRelease: {helmRelease("default", "postgresql", "postgresql", "12.1.9", "15.4.0", "deployed", tc.revision)},
+			}}
+			mut := &fakeHelmMutator{}
+			session := newSession()
+			session.Location.Kind = kube.KindHelmRelease
+			m := New(Config{Session: session, Lister: lister, Mutator: mut})
+			m.SetSize(120, 36)
+			m = step(t, m, m.Init()())
+			if tc.forget {
+				m.helmReleases = nil
+			}
+
+			m = step(t, m, tea.KeyPressMsg{Text: "R"})
+			if m.actions.Active() {
+				t.Fatalf("expected no confirm, got prompt %q", m.actions.Message())
+			}
+			res := m.ActionResult()
+			if !res.Failed || !strings.Contains(res.Text, "nothing to roll back to") {
+				t.Fatalf("expected an inline refusal, got %+v", res)
+			}
+			m = step(t, m, tea.KeyPressMsg{Text: "y"})
+			if mut.name != "" {
+				t.Fatalf("HelmRollback must not run, got name=%q rev=%d", mut.name, mut.revision)
+			}
+		})
+	}
+}
+
 // TestRollbackInProdRequiresTypedName: the Releases list's PROD rollback is
 // the type-the-release-name modal, not a one-key y (§18a: "Rollback
 // inherits 8b friction").

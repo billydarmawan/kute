@@ -212,8 +212,19 @@ func (m Model) openSelectedHelmDetail() (tea.Model, tea.Cmd, bool) {
 // verbs.Resolve — "Rollback inherits 8b friction"). Executes through
 // kube.Mutator.HelmRollback like every other write verb.
 func (m *Model) beginRollback(row resources.Row) tea.Cmd {
-	release := m.helmReleases[helmReleaseKey(row.Namespace, row.Name)]
-	toRevision := release.Revision - 1 // 0 once Revision is 1, which HelmRollback/HelmRollbackCommandString both read as "Helm's own default: the previous revision"
+	release, ok := m.helmReleases[helmReleaseKey(row.Namespace, row.Name)]
+	if !ok {
+		// The row landed before (or without) its decoded release: the
+		// revision to name is unknown, so don't confirm "revision -1" over
+		// a command that would run helm's own default.
+		m.actions.Refuse(row.Name + "'s revisions aren't loaded yet · nothing to roll back to")
+		return nil
+	}
+	if release.Revision <= 1 {
+		m.actions.Refuse(row.Name + " has no earlier revision · nothing to roll back to")
+		return nil
+	}
+	toRevision := release.Revision - 1
 	return m.actions.Begin(actions.Request{Verb: verbs.Rollback, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "rollback-" + row.Namespace + "/" + row.Name,
 		Label: fmt.Sprintf("Rollback %s to revision %d?", row.Name, toRevision),

@@ -254,6 +254,13 @@ type Request struct {
 	Joined bool
 }
 
+// Refuse reports, on the same result line as Begin's own refusals, that a
+// verb the user pressed has nothing it can act on (a Helm release with no
+// earlier revision, say) — so the key answers instead of doing nothing.
+func (c *Controller) Refuse(message string) {
+	c.fail(message)
+}
+
 // Begin starts action under r.Verb's confirm policy, resolved here through
 // verbs.Resolve — the one place the destructive-action policy is decided, so
 // a call site can't pass the wrong tier. TierNone executes immediately;
