@@ -219,20 +219,18 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateConfirmKey routes keys while a commit's y/N is showing, through
+// the controller's one router (actions.HandleConfirmKey). Cancelling walks
+// back exactly one level — to the buffer the commit came from, with the
+// typed value intact (a removal has none: its row never moved).
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case "n", "esc":
-		// Cancelling walks back exactly one level — to the buffer the
-		// commit came from, with the typed value intact (a removal has
-		// none: its row never moved).
-		m.actions.Cancel()
+	cmd, outcome := m.actions.HandleConfirmKey(msg)
+	if outcome == actions.ConfirmCancelled {
 		pc := m.pendingCommit
 		m.pendingCommit = nil
 		m.restoreBuffer(pc)
 	}
-	return m, nil
+	return m, cmd
 }
 
 // updateAddKey routes keys while 'a'/insert's line-insert add row is

@@ -294,36 +294,22 @@ func (m *Model) beginEditRow(row configMapKeyRow) {
 	m.editing = &editKeyState{key: row.key, original: row.value, valueInput: valueInput}
 }
 
-// updateConfirmKey routes keys while a commit's confirm is showing: ctrl-r's
-// PROD type-the-name modal (verbs.RestartConfigMapConsumers inherits
-// RolloutRestart's friction) takes typing and enter-when-the-name-matches;
-// every other confirm is the plain y/N. Cancelling walks back exactly one
+// updateConfirmKey routes keys while a commit's confirm is showing, through
+// the controller's one router (actions.HandleConfirmKey): the plain y/N, or
+// ctrl-r's PROD type-the-name modal (verbs.RestartConfigMapConsumers
+// inherits RolloutRestart's friction). Cancelling walks back exactly one
 // level — to the buffer the commit came from, with the typed value intact.
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.actions.TypeToConfirm() {
-		switch msg.String() {
-		case "esc":
-			m.cancelCommit()
-		case "enter":
-			return m, m.actions.Confirm()
-		default:
-			return m, m.actions.HandleTypeKey(msg)
-		}
-		return m, nil
+	cmd, outcome := m.actions.HandleConfirmKey(msg)
+	if outcome == actions.ConfirmCancelled {
+		m.restorePendingCommit()
 	}
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case "n", "esc":
-		m.cancelCommit()
-	}
-	return m, nil
+	return m, cmd
 }
 
-// cancelCommit abandons the pending confirm and reopens the buffer it was
-// committed from (a removal has none — its row never moved).
-func (m *Model) cancelCommit() {
-	m.actions.Cancel()
+// restorePendingCommit reopens the buffer a cancelled confirm was committed
+// from (a removal has none — its row never moved).
+func (m *Model) restorePendingCommit() {
 	pc := m.pendingCommit
 	m.pendingCommit = nil
 	m.restoreBuffer(pc)
