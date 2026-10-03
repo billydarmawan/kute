@@ -79,15 +79,13 @@ func MissedRuns(spec batchv1.CronJobSpec, suspendedAt, now time.Time) (count int
 		return 0, false, false, ""
 	}
 	// The newest missed occurrence's own timestamp is what
-	// MissedRunEligible needs — conservatively assumed to be "now" when the
-	// count was truncated (there is, by construction, at least one
-	// occurrence very recently before the cap was hit) rather than paying
-	// for a second, likely-slow NextCronRuns walk just to pin it exactly.
-	newest := now
-	if !trunc {
-		if runs, rerr := NextCronRuns(spec.Schedule, timezone, suspendedAt, n); rerr == nil && len(runs) > 0 {
-			newest = runs[len(runs)-1]
-		}
+	// MissedRunEligible needs. A truncated count stopped walking long before
+	// now, so it's found by searching back from now instead — never assumed
+	// to be now itself, which would call a miss eligible under a deadline
+	// shorter than the gap since the last real firing.
+	newest, ok := lastCronRun(spec.Schedule, timezone, suspendedAt, now)
+	if !ok {
+		return n, trunc, false, ""
 	}
 	return n, trunc, MissedRunEligible(spec.StartingDeadlineSeconds, newest, now), ""
 }
@@ -101,4 +99,37 @@ func SuspendedDuration(suspendedAt *time.Time, now time.Time) (label string, ok 
 		return "", false
 	}
 	return shortAge(now.Sub(*suspendedAt)), true
+}
+
+// lastCronRun returns schedule's newest firing in (after, to], searching
+// back from to over a doubling window so the walk covers only the most
+// recent stretch, however long the CronJob has been suspended. ok is false
+// when there is none (or the schedule/timezone doesn't parse).
+func lastCronRun(schedule, timezone string, after, to time.Time) (time.Time, bool) {
+	sched, err := parseCronSchedule(schedule)
+	if err != nil || timezone == "" {
+		return time.Time{}, false
+	}
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		return time.Time{}, false
+	}
+	toIn := to.In(loc)
+	for window := time.Minute; ; window *= 2 {
+		start := toIn.Add(-window)
+		clamped := !start.After(after)
+		if clamped {
+			start = after.In(loc)
+		}
+		var last time.Time
+		for at := sched.Next(start); !at.IsZero() && !at.After(toIn); at = sched.Next(at) {
+			last = at
+		}
+		if !last.IsZero() {
+			return last, true
+		}
+		if clamped {
+			return time.Time{}, false
+		}
+	}
 }

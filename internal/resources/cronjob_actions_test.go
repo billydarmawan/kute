@@ -103,6 +103,28 @@ func TestMissedRunsTruncatesAtCap(t *testing.T) {
 	}
 }
 
+// A truncated count must still judge eligibility against the newest real
+// firing: hourly at :00 with a 60s deadline has nothing eligible at :30.
+func TestMissedRunsTruncatedEligibilityUsesLastRealFiring(t *testing.T) {
+	tz := "UTC"
+	spec := batchv1.CronJobSpec{Schedule: "0 * * * *", TimeZone: &tz, StartingDeadlineSeconds: int64ptr(60)}
+	suspendedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	now := suspendedAt.Add(200*time.Hour + 30*time.Minute)
+	_, truncated, eligible, _ := MissedRuns(spec, suspendedAt, now)
+	if !truncated {
+		t.Fatal("expected truncated=true past the missed-run cap")
+	}
+	if eligible {
+		t.Fatal("eligible = true at :30 with a 60s deadline; the last firing was 30m ago")
+	}
+
+	now = suspendedAt.Add(200*time.Hour + 30*time.Second)
+	if _, _, eligible, _ = MissedRuns(spec, suspendedAt, now); !eligible {
+		t.Fatal("eligible = false 30s after a firing with a 60s deadline")
+	}
+}
+
 func TestSuspendedDurationUnknownWithoutTimestamp(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	if _, ok := SuspendedDuration(nil, now); ok {
