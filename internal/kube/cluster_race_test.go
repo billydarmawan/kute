@@ -102,3 +102,17 @@ func TestWaitForCacheSyncReleasesOnStopChannel(t *testing.T) {
 		}
 	})
 }
+
+// TestStopClosesDoneOnce: Done is how a reconnect's event drain learns the
+// cluster it was reading is gone, and Stop runs more than once (a rebuild
+// stops the old cluster, quit stops whatever is live).
+func TestStopClosesDoneOnce(t *testing.T) {
+	c := &Cluster{done: make(chan struct{}), stopCh: make(chan struct{})}
+	c.Stop()
+	c.Stop()
+	select {
+	case <-c.Done():
+	default:
+		t.Fatal("Done still open after Stop")
+	}
+}

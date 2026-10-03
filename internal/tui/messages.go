@@ -155,9 +155,12 @@ type ReplaceRootMsg struct {
 	Commit func() Task
 	// Token releases the Session's rebuild gate (rebuildgate.go) the
 	// rebuild was started under.
-	Token       uint64
-	Events      <-chan kube.ResourceChangedMsg
-	Conn        <-chan kube.ConnStateMsg
+	Token  uint64
+	Events <-chan kube.ResourceChangedMsg
+	Conn   <-chan kube.ConnStateMsg
+	// Done, when non-nil, closes once the cluster behind Events/Conn is
+	// stopped, ending WatchCluster's drain for it.
+	Done        <-chan struct{}
 	BuildSetup  func(kube.ConnState) Task
 	BuildBrowse func() Task
 }

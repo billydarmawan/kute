@@ -693,10 +693,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.routeOwned(wm)
 	case clusterEventMsg:
 		msg = wm.inner
-		rewatch = WatchCluster(wm.events, wm.conn)
+		rewatch = WatchCluster(wm.events, wm.conn, wm.done)
 	case clusterConnMsg:
 		msg = wm.inner
-		rewatch = WatchCluster(wm.events, wm.conn)
+		rewatch = WatchCluster(wm.events, wm.conn, wm.done)
 	}
 
 	switch msg := msg.(type) {
@@ -719,7 +719,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.neverConnected = msg.BuildSetup != nil
 		cmds := []tea.Cmd{m.taskInit()}
 		if msg.Events != nil {
-			cmds = append(cmds, WatchCluster(msg.Events, msg.Conn))
+			cmds = append(cmds, WatchCluster(msg.Events, msg.Conn, msg.Done))
 		}
 		return m, tea.Batch(cmds...)
 	case tea.WindowSizeMsg:

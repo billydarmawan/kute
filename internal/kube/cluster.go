@@ -76,9 +76,9 @@ type Cluster struct {
 	// kctx is the active kubeconfig context. SwitchContext replaces it from a
 	// tea.Cmd goroutine, so every read outside c.mu goes through
 	// ContextSnapshot (or CurrentNamespace/CurrentContext).
-	kctx          Context
-	authGate      *authenticationGate
-	watcher       *watchObserver
+	kctx     Context
+	authGate *authenticationGate
+	watcher  *watchObserver
 
 	// replaceJobGoneTimeout overrides ReplaceJob's bounded wait for the
 	// deleted Job to disappear (zero = replaceJobGoneTimeout); tests only.
@@ -198,6 +198,10 @@ type Cluster struct {
 	allKindsSynced bool
 
 	events chan ResourceChangedMsg
+	// done is closed by Stop. Events and ConnEvents are never closed — a
+	// late informer callback or health set would panic sending on them —
+	// so a reader that must not outlive the cluster selects on Done.
+	done   chan struct{}
 	health *health
 	stopCh chan struct{}
 	// cancelHealthProbe cancels the /livez request owned by the current
@@ -268,6 +272,7 @@ func NewClusterForContext(contextName string) (*Cluster, error) {
 		dynClient:     dynClient,
 		dynFactory:    dynamicinformer.NewDynamicSharedInformerFactory(dynClient, defaultResync),
 		events:        make(chan ResourceChangedMsg, 64),
+		done:          make(chan struct{}),
 		health:        newHealth(),
 		stopCh:        make(chan struct{}),
 		authGate:      client.authGate,
@@ -1293,7 +1298,19 @@ func (c *Cluster) Stop() {
 		close(c.stopCh)
 		c.stopCh = nil
 	}
+	if c.done != nil {
+		select {
+		case <-c.done:
+		default:
+			close(c.done)
+		}
+	}
 }
+
+// Done is closed once Stop has run (never, for a Cluster not built by
+// NewClusterForContext). Stop is terminal, so a reader of Events or
+// ConnEvents can stop draining when it fires.
+func (c *Cluster) Done() <-chan struct{} { return c.done }
 
 // ListRaw returns the cached objects of kind in namespace ("" for all
 // namespaces; ignored for cluster-scoped kinds). It satisfies

@@ -16,32 +16,40 @@ import (
 type clusterEventMsg struct {
 	events <-chan kube.ResourceChangedMsg
 	conn   <-chan kube.ConnStateMsg
+	done   <-chan struct{}
 	inner  kube.ResourceChangedMsg
 }
 
 type clusterConnMsg struct {
 	events <-chan kube.ResourceChangedMsg
 	conn   <-chan kube.ConnStateMsg
+	done   <-chan struct{}
 	inner  kube.ConnStateMsg
 }
 
 // WatchCluster starts forwarding events/conn into the program as
 // clusterEventMsg/clusterConnMsg. Model.Update re-issues it after every
 // message it produces, so one call (from ReplaceRootMsg's handling) keeps
-// the cluster's channels draining for as long as the program runs.
-func WatchCluster(events <-chan kube.ResourceChangedMsg, conn <-chan kube.ConnStateMsg) tea.Cmd {
+// the cluster's channels draining until done closes — the cluster's Stop,
+// when a later reconnect replaces it. The cluster never closes events or
+// conn, so without done every rebuild left one Cmd goroutine parked on the
+// stopped cluster's channels for the life of the process. A nil done drains
+// for as long as the program runs.
+func WatchCluster(events <-chan kube.ResourceChangedMsg, conn <-chan kube.ConnStateMsg, done <-chan struct{}) tea.Cmd {
 	return func() tea.Msg {
 		select {
+		case <-done:
+			return nil
 		case ev, ok := <-events:
 			if !ok {
 				return nil
 			}
-			return clusterEventMsg{events: events, conn: conn, inner: ev}
+			return clusterEventMsg{events: events, conn: conn, done: done, inner: ev}
 		case cs, ok := <-conn:
 			if !ok {
 				return nil
 			}
-			return clusterConnMsg{events: events, conn: conn, inner: cs}
+			return clusterConnMsg{events: events, conn: conn, done: done, inner: cs}
 		}
 	}
 }

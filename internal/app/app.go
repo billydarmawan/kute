@@ -982,6 +982,7 @@ func rebuildCluster(cfg Config, sess *tui.Session, kubeconfig string, relaunch b
 			},
 			Events:      cluster.Events(),
 			Conn:        cluster.ConnEvents(),
+			Done:        cluster.Done(),
 			BuildSetup:  buildSetupFactory(cfg, sess, cluster),
 			BuildBrowse: buildBrowseFactory(cfg, sess, cluster),
 		}
