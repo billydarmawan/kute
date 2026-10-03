@@ -6,6 +6,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 // TestIsPermissionErrorClassification pins 4b's classification (mvp-plan.md
@@ -38,5 +39,15 @@ func TestIsPermissionErrorClassification(t *testing.T) {
 				t.Errorf("IsPermissionError(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestStreamPodLogsRequiresNamespace pins L13: an empty namespace is an
+// error, never a silent "default" that streams the wrong pod.
+func TestStreamPodLogsRequiresNamespace(t *testing.T) {
+	t.Parallel()
+	_, err := ClientPodLogStreamer{Client: fake.NewClientset()}.StreamPodLogs(t.Context(), LogStreamRequest{PodName: "api"})
+	if err == nil {
+		t.Fatal("expected an error for an empty namespace")
 	}
 }

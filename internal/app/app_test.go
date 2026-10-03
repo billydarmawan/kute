@@ -101,8 +101,7 @@ func demoCronJobDetailTask(t *testing.T, name string) (*cronjobdetail.Model, *fa
 	demoCluster := fake.NewDemo()
 	sess.Forwards = kube.NewForwardManager()
 
-	clusterName, namespace := demoCluster.CurrentContext(), demoCluster.CurrentNamespace()
-	openLogs := openLogsFunc(sess, demoCluster, demoCluster, clusterName, namespace)
+	openLogs := openLogsFunc(sess, demoCluster, demoCluster)
 	openYAML := openYAMLFunc(sess, demoCluster)
 	openSchedule := openCronJobScheduleFunc(sess, demoCluster)
 	openDetail := openCronJobDetailFunc(sess, demoCluster, openLogs, openYAML, openSchedule, demoCluster.CurrentUser())

@@ -407,6 +407,15 @@ func TestRunStreamValidation(t *testing.T) {
 		t.Fatalf("missing pod name did not produce streamErrorMsg: %+v", msgs)
 	}
 
+	// L13: an empty namespace fails rather than streaming a same-named pod
+	// from "default".
+	model = testModel()
+	model.pod.Namespace = ""
+	msgs = collectRunStream(model)
+	if _, ok := msgs[0].(streamErrorMsg); !ok {
+		t.Fatalf("missing namespace did not produce streamErrorMsg: %+v", msgs)
+	}
+
 	model = testModel()
 	model.pod.Containers = nil
 	msgs = collectRunStream(model)

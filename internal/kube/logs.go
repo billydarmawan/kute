@@ -34,7 +34,7 @@ type ClientPodLogStreamer struct {
 
 func (s ClientPodLogStreamer) StreamPodLogs(ctx context.Context, req LogStreamRequest) (io.ReadCloser, error) {
 	if req.Namespace == "" {
-		req.Namespace = "default"
+		return nil, errors.New("pod namespace is required for log streaming")
 	}
 	if strings.TrimSpace(req.PodName) == "" {
 		return nil, errors.New("pod name is required for log streaming")

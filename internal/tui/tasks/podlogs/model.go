@@ -178,9 +178,6 @@ type Model struct {
 }
 
 func New(cfg Config) Model {
-	if cfg.Pod.Namespace == "" {
-		cfg.Pod.Namespace = "default"
-	}
 	if cfg.MaxEntries <= 0 {
 		cfg.MaxEntries = DefaultMaxEntries
 	}

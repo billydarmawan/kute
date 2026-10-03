@@ -703,9 +703,8 @@ func NewModel(cfg Config) (tui.Model, *kube.Cluster, *fake.Cluster) {
 func buildBrowseTask(cfg Config, sess *tui.Session, cluster *kube.Cluster) *browse.Model {
 	streamer := liveClusterLogStreamer{cluster: cluster}
 	kctx := cluster.ContextSnapshot()
-	clusterName, namespace := kctx.ClusterName, kctx.Namespace
 	lister := newSessionLister(cluster, sess.Forwards, sess.Charts)
-	openLogs := openLogsFunc(sess, cluster, streamer, clusterName, namespace)
+	openLogs := openLogsFunc(sess, cluster, streamer)
 	openYAML := openYAMLFunc(sess, cluster)
 	openDebug := openDebugFunc(sess, cluster, false)
 	openExecDebug := openExecDebugFunc(sess, cluster, false)
@@ -799,7 +798,7 @@ func buildBrowseFactory(cfg Config, sess *tui.Session, cluster *kube.Cluster) fu
 // override by the time NewModel's demo branch calls this.
 func buildDemoBrowseTask(sess *tui.Session, demoCluster *fake.Cluster, clusterName, namespace string) *browse.Model {
 	lister := newSessionLister(demoCluster, sess.Forwards, sess.Charts)
-	openLogs := openLogsFunc(sess, demoCluster, demoCluster, clusterName, namespace)
+	openLogs := openLogsFunc(sess, demoCluster, demoCluster)
 	openYAML := openYAMLFunc(sess, demoCluster)
 	openDebug := openDebugFunc(sess, demoCluster, true)
 	openExecDebug := openExecDebugFunc(sess, demoCluster, true)
@@ -1753,13 +1752,16 @@ func (s liveClusterLogStreamer) StreamPodLogs(ctx context.Context, req kube.LogS
 	return kube.ClientPodLogStreamer{Client: s.cluster.Clientset()}.StreamPodLogs(ctx, req)
 }
 
-func openLogsFunc(sess *tui.Session, lister resources.RawLister, streamer kube.PodLogStreamer, clusterName, namespace string) browse.OpenLogsFunc {
+func openLogsFunc(sess *tui.Session, lister resources.RawLister, streamer kube.PodLogStreamer) browse.OpenLogsFunc {
 	return func(pod kube.Pod, container string, width, height int) (tea.Model, tea.Cmd) {
+		// Read the session at call time, never a value captured at startup:
+		// after a context switch that would name, and fall back to, the
+		// cluster the user has left.
 		if pod.Context == "" {
-			pod.Context = clusterName
+			pod.Context = sess.Location.Context
 		}
 		if pod.Namespace == "" {
-			pod.Namespace = namespace
+			pod.Namespace = sess.Location.Namespace
 		}
 		logs := podlogs.FromPod(sess, lister, pod, container, streamer)
 		logs.SetSize(width, height)

@@ -245,6 +245,12 @@ func (m Model) runStream(ctx context.Context, streamID int, ch chan<- tea.Msg) {
 		ch <- streamErrorMsg{streamID: streamID, err: errors.New("pod name is required for log streaming")}
 		return
 	}
+	if m.pod.Namespace == "" {
+		// Never guess "default": that streams a same-named pod from the
+		// wrong namespace instead of failing.
+		ch <- streamErrorMsg{streamID: streamID, err: errors.New("pod namespace is required for log streaming")}
+		return
+	}
 	container, ok := m.activeContainer()
 	if !ok {
 		ch <- streamEmptyMsg{streamID: streamID}
