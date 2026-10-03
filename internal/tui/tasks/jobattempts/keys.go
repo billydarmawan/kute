@@ -43,27 +43,27 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeBrowse,
 			PillText:  "ATTEMPTS",
-			Groups:    [][]tui.KeyHint{{{Key: "d/esc", Label: "back"}}},
+			Groups:    [][]tui.KeyHint{{{Key: verbs.JobAttemptDiff.Key + "/esc", Label: "back"}}},
 			RightNote: "comparing selected attempt vs attempt 1",
 		}
 	}
 
 	groups := [][]tui.KeyHint{}
-	attemptGroup := []tui.KeyHint{{Key: "l", Label: "logs"}}
+	attemptGroup := []tui.KeyHint{verbs.Logs.Hint()}
 	if len(m.summary.Attempts) >= 2 {
-		attemptGroup = append(attemptGroup, tui.KeyHint{Key: "d", Label: "diff vs attempt 1"})
+		attemptGroup = append(attemptGroup, verbs.JobAttemptDiff.Hint())
 	}
 	groups = append(groups, attemptGroup)
-	groups = append(groups, []tui.KeyHint{{Key: "e", Label: "events"}})
+	groups = append(groups, []tui.KeyHint{verbs.Events.Hint()})
 	if m.mutator != nil && !m.conn.Offline() {
 		groups = append(groups, []tui.KeyHint{{Key: verbs.JobRetry.Key, Label: verbs.JobRetry.Label}})
 	}
 	if m.summary.Indexed {
-		failedLabel := "failed only"
+		failedOnly := verbs.JobIndexFailedOnly.Hint()
 		if m.failedOnly {
-			failedLabel = "all indexes"
+			failedOnly.Label = "all indexes"
 		}
-		groups = append(groups, []tui.KeyHint{{Key: "f", Label: failedLabel}})
+		groups = append(groups, []tui.KeyHint{failedOnly})
 	}
 	if len(m.siblings) > 1 {
 		groups = append(groups, []tui.KeyHint{{Key: "[/]", Label: "sibling job"}})

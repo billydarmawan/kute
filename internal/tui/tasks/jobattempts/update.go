@@ -270,7 +270,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.diffMode {
 		switch msg.String() {
-		case "d", "esc":
+		case verbs.JobAttemptDiff.Key, "esc":
 			m.diffMode = false
 		}
 		return m, nil
@@ -302,7 +302,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
-	case "d":
+	case verbs.JobAttemptDiff.Key:
 		if len(m.summary.Attempts) >= 2 {
 			m.diffMode = true
 		}
@@ -314,7 +314,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if task, cmd, ok := m.openSelectedYAML(); ok {
 			return task, cmd
 		}
-	case "f":
+	case verbs.JobIndexFailedOnly.Key:
 		if m.summary.Indexed {
 			m.failedOnly = !m.failedOnly
 			m.selectedAttempt, m.offset = 0, 0

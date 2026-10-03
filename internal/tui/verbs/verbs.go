@@ -389,6 +389,12 @@ var (
 	// "@daily" into "@dail" (and copied the will-run line) instead. ctrl+t
 	// is bound by neither textfield nor the root shell.
 	CronJobScheduleCopy = Verb{ID: "cronjob-schedule-copy", Key: "ctrl+t", Label: "copy"}
+	// JobAttemptDiff is 37b's 'd' — toggles the attempt ledger's
+	// selected-attempt-vs-attempt-1 comparison. Read-only UI state.
+	JobAttemptDiff = Verb{ID: "job-attempt-diff", Key: "d", Label: "diff vs attempt 1"}
+	// JobIndexFailedOnly is 37d's 'f' — narrows an Indexed Job's index list
+	// to the failed indexes (and back). Read-only UI state.
+	JobIndexFailedOnly = Verb{ID: "job-index-failed-only", Key: "f", Label: "failed only"}
 	// CronJobFocusTimezone is 36d's schedule editor 'tab' — moves focus onto
 	// the timezone field, gated there by the capability read (§3.8) rather
 	// than always-editable. Same screen-local-tab-focus shape as
@@ -659,7 +665,7 @@ var All = []Verb{
 	FluxReconcile, FluxSuspend, FluxSource,
 	ArgoRefresh, ArgoSync, ArgoURL,
 	CertRenew,
-	Delete, ForceDelete, RolloutRestart, JobRetry, JobReplace, JobSuspend,
+	Delete, ForceDelete, RolloutRestart, JobRetry, JobReplace, JobSuspend, JobAttemptDiff, JobIndexFailedOnly,
 	CronJobRunNow, CronJobSuspend, CronJobSetSchedule,
 	CronJobCopyCommand, CronJobScheduleCopy, CronJobFocusTimezone, CronJobScheduleUndo, CronJobScheduleFullEdit,
 	Cordon, Drain, Rollback, RolloutUndo, Scale, SetImage, SetResources, Meta,
