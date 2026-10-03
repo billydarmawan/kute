@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	appsv1 "k8s.io/api/apps/v1"
@@ -374,5 +375,21 @@ func TestCountdownTickRunsOnlyWithTheFailureCardAndSurvivesParking(t *testing.T)
 	}
 	if _, cmd := m.Update(tickMsg{at: before.Add(time.Hour), gen: m.tickGen}); cmd == nil || m.now.Equal(before) {
 		t.Error("the live chain's tick must advance the clock and continue")
+	}
+}
+
+// TestPadAndWrapNeverCutARune: condition messages carry '…' and curly
+// quotes, and a byte-indexed cut at the wrap point left invalid UTF-8.
+func TestPadAndWrapNeverCutARune(t *testing.T) {
+	msg := "kustomize build failed: “resource” not found… retrying"
+	for w := 5; w < len(msg); w++ {
+		for _, l := range wrap(msg, w) {
+			if !utf8.ValidString(l) {
+				t.Fatalf("wrap(%d) cut a rune: %q", w, l)
+			}
+		}
+		if p := pad(msg, w); !utf8.ValidString(p) {
+			t.Fatalf("pad(%d) cut a rune: %q", w, p)
+		}
 	}
 }

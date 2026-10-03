@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
@@ -390,31 +391,30 @@ func statusColor(theme tui.Theme, c resources.StatusClass) color.Color {
 	}
 }
 
+// pad fits s to w display cells, cutting on a rune boundary — names and
+// condition messages carry '…' and curly quotes, which a byte slice would
+// cut mid-rune.
 func pad(s string, w int) string {
-	if len(s) >= w {
-		if w > 1 {
-			return s[:w-1] + " "
+	if ansi.StringWidth(s) >= w {
+		if w <= 1 {
+			return s
 		}
-		return s
+		s = ansi.Truncate(s, w-1, "") + " "
 	}
-	return s + strings.Repeat(" ", w-len(s))
+	return s + strings.Repeat(" ", max(0, w-ansi.StringWidth(s)))
 }
 
+// wrap breaks s into lines of at most width display cells, at spaces where
+// it can and mid-word (on a rune boundary) where it must.
 func wrap(s string, width int) []string {
-	if width <= 0 || len(s) <= width {
+	if width <= 0 || ansi.StringWidth(s) <= width {
 		return []string{s}
 	}
 	var out []string
-	for len(s) > width {
-		cut := strings.LastIndex(s[:width], " ")
-		if cut <= 0 {
-			cut = width
+	for _, l := range strings.Split(ansi.Wrap(s, width, ""), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
 		}
-		out = append(out, strings.TrimSpace(s[:cut]))
-		s = strings.TrimSpace(s[cut:])
-	}
-	if s != "" {
-		out = append(out, s)
 	}
 	return out
 }
