@@ -625,7 +625,7 @@ func TestReloadsWhenBackendCachesChange(t *testing.T) {
 	m.SetSize(120, 36)
 	m = step(t, m, m.Init()())
 
-	for _, kind := range []kube.ResourceKind{kube.KindIngress, kube.KindService, kube.KindPod, kube.KindSecret} {
+	for _, kind := range []kube.ResourceKind{kube.KindIngress, kube.KindService, kube.KindPod, kube.KindSecret, kube.KindTLSSecret} {
 		_, cmd := m.Update(kube.ResourceChangedMsg{Kind: kind})
 		if cmd == nil {
 			t.Errorf("a %s change must reload the routing table — it resolves backends through that cache", kind)
@@ -881,5 +881,97 @@ func TestLoadIngressResourceBackendIsNeutral(t *testing.T) {
 	}
 	if r := m.rows[0]; r.glyph != "·" || r.backendText != "storagebucket/assets" || r.backendName != "" {
 		t.Fatalf("resource backend row = %+v", r)
+	}
+}
+
+// tlsCacheLister is a lister with the narrow TLS Secret seam: Secrets come
+// from ListTLSSecrets, and any read of the shared Secret cache is recorded —
+// on a real cluster that read starts the cluster-wide, full-payload Secret
+// informer (11 M8). The cache gates record which (kind, namespace) they were
+// asked about.
+type tlsCacheLister struct {
+	lister    fakeLister
+	tls       []runtime.Object
+	tlsSynced bool
+	log       *tlsCacheLog
+}
+
+type tlsCacheLog struct {
+	sharedSecretReads int
+	tlsReads          []string
+	synced            []string
+}
+
+func (l tlsCacheLister) ListRaw(ctx context.Context, kind kube.ResourceKind, namespace string) ([]runtime.Object, error) {
+	if kind == kube.KindSecret {
+		l.log.sharedSecretReads++
+	}
+	return l.lister.ListRaw(ctx, kind, namespace)
+}
+
+func (l tlsCacheLister) ListTLSSecrets(_ context.Context, namespace string) ([]runtime.Object, error) {
+	l.log.tlsReads = append(l.log.tlsReads, namespace)
+	return l.tls, nil
+}
+
+func (l tlsCacheLister) KindSynced(kind kube.ResourceKind, namespace string) bool {
+	if kind == kube.KindSecret || kind == kube.KindTLSSecret {
+		l.log.synced = append(l.log.synced, string(kind)+"@"+namespace)
+	}
+	return kind != kube.KindTLSSecret || l.tlsSynced
+}
+
+// Opening a TLS Ingress resolves its cert expiry through the filtered TLS
+// Secret cache, in the Ingress's own namespace, and never reads the shared
+// Secret cache.
+func TestIngressTLSExpiryReadsTheTLSSecretCacheNotEverySecret(t *testing.T) {
+	log := &tlsCacheLog{}
+	lister := tlsCacheLister{
+		lister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindIngress: {tlsIngress()}}},
+		tls: []runtime.Object{&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "web-tls", Namespace: "default"},
+			Type:       corev1.SecretTypeTLS,
+		}},
+		tlsSynced: true,
+		log:       log,
+	}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if log.sharedSecretReads != 0 {
+		t.Fatalf("read the shared Secret cache %d time(s); a TLS cell must use ListTLSSecrets", log.sharedSecretReads)
+	}
+	if len(log.tlsReads) == 0 || log.tlsReads[0] != "default" {
+		t.Fatalf("TLS reads = %v, want reads of \"default\"", log.tlsReads)
+	}
+	if len(m.tlsFacts) != 1 || m.tlsFacts[0].expiry != "no cert data" {
+		t.Fatalf("tls facts = %+v, want the Secret found through the TLS cache", m.tlsFacts)
+	}
+}
+
+// A miss in the TLS cache is gated on that cache, at the namespace read —
+// never on KindSecret, which answers for a cache this path leaves unstarted.
+func TestIngressTLSMissGatesOnTheTLSCacheItRead(t *testing.T) {
+	log := &tlsCacheLog{}
+	lister := tlsCacheLister{
+		lister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindIngress: {tlsIngress()}}},
+		log:    log,
+	}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+	m.SetSize(120, 36)
+	updated, _ := m.Update(m.load()())
+	m = *updated.(*Model)
+
+	if len(m.tlsFacts) == 0 || m.tlsFacts[0].expiry != "loading…" {
+		t.Fatalf("tls facts = %+v, want loading while the TLS cache fills", m.tlsFacts)
+	}
+	for _, asked := range log.synced {
+		if asked != string(kube.KindTLSSecret)+"@default" {
+			t.Fatalf("cache gate asked about %s, want only %s@default", asked, kube.KindTLSSecret)
+		}
+	}
+	if len(log.synced) == 0 {
+		t.Fatal("the TLS miss was not gated on any cache")
 	}
 }

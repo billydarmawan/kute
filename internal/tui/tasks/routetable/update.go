@@ -412,7 +412,7 @@ func (m Model) openObjectEvents() (tea.Model, tea.Cmd, bool) {
 // columns are resolved through.
 func (m Model) reloadsOn(kind kube.ResourceKind) bool {
 	switch kind {
-	case m.kind, kube.KindService, kube.KindPod, kube.KindSecret:
+	case m.kind, kube.KindService, kube.KindPod, kube.KindSecret, kube.KindTLSSecret:
 		return true
 	case kube.KindGateway:
 		// A route's parent listener supplies its hostname and TLS detail.

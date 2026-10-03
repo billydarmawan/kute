@@ -370,6 +370,29 @@ func failureTitle(kind kube.ResourceKind) string {
 	return strings.ToLower(string(kind)) + " failed"
 }
 
+// TLSSecretLister is implemented by a lister that can hand back just the
+// kubernetes.io/tls Secrets in a namespace, from a cache holding only those
+// (*kube.Cluster.ListTLSSecrets, docs/lazy-informers.md §5.7). cert-manager
+// always writes a Certificate's Secret as that type. Optional: a lister
+// without it falls back to the shared Secret cache, which on a real cluster
+// starts the cluster-wide, full-payload Secret informer for one name.
+type TLSSecretLister interface {
+	ListTLSSecrets(ctx context.Context, namespace string) ([]runtime.Object, error)
+}
+
+// tlsSecrets reads namespace's Secrets from the narrowest source lister
+// offers, and names the cache a miss must be gated on — KindTLSSecret when
+// the filtered cache is what was read, never KindSecret, which answers for a
+// cache this path deliberately leaves unstarted.
+func tlsSecrets(ctx context.Context, lister resources.RawLister, namespace string) ([]runtime.Object, kube.ResourceKind, error) {
+	if tl, ok := lister.(TLSSecretLister); ok {
+		objs, err := tl.ListTLSSecrets(ctx, namespace)
+		return objs, kube.KindTLSSecret, err
+	}
+	objs, err := lister.ListRaw(ctx, kube.KindSecret, namespace)
+	return objs, kube.KindSecret, err
+}
+
 // resolveSecretRef reports whether the Certificate's spec.secretName Secret
 // exists — existence only, no Ready concept for a Secret.
 func resolveSecretRef(ctx context.Context, lister resources.RawLister, namespace string, cert *unstructured.Unstructured) (refInfo, bool) {
@@ -378,13 +401,13 @@ func resolveSecretRef(ctx context.Context, lister resources.RawLister, namespace
 		return refInfo{}, false
 	}
 	ref := refInfo{Label: "secret/" + secretName, Kind: kube.KindSecret, Name: secretName}
-	secrets, err := lister.ListRaw(ctx, kube.KindSecret, namespace)
+	secrets, cacheKind, err := tlsSecrets(ctx, lister, namespace)
 	if err == nil && existsByName(secrets, secretName) {
 		ref.Exists = true
 	}
 	if ref.Exists {
 		ref.StatusText = "exists"
-	} else if !markUnknown(&ref, lister, namespace, err) {
+	} else if !markUnknownIn(&ref, cacheKind, lister, namespace, err) {
 		ref.StatusText = "missing"
 	}
 	return ref, true
@@ -405,7 +428,13 @@ func cacheState(lister resources.RawLister, namespace string, kind kube.Resource
 // filled, or can't be read — and reports whether it did. Otherwise the
 // caller's "missing" stands.
 func markUnknown(ref *refInfo, lister resources.RawLister, namespace string, listErr error) bool {
-	pending, kerr := cacheState(lister, namespace, ref.Kind)
+	return markUnknownIn(ref, ref.Kind, lister, namespace, listErr)
+}
+
+// markUnknownIn is markUnknown for a ref read from a cache other than its
+// own kind's — the Secret ref, read from the filtered TLS cache.
+func markUnknownIn(ref *refInfo, cacheKind kube.ResourceKind, lister resources.RawLister, namespace string, listErr error) bool {
+	pending, kerr := cacheState(lister, namespace, cacheKind)
 	if kerr == nil {
 		kerr = listErr
 	}

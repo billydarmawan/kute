@@ -293,3 +293,66 @@ func TestRefsOnUnreadableCachesAreNotMissing(t *testing.T) {
 		t.Fatal("expected a cache-sync retry while the ClusterIssuer cache fills")
 	}
 }
+
+// tlsRecordingLister is recordingLister with the narrow TLS Secret seam, and
+// records the cache gates it is asked.
+type tlsRecordingLister struct {
+	recordingLister
+	tls       []runtime.Object
+	tlsSynced bool
+	tlsReads  []string
+	gates     []string
+}
+
+func (l *tlsRecordingLister) ListTLSSecrets(_ context.Context, ns string) ([]runtime.Object, error) {
+	l.tlsReads = append(l.tlsReads, ns)
+	return l.tls, nil
+}
+
+func (l *tlsRecordingLister) KindSynced(kind kube.ResourceKind, ns string) bool {
+	l.gates = append(l.gates, string(kind)+"/"+ns)
+	return kind != kube.KindTLSSecret || l.tlsSynced
+}
+
+func certWithSecretName(name string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "web-tls", "namespace": "shop"},
+		"spec":     map[string]any{"secretName": name},
+	}}
+}
+
+// The Secret ref is resolved through the filtered TLS Secret cache in the
+// Certificate's namespace, never the shared Secret cache (11 M8), and still
+// jumps to a Secret.
+func TestSecretRefReadsTheTLSSecretCacheNotEverySecret(t *testing.T) {
+	secret := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "web-tls-cert", "namespace": "shop"},
+	}}
+	lister := &tlsRecordingLister{tls: []runtime.Object{secret}, tlsSynced: true}
+	ref, ok := resolveSecretRef(t.Context(), lister, "shop", certWithSecretName("web-tls-cert"))
+	if !ok || !ref.Exists || ref.Kind != kube.KindSecret {
+		t.Fatalf("resolveSecretRef = %+v, want an existing Secret ref", ref)
+	}
+	if len(lister.reads) != 0 {
+		t.Fatalf("ListRaw reads = %v, want none — the shared Secret cache must stay unstarted", lister.reads)
+	}
+	if len(lister.tlsReads) != 1 || lister.tlsReads[0] != "shop" {
+		t.Fatalf("TLS reads = %v, want one read of shop", lister.tlsReads)
+	}
+}
+
+// A miss is gated on the TLS cache at the namespace read, not on KindSecret.
+func TestSecretRefMissGatesOnTheTLSCacheItRead(t *testing.T) {
+	lister := &tlsRecordingLister{}
+	ref, _ := resolveSecretRef(t.Context(), lister, "shop", certWithSecretName("web-tls-cert"))
+	if !ref.Unknown || ref.StatusText != "loading…" {
+		t.Fatalf("resolveSecretRef = %+v, want loading while the TLS cache fills", ref)
+	}
+	if len(lister.gates) != 1 || lister.gates[0] != string(kube.KindTLSSecret)+"/shop" {
+		t.Fatalf("cache gates = %v, want only %s/shop", lister.gates, kube.KindTLSSecret)
+	}
+	m := Model{secretRef: ref, haveSecret: true}
+	if !m.reloadsOn(kube.KindTLSSecret) {
+		t.Fatal("a TLS Secret cache change must reload the chain")
+	}
+}

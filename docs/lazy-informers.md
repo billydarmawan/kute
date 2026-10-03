@@ -596,6 +596,36 @@ jobattempts,fluxtree,nodedetail}`. End-to-end coverage against a real cluster (a
 `kute-team` identity, a lazily-loaded granted kind, an ungranted kind's 403 card, denied
 all-namespaces, and returning to a granted namespace) lives in `test/e2e`.
 
+---
+
+### 5.7 TLS cert reads have their own Secret cache — **done**
+
+A TLS Ingress's or Gateway's expiry cell (23a/23b, `routetable`'s `resolveCertExpiry`) and
+the cert chain's `secret/<name>` ref (`certchain`) each need one Secret. Both read it with
+`ListRaw(KindSecret, ns)`, which in the default mode normalizes to the shared cluster-wide
+Secret informer — full payloads, nothing stripped, every Helm release manifest included
+(the 8.19 MB of §5.5). Opening one TLS Ingress paid for every Secret in the cluster.
+
+They now read `ListTLSSecrets(ns)`, the §5.5 shape applied to a second type: a Secret
+informer filtered server-side to `type=kubernetes.io/tls`, one per namespace actually read
+in both modes (keyed by the read's own namespace, never normalized by `cacheScope`). It is
+registered under the synthetic key `KindTLSSecret` in `kindInformers`, so watch-error,
+stall, Forbidden, health-sweep and Reached bookkeeping cover it with no parallel map, and
+its change events carry that key. A screen gates a miss on
+`KindSynced`/`KindError`/`KindForbidden(KindTLSSecret, ns)` with the namespace it read —
+never `KindSecret`, which answers for the cache this path leaves unstarted. The seam is
+optional (`routetable.TLSSecretLister`, `certchain.TLSSecretLister`): both lister
+decorators forward it, falling back to the shared cache when nothing filtered sits
+underneath, and then answer the `KindTLSSecret` gates from `KindSecret` to match.
+
+The trade: a Secret of some other type that an ingress controller would still accept with a
+`tls.crt` key reads as "secret not found". cert-manager always writes `kubernetes.io/tls`, and
+the API rejects a missing `tls.crt`/`tls.key` only on that type, so it's the type a TLS
+reference is meant to name.
+
+`internal/kube/{tlssecrets,cluster,kinds}.go`, `internal/kube/fake/fake.go`,
+`internal/app/app.go`, `internal/tui/tasks/{routetable,certchain}/{load,update}.go`
+
 ## 6. CronJobs: a second lazy dependency and a third one-shot read (v0.8.0)
 
 Shipped as part of the v0.8.0 CronJobs rework; recorded here so the lazy-loading rules that

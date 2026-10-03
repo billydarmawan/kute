@@ -27,6 +27,7 @@ import (
 type recordingCluster struct {
 	listedKinds   []kube.ResourceKind
 	helmReads     int
+	tlsReads      []string
 	syncedAsked   []kube.ResourceKind
 	syncedAskedNS []string
 	errorAsked    []kube.ResourceKind
@@ -46,6 +47,11 @@ func (c *recordingCluster) ListRaw(_ context.Context, kind kube.ResourceKind, _ 
 
 func (c *recordingCluster) ListHelmReleaseSecrets(context.Context, string) ([]runtime.Object, error) {
 	c.helmReads++
+	return nil, nil
+}
+
+func (c *recordingCluster) ListTLSSecrets(_ context.Context, namespace string) ([]runtime.Object, error) {
+	c.tlsReads = append(c.tlsReads, namespace)
 	return nil, nil
 }
 
@@ -429,5 +435,49 @@ func TestDecoratorsForwardKindStarted(t *testing.T) {
 	want := []kube.ResourceKind{kube.KindCustomResourceDefinition, kube.KindHelmRelease}
 	if len(cluster.startedAsked) != len(want) || cluster.startedAsked[0] != want[0] || cluster.startedAsked[1] != want[1] {
 		t.Fatalf("KindStarted asked about %v, want %v", cluster.startedAsked, want)
+	}
+}
+
+// TestTLSSecretReadsReachTheTLSCacheNotEverySecret is 11 M8 at the decorator
+// layer: routetable and certchain type-assert the fully-decorated lister for
+// ListTLSSecrets, so both layers must forward it — unforwarded, they read the
+// shared Secret cache, which starts the cluster-wide full-payload informer —
+// and the cache gate must name the TLS cache at the namespace read.
+func TestTLSSecretReadsReachTheTLSCacheNotEverySecret(t *testing.T) {
+	rec := &recordingCluster{}
+	lister := newSessionLister(rec, kube.NewForwardManager(), nil)
+
+	if _, err := lister.ListTLSSecrets(t.Context(), "shop"); err != nil {
+		t.Fatalf("ListTLSSecrets: %v", err)
+	}
+	if len(rec.tlsReads) != 1 || rec.tlsReads[0] != "shop" {
+		t.Fatalf("TLS cache reads = %v, want [shop]", rec.tlsReads)
+	}
+	if rec.listed(kube.KindSecret) {
+		t.Fatalf("a TLS read went to the shared Secret cache (%v)", rec.listedKinds)
+	}
+	lister.KindSynced(kube.KindTLSSecret, "shop")
+	if len(rec.syncedAsked) != 1 || rec.syncedAsked[0] != kube.KindTLSSecret || rec.syncedAskedNS[0] != "shop" {
+		t.Fatalf("KindSynced asked about %v@%v, want [%s]@[shop]", rec.syncedAsked, rec.syncedAskedNS, kube.KindTLSSecret)
+	}
+}
+
+// TestTLSSecretFallbackGatesOnTheCacheItRead: without a filtered TLS cache
+// underneath, the decorators read the shared Secret cache — and must then
+// answer the TLS gate from that same cache, or a TLS cell hears "settled"
+// about a cache nothing backs.
+func TestTLSSecretFallbackGatesOnTheCacheItRead(t *testing.T) {
+	rec := &narrowlessCluster{}
+	lister := newSessionLister(rec, kube.NewForwardManager(), nil)
+
+	if _, err := lister.ListTLSSecrets(t.Context(), "shop"); err != nil {
+		t.Fatalf("ListTLSSecrets: %v", err)
+	}
+	if len(rec.listedKinds) != 1 || rec.listedKinds[0] != kube.KindSecret {
+		t.Fatalf("fallback listed %v, want [%s]", rec.listedKinds, kube.KindSecret)
+	}
+	lister.KindSynced(kube.KindTLSSecret, "shop")
+	if len(rec.syncedAsked) != 1 || rec.syncedAsked[0] != kube.KindSecret {
+		t.Fatalf("KindSynced asked about %v, want [%s]", rec.syncedAsked, kube.KindSecret)
 	}
 }

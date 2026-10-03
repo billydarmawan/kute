@@ -672,9 +672,9 @@ func (c *Cluster) noteReached() {
 // cacheScopeLocked's mode normalization entirely — its own per-namespace
 // scoping (helm.go) predates and is independent of scoped/cluster-wide mode,
 // so the namespace a read actually used is the key regardless of mode. c.mu
-// must be held.
+// must be held. KindTLSSecret (tlssecrets.go) is scoped the same way.
 func (c *Cluster) scopeKeyForLocked(kind ResourceKind, namespace string) scopeKey {
-	if kind == KindHelmRelease {
+	if kind == KindHelmRelease || kind == KindTLSSecret {
 		return scopeKey{kind, namespace}
 	}
 	return scopeKey{kind, c.cacheScopeLocked(kind, namespace)}
@@ -744,6 +744,9 @@ func (c *Cluster) KindStarted(kind ResourceKind, namespace string) bool {
 	if kind == KindHelmRelease {
 		return c.helmInformers[key.namespace] != nil
 	}
+	if kind == KindTLSSecret {
+		return c.kindInformers[key] != nil
+	}
 	if _, ok := c.kindInformers[key]; ok {
 		return true
 	}
@@ -781,6 +784,13 @@ func (c *Cluster) kindSyncedLockedKey(key scopeKey) bool {
 		// one such cache per namespace read, so it answers for exactly the
 		// namespace this key names.
 		inf := c.helmInformers[key.namespace]
+		return inf != nil && inf.HasSynced()
+	}
+	if key.kind == KindTLSSecret {
+		// Its own filtered Secret cache, per namespace read — like Helm's,
+		// not started is not synced (the shared Secret cache says nothing
+		// about it).
+		inf := c.kindInformers[key]
 		return inf != nil && inf.HasSynced()
 	}
 	if inf, ok := c.kindInformers[key]; ok {

@@ -252,6 +252,26 @@ func (c *Cluster) ListHelmReleaseSecrets(_ context.Context, namespace string) ([
 	return out, nil
 }
 
+// ListTLSSecrets mirrors *kube.Cluster's filtered kubernetes.io/tls cache the
+// way ListHelmReleaseSecrets mirrors the release one: filter the one seeded
+// map by type, so --demo's TLS cells and cert chains exercise the narrow path.
+func (c *Cluster) ListTLSSecrets(_ context.Context, namespace string) ([]runtime.Object, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []runtime.Object
+	for _, obj := range c.objects[kube.KindSecret] {
+		secret, ok := obj.(*corev1.Secret)
+		if !ok || secret.Type != corev1.SecretTypeTLS {
+			continue
+		}
+		if namespace != "" && secret.Namespace != namespace {
+			continue
+		}
+		out = append(out, obj)
+	}
+	return out, nil
+}
+
 // SetSynced overrides what Synced reports.
 func (c *Cluster) SetSynced(synced bool) {
 	c.mu.Lock()

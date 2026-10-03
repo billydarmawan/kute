@@ -181,7 +181,7 @@ func (l helmAwareLister) KindSynced(kind kube.ResourceKind, namespace string) bo
 	if kind == kube.KindHelmRelease && !l.hasHelmReleaseCache() {
 		kind = kube.KindSecret
 	}
-	return kc.KindSynced(kind, namespace)
+	return kc.KindSynced(tlsCacheKind(l.RawLister, kind), namespace)
 }
 
 // KindStarted answers for the same cache KindSynced does — for
@@ -196,7 +196,7 @@ func (l helmAwareLister) KindStarted(kind kube.ResourceKind, namespace string) b
 	if kind == kube.KindHelmRelease && !l.hasHelmReleaseCache() {
 		kind = kube.KindSecret
 	}
-	return ks.KindStarted(kind, namespace)
+	return ks.KindStarted(tlsCacheKind(l.RawLister, kind), namespace)
 }
 
 // KindError answers for the same cache KindSynced does — for
@@ -210,7 +210,7 @@ func (l helmAwareLister) KindError(kind kube.ResourceKind, namespace string) err
 	if kind == kube.KindHelmRelease && !l.hasHelmReleaseCache() {
 		kind = kube.KindSecret
 	}
-	return kr.KindError(kind, namespace)
+	return kr.KindError(tlsCacheKind(l.RawLister, kind), namespace)
 }
 
 // KindForbidden answers for the same cache KindSynced and KindError do. A
@@ -226,7 +226,7 @@ func (l helmAwareLister) KindForbidden(kind kube.ResourceKind, namespace string)
 	if kind == kube.KindHelmRelease && !l.hasHelmReleaseCache() {
 		kind = kube.KindSecret
 	}
-	return fr.KindForbidden(kind, namespace)
+	return fr.KindForbidden(tlsCacheKind(l.RawLister, kind), namespace)
 }
 
 // CountLive forwards the server-side count; KindHelmRelease is counted from
@@ -331,7 +331,7 @@ func (l forwardAwareLister) KindSynced(kind kube.ResourceKind, namespace string)
 		return true
 	}
 	if kc, ok := l.RawLister.(kindSyncChecker); ok {
-		return kc.KindSynced(kind, namespace)
+		return kc.KindSynced(tlsCacheKind(l.RawLister, kind), namespace)
 	}
 	return true
 }
@@ -347,7 +347,7 @@ func (l forwardAwareLister) KindStarted(kind kube.ResourceKind, namespace string
 		return true
 	}
 	if ks, ok := l.RawLister.(tui.KindStartedChecker); ok {
-		return ks.KindStarted(kind, namespace)
+		return ks.KindStarted(tlsCacheKind(l.RawLister, kind), namespace)
 	}
 	return true
 }
@@ -363,7 +363,7 @@ func (l forwardAwareLister) KindError(kind kube.ResourceKind, namespace string) 
 		return nil
 	}
 	if kr, ok := l.RawLister.(tui.KindErrorReporter); ok {
-		return kr.KindError(kind, namespace)
+		return kr.KindError(tlsCacheKind(l.RawLister, kind), namespace)
 	}
 	return nil
 }
@@ -377,7 +377,7 @@ func (l forwardAwareLister) KindForbidden(kind kube.ResourceKind, namespace stri
 		return nil
 	}
 	if fr, ok := l.RawLister.(tui.KindForbiddenReporter); ok {
-		return fr.KindForbidden(kind, namespace)
+		return fr.KindForbidden(tlsCacheKind(l.RawLister, kind), namespace)
 	}
 	return nil
 }
@@ -435,6 +435,55 @@ func (l forwardAwareLister) hasHelmReleaseCache() bool {
 // one decorator asking the next.
 type helmCacheProber interface{ hasHelmReleaseCache() bool }
 
+// tlsSecretLister is implemented by a lister that can hand back just the
+// kubernetes.io/tls Secrets in a namespace, from a cache holding only those
+// (*kube.Cluster.ListTLSSecrets, docs/lazy-informers.md §5.7) — the read
+// routetable's TLS cells and certchain's Secret ref make. Mirrors
+// routetable.TLSSecretLister/certchain.TLSSecretLister structurally.
+type tlsSecretLister interface {
+	ListTLSSecrets(ctx context.Context, namespace string) ([]runtime.Object, error)
+}
+
+// ListTLSSecrets forwards the narrow TLS Secret cache, and is load-bearing
+// the way ListHelmReleaseSecrets is: unforwarded, routetable and certchain
+// type-assert against this wrapper, miss, and read the shared Secret cache —
+// which in cluster-wide mode starts the full-payload informer over every
+// Secret in the cluster to read one tls.crt. Like that forward it must never
+// be a dead end: without a narrow cache underneath, the shared Secret cache
+// is the answer, and tlsCacheKind points the cache gates at it to match.
+func (l forwardAwareLister) ListTLSSecrets(ctx context.Context, namespace string) ([]runtime.Object, error) {
+	return listTLSSecrets(ctx, l.RawLister, namespace)
+}
+
+// ListTLSSecrets keeps the seam alive one layer further up; see
+// forwardAwareLister's copy.
+func (l helmAwareLister) ListTLSSecrets(ctx context.Context, namespace string) ([]runtime.Object, error) {
+	return listTLSSecrets(ctx, l.RawLister, namespace)
+}
+
+func listTLSSecrets(ctx context.Context, inner resources.RawLister, namespace string) ([]runtime.Object, error) {
+	if tl, ok := inner.(tlsSecretLister); ok {
+		return tl.ListTLSSecrets(ctx, namespace)
+	}
+	return inner.ListRaw(ctx, kube.KindSecret, namespace)
+}
+
+// tlsCacheKind is the cache-gate counterpart of listTLSSecrets' fallback: a
+// decorator whose ListTLSSecrets read the shared Secret cache (inner has no
+// filtered one) must answer KindSynced/KindError/KindForbidden/KindStarted
+// for KindTLSSecret from that same cache, or a TLS cell would be told
+// "settled" about a cache nothing backs and claim "secret not found" while
+// the real one fills.
+func tlsCacheKind(inner resources.RawLister, kind kube.ResourceKind) kube.ResourceKind {
+	if kind != kube.KindTLSSecret {
+		return kind
+	}
+	if _, ok := inner.(tlsSecretLister); ok {
+		return kind
+	}
+	return kube.KindSecret
+}
+
 // Compile-time guarantees that both the informer-backed Cluster and the
 // in-memory fake satisfy the seams the screens depend on (--demo
 // substitutes the latter behind the same interfaces, mvp-plan.md §0.10).
@@ -461,6 +510,8 @@ var (
 	_ tui.LiveCounter              = (*kube.Cluster)(nil)
 	_ helmhistory.HelmSecretLister = (*kube.Cluster)(nil)
 	_ helmdetail.HelmSecretLister  = (*kube.Cluster)(nil)
+	_ routetable.TLSSecretLister   = (*kube.Cluster)(nil)
+	_ certchain.TLSSecretLister    = (*kube.Cluster)(nil)
 
 	// The two lister decorators must satisfy every optional seam the
 	// cluster does. Embedding resources.RawLister as an interface field
@@ -483,6 +534,8 @@ var (
 	_ tui.LiveCounter              = forwardAwareLister{}
 	_ helmhistory.HelmSecretLister = forwardAwareLister{}
 	_ helmdetail.HelmSecretLister  = forwardAwareLister{}
+	_ routetable.TLSSecretLister   = forwardAwareLister{}
+	_ certchain.TLSSecretLister    = forwardAwareLister{}
 	_ browse.KindSyncChecker       = helmAwareLister{}
 	_ browse.CacheSyncChecker      = helmAwareLister{}
 	_ tui.KindErrorReporter        = helmAwareLister{}
@@ -492,6 +545,8 @@ var (
 	_ tui.LiveCounter              = helmAwareLister{}
 	_ helmhistory.HelmSecretLister = helmAwareLister{}
 	_ helmdetail.HelmSecretLister  = helmAwareLister{}
+	_ routetable.TLSSecretLister   = helmAwareLister{}
+	_ certchain.TLSSecretLister    = helmAwareLister{}
 	// Only the outermost decorator can answer this one — nothing below it
 	// holds a chart index — but it is the lister screens actually assert
 	// against, so this is the assertion that matters.
@@ -516,6 +571,8 @@ var (
 	_ tui.KindForbiddenReporter    = (*fake.Cluster)(nil)
 	_ helmhistory.HelmSecretLister = (*fake.Cluster)(nil)
 	_ helmdetail.HelmSecretLister  = (*fake.Cluster)(nil)
+	_ routetable.TLSSecretLister   = (*fake.Cluster)(nil)
+	_ certchain.TLSSecretLister    = (*fake.Cluster)(nil)
 	// This block has no tui.ScopedChecker or tui.LiveCounter assertion for
 	// fake.Cluster. The fake has no informers to scope: SwitchNamespace only
 	// changes which objects ListRaw filters to (see fake.go's own field

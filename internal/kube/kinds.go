@@ -132,7 +132,7 @@ func IsBuiltinKind(k ResourceKind) bool {
 	}
 	switch k {
 	case KindForward, KindCustomResourceDefinition, KindHelmRelease, KindFluxHelmRelease,
-		KindWhoCan, KindOverview, KindFluxTree:
+		KindTLSSecret, KindWhoCan, KindOverview, KindFluxTree:
 		return true
 	}
 	return false
@@ -245,6 +245,14 @@ const (
 	// (docs/design README.md §18a, kube/helm.go). One row per release
 	// (namespace+name), aggregated to its highest revision.
 	KindHelmRelease ResourceKind = "HelmRelease"
+
+	// KindTLSSecret is a cache key, not a registry entry: the
+	// type=kubernetes.io/tls Secrets ListTLSSecrets serves, one informer per
+	// namespace read (tlssecrets.go, docs/lazy-informers.md §5.7). It names
+	// that cache to KindSynced/KindError/KindForbidden and its change
+	// events, so a TLS cell can gate on it without asking about (or
+	// starting) the shared Secret cache. Never shown, never sent to the API.
+	KindTLSSecret ResourceKind = "TLSSecret"
 
 	// KindFluxHelmRelease is the discovered helm.toolkit.fluxcd.io
 	// HelmRelease (docs/design README.md §30a) under a registry key that is

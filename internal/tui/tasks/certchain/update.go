@@ -73,7 +73,9 @@ func (m Model) reloadsOn(kind kube.ResourceKind) bool {
 			return true
 		}
 	}
-	if m.haveSecret && m.secretRef.Kind == kind {
+	if m.haveSecret && (m.secretRef.Kind == kind || kind == kube.KindTLSSecret) {
+		// The ref is read from the filtered TLS cache when the lister has
+		// one, which reports its changes under its own key.
 		return true
 	}
 	if m.haveIssuer && m.issuerRef.Kind == kind {

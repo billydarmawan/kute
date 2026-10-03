@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
@@ -213,6 +214,29 @@ func backendPortText(ctx context.Context, lister resources.RawLister, ns, svcNam
 	return port.Name
 }
 
+// TLSSecretLister is implemented by a lister that can hand back just the
+// kubernetes.io/tls Secrets in a namespace, from a cache holding only those
+// (*kube.Cluster.ListTLSSecrets, docs/lazy-informers.md §5.7). Optional: a
+// lister without it falls back to the shared Secret cache — correct, but on a
+// real cluster that starts the cluster-wide, full-payload Secret informer to
+// read one tls.crt.
+type TLSSecretLister interface {
+	ListTLSSecrets(ctx context.Context, namespace string) ([]runtime.Object, error)
+}
+
+// tlsSecrets reads ns's Secrets for a cert lookup from the narrowest source
+// lister offers, and names the cache a miss must be gated on — the filtered
+// TLS cache's own key when that is what was read, never KindSecret, which
+// answers for a cache this path deliberately leaves unstarted.
+func tlsSecrets(ctx context.Context, lister resources.RawLister, ns string) ([]runtime.Object, kube.ResourceKind, error) {
+	if tl, ok := lister.(TLSSecretLister); ok {
+		objs, err := tl.ListTLSSecrets(ctx, ns)
+		return objs, kube.KindTLSSecret, err
+	}
+	objs, err := lister.ListRaw(ctx, kube.KindSecret, ns)
+	return objs, kube.KindSecret, err
+}
+
 // resolveCertExpiry parses a TLS Secret's tls.crt to report expiry, per
 // docs/design README.md §23a: "yellow <30d, red expired". A miss is only
 // "secret not found" once the Secret cache for ns has settled without an
@@ -224,7 +248,7 @@ func resolveCertExpiry(ctx context.Context, lister resources.RawLister, ns, secr
 	if lister == nil || secretName == "" {
 		return "–", resources.StatusNeutral, false
 	}
-	objs, err := lister.ListRaw(ctx, kube.KindSecret, ns)
+	objs, cacheKind, err := tlsSecrets(ctx, lister, ns)
 	if err != nil {
 		return "–", resources.StatusNeutral, false
 	}
@@ -236,10 +260,10 @@ func resolveCertExpiry(ctx context.Context, lister resources.RawLister, ns, secr
 		}
 	}
 	if secret == nil {
-		if !tui.KindsSynced(lister, ns, kube.KindSecret) {
+		if !tui.KindsSynced(lister, ns, cacheKind) {
 			return "loading…", resources.StatusNeutral, true
 		}
-		if kerr := tui.KindsError(lister, ns, kube.KindSecret); kerr != nil {
+		if kerr := tui.KindsError(lister, ns, cacheKind); kerr != nil {
 			if kube.IsPermissionError(kerr) {
 				return "secrets: permission denied", resources.StatusNeutral, false
 			}
