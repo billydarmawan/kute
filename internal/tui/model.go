@@ -267,6 +267,14 @@ type EscapeBacker interface {
 	BackOnEscape() bool
 }
 
+// InputMasker is implemented by a task whose open buffer holds a secret
+// value (27b's Secret value entry). While MasksInput reports true, --keycast
+// records no printable key, so the chip never spells out a value the
+// screen's own messages mask.
+type InputMasker interface {
+	MasksInput() bool
+}
+
 // Transient is implemented by a Task that hands its place in the navigation
 // stack to the task it swaps itself out for. tasks/objectdetail's 14d
 // redirect is the case that needs it: an object with neither conditions nor
@@ -487,6 +495,13 @@ func (m Model) WithRootFactories(buildSetup func(kube.ConnState) Task, buildBrow
 func (m Model) WithUpdatePanel(build func() Task) Model {
 	m.buildUpdate = build
 	return m
+}
+
+// taskMasksInput reports whether t has a secret-value buffer open (see
+// InputMasker).
+func taskMasksInput(t Task) bool {
+	masker, ok := t.(InputMasker)
+	return ok && masker.MasksInput()
 }
 
 // WithKeycast enables/disables the --keycast bottom-right keypress chip. A
@@ -1029,7 +1044,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// same contract as a task's DismissResult.
 		m.rootResult = ResultLine{}
 		var keycastCmd tea.Cmd
-		if m.keycastEnabled {
+		if m.keycastEnabled && !(msg.Text != "" && taskMasksInput(m.task)) {
 			keycastCmd = m.keycast.record(msg, time.Now())
 		}
 		// After the keycast record (the chord still shows in a demo) and

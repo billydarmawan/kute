@@ -319,6 +319,15 @@ func (m Model) CapturingInput() bool {
 	return m.adding != nil || m.editing != nil
 }
 
+// MasksInput reports whether a Secret value buffer is open (the add row's
+// value field, or '↵'s edit) — tui.InputMasker, so --keycast never records
+// the value's keystrokes. The add row's key field isn't secret.
+func (m Model) MasksInput() bool {
+	return m.editing != nil || (m.adding != nil && m.adding.onValue)
+}
+
+var _ tui.InputMasker = Model{}
+
 // isProd mirrors browse's own isProd (delete.go) — the same PROD-tag source
 // (Session.Config.IsProd), duplicated per the repo's package-local-seam
 // convention (poddetail/nodedetail/helmhistory each keep their own copy).

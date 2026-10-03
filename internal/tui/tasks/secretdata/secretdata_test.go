@@ -404,6 +404,25 @@ func TestShiftTabReturnsFocusFromValueToKey(t *testing.T) {
 	}
 }
 
+// MasksInput (tui.InputMasker) covers the value buffer only: --keycast may
+// show a key name being typed, never a value.
+func TestMasksInputOnlyWhileValueBufferIsFocused(t *testing.T) {
+	secret := secretObj("nva-stage", "nva-secrets", nil)
+	m := newModel(t, newSession(), secret, &fakeMutator{secret: secret})
+
+	if m.MasksInput() {
+		t.Fatal("expected no masking with no buffer open")
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "a"})
+	if m.MasksInput() {
+		t.Fatal("expected the key buffer not to mask keycast")
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "tab"})
+	if !m.MasksInput() {
+		t.Fatal("expected the value buffer to mask keycast")
+	}
+}
+
 func TestCtrlXTogglesMaskAndPlainXStaysTypeable(t *testing.T) {
 	secret := secretObj("nva-stage", "nva-secrets", nil)
 	m := newModel(t, newSession(), secret, &fakeMutator{secret: secret})
