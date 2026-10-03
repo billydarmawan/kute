@@ -314,6 +314,12 @@ func checkNeverConfirms(t *testing.T, name string, pkg []*ast.File, allowed map[
 		}
 	}
 	begun := requestedVerbs(pkg)
+	// A shared non-task package (jobactions, metapanel) builds the
+	// Request{Verb: …} a screen hands to Begin, so a screen importing one
+	// may Begin every verb that package names.
+	for _, dir := range sharedTUIImports(pkg) {
+		begun = append(begun, requestedVerbs(parsePackage(t, filepath.Join("..", dir)))...)
+	}
 	if len(begun) == 0 {
 		t.Errorf("%s is in neverConfirms but Begins no verb — has its Request{Verb: …} moved?", name)
 	}
@@ -323,6 +329,26 @@ func checkNeverConfirms(t *testing.T, name string, pkg []*ast.File, allowed map[
 				"route its keys through HandleConfirmKey, or list the verb if it never confirms", name, verb)
 		}
 	}
+}
+
+// sharedTUIImports names the internal/tui subpackages (relative to
+// internal/tui) pkg imports, other than tasks, actions and verbs themselves.
+func sharedTUIImports(pkg []*ast.File) []string {
+	const prefix = "github.com/kute-dev/kute/internal/tui/"
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range pkg {
+		for _, imp := range f.Imports {
+			path, _ := strconv.Unquote(imp.Path.Value)
+			rel, ok := strings.CutPrefix(path, prefix)
+			if !ok || seen[rel] || rel == "actions" || rel == "verbs" || strings.HasPrefix(rel, "tasks/") {
+				continue
+			}
+			seen[rel] = true
+			out = append(out, rel)
+		}
+	}
+	return out
 }
 
 // requestedVerbs names every verbs.X a Request{Verb: …} literal carries.

@@ -43,7 +43,7 @@ func (m *Model) beginCertRenew(row resources.Row) tea.Cmd {
 }
 
 // certRenewWillRunLine is beginCertRenew's confirm "will run: ..." line —
-// same idiom as jobRetryWillRunLine/argoSyncWillRunLine: the literal kubectl
+// same idiom as jobactions.RetryWillRunLine/argoSyncWillRunLine: the literal kubectl
 // patch RenewCertificate issues, never `cmctl renew`
 // (RenewCertificateCommandString's own doc comment has the reasoning).
 func certRenewWillRunLine(scope tui.TaskScope) string {

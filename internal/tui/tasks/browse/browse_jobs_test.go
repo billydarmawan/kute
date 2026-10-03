@@ -236,12 +236,12 @@ func TestRStagesJobRerunThenCreatesOnEnter(t *testing.T) {
 	}
 	// No text buffer here, so j/k toggle the choice like ↑↓.
 	m = step(t, m, tea.KeyPressMsg{Code: 'j', Text: "j"})
-	if m.pendingJobRerun.choice != resources.JobRerunReplace {
-		t.Fatalf("choice = %v after j, want replace", m.pendingJobRerun.choice)
+	if m.pendingJobRerun.Choice != resources.JobRerunReplace {
+		t.Fatalf("choice = %v after j, want replace", m.pendingJobRerun.Choice)
 	}
 	m = step(t, m, tea.KeyPressMsg{Code: 'k', Text: "k"})
-	if m.pendingJobRerun.choice != resources.JobRerunCreate {
-		t.Fatalf("choice = %v after k, want create", m.pendingJobRerun.choice)
+	if m.pendingJobRerun.Choice != resources.JobRerunCreate {
+		t.Fatalf("choice = %v after k, want create", m.pendingJobRerun.Choice)
 	}
 
 	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})

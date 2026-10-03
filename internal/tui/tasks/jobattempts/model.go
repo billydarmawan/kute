@@ -34,6 +34,7 @@ import (
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 )
 
 // OpenLogsFunc pushes the log-stream screen for pod — same shape as
@@ -139,8 +140,8 @@ type Model struct {
 	diffMode bool
 
 	// pendingRerun is non-nil while §37c's 'R' create-vs-replace choice
-	// is showing (rerun.go) — mirrors browse's own pendingJobRerun.
-	pendingRerun *jobRerunTarget
+	// is showing (rerun.go) — the same jobactions.Rerun browse stages.
+	pendingRerun *jobactions.Rerun
 
 	now time.Time // UI clock (tea.Tick); relative age text only, never a reload trigger
 

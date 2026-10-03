@@ -7,6 +7,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/metapanel"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
@@ -39,7 +40,7 @@ func (m Model) Keybar() tui.Keybar {
 		return m.cronJobResumeKeybar()
 	}
 	if m.pendingJobRerun != nil {
-		return m.jobRerunKeybar()
+		return m.pendingJobRerun.Keybar()
 	}
 	if m.pendingScale != nil {
 		kb := tui.Keybar{
@@ -164,14 +165,14 @@ func (m Model) Keybar() tui.Keybar {
 					// this screen — commitJobRerun always stages first — but
 					// kept for the same defensive-completeness reason every
 					// other verb's case exists). Same idiom as rollout-restart.
-					note = jobRetryWillRunLine(pending.Scope)
+					note = jobactions.RetryWillRunLine(pending.Scope)
 				case "job-replace":
 					// §37c's "replace" choice — genuinely destructive, so
 					// (unlike job-retry) this really does reach the ordinary
 					// Controller confirm every time: staging only offers the
 					// choice, it doesn't confirm it (job_actions.go's own doc
 					// comment).
-					note = jobReplaceWillRunLine(pending.Scope)
+					note = jobactions.ReplaceWillRunLine(pending.Scope)
 				case "job-suspend", "job-resume":
 					// the exact "will run: kubectl patch job/... --type merge
 					// ..." line, same idiom as flux-suspend/flux-resume's own

@@ -88,8 +88,8 @@ func TestBeginRerunStagesCreateChoiceByDefault(t *testing.T) {
 	if m.pendingRerun == nil {
 		t.Fatalf("expected beginRerun to stage a pendingRerun target")
 	}
-	if m.pendingRerun.newName != "batch-1-rerun-1" {
-		t.Errorf("newName = %q, want %q", m.pendingRerun.newName, "batch-1-rerun-1")
+	if m.pendingRerun.NewName != "batch-1-rerun-1" {
+		t.Errorf("newName = %q, want %q", m.pendingRerun.NewName, "batch-1-rerun-1")
 	}
 }
 
@@ -99,12 +99,12 @@ func TestRerunChoiceTogglesOnJK(t *testing.T) {
 	m := newModel(t, c, "default", "batch-1")
 	m.beginRerun()
 	m = step(t, m, tea.KeyPressMsg{Code: 'j', Text: "j"})
-	if m.pendingRerun.choice != resources.JobRerunReplace {
-		t.Fatalf("choice = %v after j, want replace", m.pendingRerun.choice)
+	if m.pendingRerun.Choice != resources.JobRerunReplace {
+		t.Fatalf("choice = %v after j, want replace", m.pendingRerun.Choice)
 	}
 	m = step(t, m, tea.KeyPressMsg{Code: 'k', Text: "k"})
-	if m.pendingRerun.choice != resources.JobRerunCreate {
-		t.Fatalf("choice = %v after k, want create", m.pendingRerun.choice)
+	if m.pendingRerun.Choice != resources.JobRerunCreate {
+		t.Fatalf("choice = %v after k, want create", m.pendingRerun.Choice)
 	}
 }
 
@@ -125,7 +125,7 @@ func TestCommitRerunReplaceGoesThroughOrdinaryConfirm(t *testing.T) {
 	c, _ := newFakeJob("default", "batch-1")
 	m := newModel(t, c, "default", "batch-1")
 	m.beginRerun()
-	m.pendingRerun.choice = 1 // resources.JobRerunReplace
+	m.pendingRerun.Choice = 1 // resources.JobRerunReplace
 	if cmd := m.commitRerun(); cmd != nil {
 		// TierInline's Begin returns nil (it only moves to TaskStateConfirming,
 		// never executes) — this branch would only fire if replace somehow
@@ -290,8 +290,8 @@ func TestBeginRerunSkipsExistingRerunNames(t *testing.T) {
 	if m.pendingRerun == nil {
 		t.Fatalf("expected beginRerun to stage a pendingRerun target")
 	}
-	if m.pendingRerun.newName != "batch-1-rerun-2" {
-		t.Errorf("newName = %q, want %q — batch-1-rerun-1 already exists", m.pendingRerun.newName, "batch-1-rerun-2")
+	if m.pendingRerun.NewName != "batch-1-rerun-2" {
+		t.Errorf("newName = %q, want %q — batch-1-rerun-1 already exists", m.pendingRerun.NewName, "batch-1-rerun-2")
 	}
 }
 

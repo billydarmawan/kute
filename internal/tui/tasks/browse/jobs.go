@@ -230,7 +230,7 @@ func jobSuspendWillRunLine(scope tui.TaskScope) string {
 // suspended, so the keybar always shows the direction pressing 's' would
 // actually take. 'R' has no dedicated Hint() rendering here beyond the
 // bare key/label — job_actions.go's staged choice list takes over the
-// keybar entirely once pressed (job_actions.go's jobRerunKeybar).
+// keybar entirely once pressed (jobactions.Rerun.Keybar).
 func (m Model) jobKeybarGroup() []tui.KeyHint {
 	suspend := verbs.JobSuspend
 	if row, ok := m.selectedRow(); ok && row.Suspended {

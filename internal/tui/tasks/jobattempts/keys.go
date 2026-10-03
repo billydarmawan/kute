@@ -3,6 +3,7 @@ package jobattempts
 import (
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -10,7 +11,7 @@ import (
 // registry invariant — mirrors cronjobdetail's own; pill is ATTEMPTS.
 func (m Model) Keybar() tui.Keybar {
 	if m.pendingRerun != nil {
-		return m.rerunKeybar()
+		return m.pendingRerun.Keybar()
 	}
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierModal {
@@ -20,9 +21,9 @@ func (m Model) Keybar() tui.Keybar {
 		if pending := m.actions.Pending(); pending != nil {
 			switch pending.Scope.Verb {
 			case "job-retry":
-				note = jobRetryWillRunLine(pending.Scope)
+				note = jobactions.RetryWillRunLine(pending.Scope)
 			case "job-replace":
-				note = jobReplaceWillRunLine(pending.Scope)
+				note = jobactions.ReplaceWillRunLine(pending.Scope)
 			}
 		}
 		return tui.Keybar{

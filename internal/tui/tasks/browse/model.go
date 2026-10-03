@@ -28,6 +28,7 @@ import (
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/metapanel"
 )
 
@@ -439,10 +440,10 @@ type Model struct {
 	// pendingJobRerun is non-nil while §37c's 'R' create-vs-replace
 	// choice is showing (job_actions.go) — a bespoke gate like
 	// pendingCronJobRun, since the choice list stages its own preview
-	// (generated rerun name, amber diagnostic) before either committing
+	// (generated rerun name) before either committing
 	// directly (create, TierNone) or handing off to the ordinary
 	// actions.Controller confirm (replace, tiered).
-	pendingJobRerun *jobRerunTarget
+	pendingJobRerun *jobactions.Rerun
 	// lastCronJobRunName is the Job name commitCronJobRun just staged for
 	// creation — actions.ResultMsg carries no NewName of its own (Scope
 	// isn't part of the message), so update.go's "cronjob-run-now-" branch

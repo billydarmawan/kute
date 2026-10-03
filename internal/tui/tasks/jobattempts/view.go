@@ -14,6 +14,7 @@ import (
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 )
 
 func (m Model) View() tea.View { return tea.NewView(m.Render()) }
@@ -433,7 +434,7 @@ func (m Model) replaceConfirmModal(width, height int) string {
 	if pending := m.actions.Pending(); pending != nil {
 		title = "✕ " + pending.Label
 		target = pending.Scope.ResourceName
-		detail = jobReplaceWillRunLine(pending.Scope)
+		detail = jobactions.ReplaceWillRunLine(pending.Scope)
 	}
 	styles := components.TypeModalStyles{
 		Border:    lipgloss.NewStyle().BorderForeground(theme.ConfirmBorder).Background(theme.ConfirmHeaderBg),

@@ -16,6 +16,7 @@ import (
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -139,7 +140,7 @@ func (m Model) typeNameConfirmModal(width, height int) string {
 			// chosen in PROD (never staged-TierNone the way job-retry's own
 			// "create" path is; see job_actions.go's own doc comment).
 			actionVerb = "replace"
-			detail = jobReplaceWillRunLine(pending.Scope)
+			detail = jobactions.ReplaceWillRunLine(pending.Scope)
 		case isDeleteVerb(pending.Scope.Verb):
 			if pending.Owner != "" {
 				ownerLine = pending.Owner + " — will be recreated"
