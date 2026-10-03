@@ -311,14 +311,15 @@ type Config struct {
 	Forwards    *kube.ForwardManager
 	Retrier     ConnRetrier
 	LoadTimeout time.Duration
-	// CurrentUser is who §36b's run-now stamps into kube.AnnotationTriggeredBy
-	// (0.8.0 plan §4.2) — the active context's authenticated identity
-	// (kube.Context.UserName), wired by app.go's composition root (Phase 8).
-	// Empty falls back to a generic "kute" attribution rather than leaving
-	// the annotation blank.
+	// CurrentUser is the kubeconfig user name (kube.Context.UserName) — the
+	// fallback for who §36b's run-now and §37c's rerun stamp into
+	// kube.AnnotationTriggeredBy when Identity has no reviewed answer. Empty
+	// falls back to a generic "kute" attribution rather than leaving the
+	// annotation blank.
 	CurrentUser string
 	// Identity is the connect-time SelfSubjectReview answer §33a's sync
-	// credits as operation.initiatedBy.username. Read at Begin time, not
+	// credits as operation.initiatedBy.username, and §36b/§37c's stamps
+	// prefer over CurrentUser. Read at Begin time, not
 	// captured here, because the review lands after browse is built and is
 	// replaced on every context switch. nil credits "kute".
 	Identity IdentityReader
@@ -1051,7 +1052,7 @@ func (m Model) load() tea.Cmd {
 	timeout := m.timeout
 	epoch := m.reloadEpoch
 	podDesc, _ := m.session.Registry.Descriptor(kube.KindPod)
-	currentUser := m.currentUser
+	currentUser := m.actingUser()
 	parent := m.session.ClusterContext()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, timeout)

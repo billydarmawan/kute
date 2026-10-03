@@ -259,7 +259,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.now = time.Now()
 		if m.kind == kube.KindJob {
-			m.applyJobTick(m.now, m.currentUser)
+			m.applyJobTick(m.now, m.actingUser())
 		} else {
 			m.applyCronJobTick(m.now)
 		}

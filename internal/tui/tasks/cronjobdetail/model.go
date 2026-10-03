@@ -90,10 +90,15 @@ type Config struct {
 	Name         string
 	Siblings     []SiblingRef
 	SiblingIndex int
-	// CurrentUser is who §36b's run-now stamps into kube.AnnotationTriggeredBy
-	// — mirrors browse.Config.CurrentUser, falling back to the same generic
-	// "kute" (cronJobTriggerCreator) when unset.
+	// CurrentUser is the kubeconfig user name §36b's run-now stamps into
+	// kube.AnnotationTriggeredBy when Identity has no reviewed answer —
+	// mirrors browse.Config.CurrentUser, falling back to the same generic
+	// "kute" (cronJobTriggerCreator) when both are unset.
 	CurrentUser string
+	// Identity is the connect-time SelfSubjectReview answer, read at the
+	// moment of the run-now (mirrors browse.Config.Identity). nil uses
+	// CurrentUser.
+	Identity    IdentityReader
 	LoadTimeout time.Duration
 }
 
@@ -110,6 +115,7 @@ type Model struct {
 	openSchedule OpenScheduleFunc
 	timeout      time.Duration
 	currentUser  string
+	identity     IdentityReader
 
 	namespace string
 	name      string
@@ -210,6 +216,7 @@ func New(cfg Config) Model {
 		openSchedule: cfg.OpenSchedule,
 		timeout:      cfg.LoadTimeout,
 		currentUser:  cfg.CurrentUser,
+		identity:     cfg.Identity,
 		namespace:    cfg.Namespace,
 		name:         cfg.Name,
 		siblings:     cfg.Siblings,
@@ -260,9 +267,21 @@ func (m Model) isProd() bool {
 	return m.session.Config.IsProd(m.session.Location.Context)
 }
 
+// IdentityReader is the connect-time SelfSubjectReview seam — satisfied by
+// *kube.Cluster and *fake.Cluster's ReviewedIdentity.
+type IdentityReader interface {
+	ReviewedIdentity() (kube.ReviewedIdentity, bool)
+}
+
 // cronJobTriggerCreator is the identity §36b's run-now stamps into
-// kube.AnnotationTriggeredBy — mirrors browse's own cronJobTriggerCreator.
+// kube.AnnotationTriggeredBy — mirrors browse's own cronJobTriggerCreator:
+// the reviewed username, read now, else the kubeconfig name, else "kute".
 func (m Model) cronJobTriggerCreator() string {
+	if m.identity != nil {
+		if id, ok := m.identity.ReviewedIdentity(); ok && id.Username != "" {
+			return id.Username
+		}
+	}
 	if m.currentUser != "" {
 		return m.currentUser
 	}

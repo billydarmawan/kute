@@ -110,8 +110,8 @@ func (m *Model) commitJobRerun() tea.Cmd {
 
 // jobRerunCreator mirrors cronJobTriggerCreator's own fallback.
 func (m Model) jobRerunCreator() string {
-	if m.currentUser != "" {
-		return m.currentUser
+	if who := m.actingUser(); who != "" {
+		return who
 	}
 	return "kute"
 }

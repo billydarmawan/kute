@@ -87,8 +87,20 @@ func (m *Model) commitRerun() tea.Cmd {
 	})
 }
 
-// rerunCreator mirrors browse's own jobRerunCreator.
+// IdentityReader is the connect-time SelfSubjectReview seam — satisfied by
+// *kube.Cluster and *fake.Cluster's ReviewedIdentity.
+type IdentityReader interface {
+	ReviewedIdentity() (kube.ReviewedIdentity, bool)
+}
+
+// rerunCreator mirrors browse's own jobRerunCreator: the reviewed username,
+// read now, else the kubeconfig name, else "kute".
 func (m Model) rerunCreator() string {
+	if m.identity != nil {
+		if id, ok := m.identity.ReviewedIdentity(); ok && id.Username != "" {
+			return id.Username
+		}
+	}
 	if m.currentUser != "" {
 		return m.currentUser
 	}

@@ -1389,6 +1389,7 @@ func openCronJobDetailFunc(sess *tui.Session, active seams, openLogs browse.Open
 			Siblings:     refs,
 			SiblingIndex: index,
 			CurrentUser:  currentUser,
+			Identity:     active,
 		})
 		cd.SetSize(width, height)
 		return &cd, cd.Init()
@@ -1432,6 +1433,7 @@ func openJobAttemptsFunc(sess *tui.Session, active seams, openPodDetail browse.O
 			Siblings:      refs,
 			SiblingIndex:  index,
 			CurrentUser:   currentUser,
+			Identity:      active,
 		})
 		ja.SetSize(width, height)
 		return &ja, ja.Init()

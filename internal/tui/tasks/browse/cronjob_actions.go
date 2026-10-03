@@ -25,15 +25,27 @@ import (
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
+// actingUser is who an action taken now is attributed to: the API server's
+// reviewed username (Identity, read at the moment of the action — it lands
+// after browse is built and is replaced on every context switch), else the
+// kubeconfig user name (CurrentUser), else "". The SOURCE column's "manual ·
+// you" compares against the same answer the stamps use.
+func (m Model) actingUser() string {
+	if m.identity != nil {
+		if id, ok := m.identity.ReviewedIdentity(); ok && id.Username != "" {
+			return id.Username
+		}
+	}
+	return m.currentUser
+}
+
 // cronJobTriggerCreator is the identity §36b's run-now stamps into
-// kube.AnnotationTriggeredBy — m.currentUser (wired from the active
-// context's kube.Context.UserName by app.go's composition root, Phase 8)
-// falling back to a generic, still-truthful "kute" rather than an empty
-// annotation value when that wiring hasn't happened yet (demo mode, or a
-// test model with no CurrentUser set).
+// kube.AnnotationTriggeredBy — actingUser, falling back to a generic,
+// still-truthful "kute" rather than an empty annotation value when neither
+// identity is known (a test model with no CurrentUser set).
 func (m Model) cronJobTriggerCreator() string {
-	if m.currentUser != "" {
-		return m.currentUser
+	if who := m.actingUser(); who != "" {
+		return who
 	}
 	return "kute"
 }

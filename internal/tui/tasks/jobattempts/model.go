@@ -75,9 +75,14 @@ type Config struct {
 	Name          string
 	Siblings      []SiblingRef
 	SiblingIndex  int
-	// CurrentUser is who §37c's rerun "create" path stamps into
-	// kube.AnnotationTriggeredBy — mirrors browse.Config.CurrentUser.
+	// CurrentUser is the kubeconfig user name §37c's rerun "create" path
+	// stamps into kube.AnnotationTriggeredBy when Identity has no reviewed
+	// answer — mirrors browse.Config.CurrentUser.
 	CurrentUser string
+	// Identity is the connect-time SelfSubjectReview answer, read at the
+	// moment of the rerun (mirrors browse.Config.Identity). nil uses
+	// CurrentUser.
+	Identity    IdentityReader
 	LoadTimeout time.Duration
 }
 
@@ -94,6 +99,7 @@ type Model struct {
 	openEvents    OpenEventsFunc
 	timeout       time.Duration
 	currentUser   string
+	identity      IdentityReader
 
 	namespace string
 	name      string
@@ -184,6 +190,7 @@ func New(cfg Config) Model {
 		openEvents:    cfg.OpenEvents,
 		timeout:       cfg.LoadTimeout,
 		currentUser:   cfg.CurrentUser,
+		identity:      cfg.Identity,
 		namespace:     cfg.Namespace,
 		name:          cfg.Name,
 		siblings:      cfg.Siblings,
