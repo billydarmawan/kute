@@ -12,7 +12,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kute-dev/kute/internal/kube"
-	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -29,7 +28,7 @@ func (m Model) isProd() bool {
 	return m.session.Config.IsProd(m.session.Location.Context)
 }
 
-// beginEdit resolves 'E' for the loaded node: verbs.TierForEdit(m.isProd())
+// beginEdit resolves 'E' for the loaded node: verbs.Resolve(verbs.Edit, …)
 // decides whether to launch kubectl edit immediately (TierNone, cmd is the
 // tea.ExecProcess Cmd) or stage pendingEdit for one inline y/N line first
 // (TierInline, PROD only). ok is false when no node is loaded.
@@ -37,7 +36,7 @@ func (m *Model) beginEdit() (tea.Cmd, bool) {
 	if m.node == nil {
 		return nil, false
 	}
-	if verbs.TierForEdit(m.isProd()) == actions.TierNone {
+	if verbs.Resolve(verbs.Edit, verbs.Target{}, m.isProd()).Tier == verbs.TierNone {
 		return editCmd(m.session.CommandTarget(), m.nodeName), true
 	}
 	m.pendingEdit = &editTarget{name: m.nodeName}

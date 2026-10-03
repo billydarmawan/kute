@@ -16,16 +16,16 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // beginRolloutRestart restarts row's rollout — TierInline
 // (verbs.RolloutRestart), so actions.Controller.Begin moves to the
 // confirming state (inline y/N non-prod, escalated to the type-the-name
-// modal in PROD via TierFor) rather than executing immediately.
+// modal in PROD, verbs.Resolve) rather than executing immediately.
 func (m *Model) beginRolloutRestart(row resources.Row) tea.Cmd {
-	tier := verbs.TierFor(verbs.RolloutRestart, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.RolloutRestart, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "rollout-restart-" + row.Namespace + "/" + row.Name,
 		Label: fmt.Sprintf("Restart rollout for %s?", row.Name),
 		Scope: tui.TaskScope{

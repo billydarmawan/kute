@@ -21,7 +21,7 @@ import (
 
 // isDeleteVerb reports whether verb is the delete family 8b's type-the-name
 // modal handles — the narrower set typeNameConfirmModal needs to tell apart
-// from every other verb actions.RequiresTypedName also routes here (9a's
+// from every other verb Controller.TypeToConfirm also routes here (9a's
 // rollout-restart, 36c's cronjob-suspend), since only the delete family
 // carries an owner/grace-period detail.
 func isDeleteVerb(verb string) bool {
@@ -32,14 +32,13 @@ func isDeleteVerb(verb string) bool {
 // confirm surface — i.e. whether there's a text buffer on screen at all.
 // updateConfirmKey routes keys by it and pasteTarget routes pastes by it, so
 // the two can't disagree about where typed input is going. Reads
-// actions.RequiresTypedName directly rather than a browse-local copy of its
+// Controller.TypeToConfirm directly rather than a browse-local copy of its
 // verb list (0.8.0 plan §3 Phase 3 task 11) — browse's TierModal surface is
 // always this one predicate's verbs; rollout-undo is timeline's screen and
 // never reaches here, but including it costs nothing since browse never
 // stages that verb.
 func (m Model) typingConfirmName() bool {
-	pending := m.actions.Pending()
-	return m.actions.Tier() == actions.TierModal && pending != nil && actions.RequiresTypedName(pending.Scope.Verb)
+	return m.actions.TypeToConfirm()
 }
 
 // isProd reports whether the active session's current context is tagged
@@ -65,7 +64,7 @@ func deleteWillRunLine(scope tui.TaskScope) string {
 // beginDelete confirms deleting row — inline y/N in non-prod contexts, the
 // full type-the-name modal in PROD, and always the modal for a Namespace,
 // CustomResourceDefinition (14b) or Node, which delete far more than the one row
-// (verbs.TierForDelete owns that rule). Owner is only known for the Pod kind
+// (verbs.Resolve owns that rule). Owner is only known for the Pod kind
 // (via m.pods, the fuller kube.Pod projection Row doesn't carry) — every
 // other kind's modal simply omits the "will be recreated" line.
 func (m *Model) beginDelete(row resources.Row) tea.Cmd {
@@ -77,7 +76,7 @@ func (m *Model) beginDelete(row resources.Row) tea.Cmd {
 			gracePeriod = &pod.GracePeriodSeconds
 		}
 	}
-	return m.actions.Begin(verbs.TierForDelete(verbs.Delete, m.kind, m.isProd()), tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Delete, Prod: m.isProd()}, tui.TaskAction{
 		ID:                 "delete-" + string(m.kind) + "-" + row.Namespace + "/" + row.Name,
 		Label:              fmt.Sprintf("Delete %s %s?", singularDisplay(m.desc.Display), row.Name),
 		Owner:              owner,
@@ -93,7 +92,7 @@ func (m *Model) beginDelete(row resources.Row) tea.Cmd {
 }
 
 // typeNameConfirmModal renders the type-the-name modal for a pending verb
-// actions.RequiresTypedName routes here (every other TierModal verb, i.e.
+// Controller.TypeToConfirm routes here (every other TierModal verb, i.e.
 // Drain, keeps rendering through nodes.go's existing confirmBody/
 // ConfirmCard, untouched by this file). The delete family gets 8b's owner/
 // grace-period detail and its force-delete hint (verbs.ForceDeleteModalHint); rollout-restart (9a)
@@ -123,14 +122,14 @@ func (m Model) typeNameConfirmModal(width, height int) string {
 			detail = rolloutRestartWillRunLine(pending.Scope)
 		case pending.Scope.Verb == "cronjob-suspend" && len(pending.Scope.BulkTargets) == 0:
 			// PROD escalation only — cronjob-resume never reaches TierModal
-			// (verbs.TierForCronJobSuspend), so this branch is single-target
+			// (verbs.Resolve's CronJobSuspend row), so this branch is single-target
 			// suspend only; a marked-set PROD suspend routes to
 			// cronjob_bulk.go's own type-the-count modal instead (Body()'s
 			// dispatch, pendingBulkCronJobSuspend).
 			actionVerb = "suspend"
 			detail = cronJobSuspendWillRunLine(pending.Scope)
 		case pending.Scope.Verb == "job-suspend":
-			// v0.9.0 §37a: PROD escalation only (verbs.TierForJobSuspend never
+			// v0.9.0 §37a: PROD escalation only (verbs.Resolve's JobSuspend row never
 			// escalates job-resume) — the same asymmetric shape cronjob-suspend
 			// above has.
 			actionVerb = "suspend"

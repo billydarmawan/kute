@@ -639,11 +639,8 @@ func (m Model) openSelectedTimeline() (tea.Model, tea.Cmd, bool) {
 
 // beginCordon toggles the node's schedulable state — TierNone (verbs.Cordon),
 // so it executes immediately with no confirmation, mirroring browse's 11a.
-// Routed through verbs.TierFor defensively, like every other verb's call
-// site: it's a no-op today (TierFor only ever changes a TierInline tier, and
-// Cordon's nominal tier is TierNone), but it means a future change to
-// Cordon's tier in verbs.go can't silently regress PROD escalation the way
-// rollout-restart's did by skipping TierFor entirely.
+// Begin resolves the tier from verbs.Cordon's policy row, so a future change
+// to it can't be skipped here.
 func (m *Model) beginCordon() tea.Cmd {
 	if m.node == nil {
 		return nil
@@ -652,8 +649,7 @@ func (m *Model) beginCordon() tea.Cmd {
 	if m.node.Spec.Unschedulable {
 		verb, label = "uncordon", fmt.Sprintf("Uncordon %s?", m.nodeName)
 	}
-	tier := verbs.TierFor(verbs.Cordon, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Cordon, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "node-" + verb + "-" + m.nodeName,
 		Label: label,
 		Scope: tui.TaskScope{ResourceKind: string(kube.KindNode), ResourceName: m.nodeName, Verb: verb, IsMutating: true},
@@ -666,14 +662,11 @@ func (m *Model) beginCordon() tea.Cmd {
 // come back — on its own line. Counts allPods, not the (possibly filtered) pods list, since drain evicts
 // regardless of what the filter currently hides — less the DaemonSet and
 // static pods it leaves in place.
-// Routed through verbs.TierFor defensively, same reasoning as beginCordon
-// above — a no-op today since Drain's nominal tier is already TierModal.
 func (m *Model) beginDrain() tea.Cmd {
 	if m.node == nil {
 		return nil
 	}
-	tier := verbs.TierFor(verbs.Drain, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Drain, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "node-drain-" + m.nodeName,
 		Label: fmt.Sprintf("Drain %s?", m.nodeName),
 		Scope: tui.TaskScope{ResourceKind: string(kube.KindNode), ResourceName: m.nodeName, Verb: "drain", IsMutating: true},

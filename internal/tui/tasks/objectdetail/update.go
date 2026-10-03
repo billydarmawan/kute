@@ -231,7 +231,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // (the type-the-name PROD modal) gets its own key handling; TierInline/
 // TierNone stay the simple y/n/esc prompt. verbs.ForceDelete.Key escalates
 // a pending delete of a kind ForceDelete applies to into the type-the-name
-// modal (verbs.EscalateForceDelete — a no-op for any other kind).
+// modal (Controller.EscalateForceDelete — a no-op for any other kind).
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.actions.Tier() == actions.TierModal {
 		return m.updateModalConfirmKey(msg)
@@ -240,7 +240,7 @@ func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "y":
 		return m, m.actions.Confirm()
 	case verbs.ForceDelete.Key:
-		verbs.EscalateForceDelete(&m.actions, m.isProd())
+		m.actions.EscalateForceDelete(m.isProd())
 	case "n", "esc":
 		m.cancelInlineConfirm()
 	}
@@ -265,7 +265,7 @@ func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 	case "enter":
 		return m, m.actions.Confirm()
 	case verbs.ForceDelete.Key:
-		if verbs.EscalateForceDelete(&m.actions, m.isProd()) {
+		if m.actions.EscalateForceDelete(m.isProd()) {
 			return m, nil
 		}
 		return m, m.actions.HandleTypeKey(msg)
@@ -335,14 +335,14 @@ func (m Model) openSelectedEvents() (tea.Model, tea.Cmd, bool) {
 
 // beginDelete confirms deleting the object — inline y/N in non-prod
 // contexts, the full type-the-name modal in PROD, always the modal for a
-// cascade-scope kind (verbs.TierForDelete, the same resolver browse uses).
+// cascade-scope kind (verbs.Resolve, the same resolver browse uses).
 // Owner rides along for the modal's "will be recreated" line when the
 // object has an ownerReference.
 func (m *Model) beginDelete() tea.Cmd {
 	if !m.found {
 		return nil
 	}
-	return m.actions.Begin(verbs.TierForDelete(verbs.Delete, m.kind, m.isProd()), tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Delete, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "delete-" + string(m.kind) + "-" + m.namespace + "/" + m.name,
 		Label: "Delete " + singularDisplay(m.desc.Display) + " " + m.name + "?",
 		Owner: firstOwnerRef(m.obj),

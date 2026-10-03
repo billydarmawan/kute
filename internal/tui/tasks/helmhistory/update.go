@@ -231,8 +231,7 @@ func clamp(v, lo, hi int) int {
 // duplicated here per the repo's package-local-seam convention since this
 // screen has its own actions.Controller.
 func (m *Model) beginRollback(rev kube.HelmRelease) tea.Cmd {
-	tier := verbs.TierFor(verbs.Rollback, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Rollback, Prod: m.isProd()}, tui.TaskAction{
 		ID:    fmt.Sprintf("rollback-%s/%s-r%d", m.namespace, m.name, rev.Revision),
 		Label: fmt.Sprintf("Rollback %s to revision %d?", m.name, rev.Revision),
 		Scope: tui.TaskScope{

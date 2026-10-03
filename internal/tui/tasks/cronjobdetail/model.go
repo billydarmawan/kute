@@ -144,7 +144,7 @@ type Model struct {
 
 	// pendingRun/pendingResume are non-nil while §36b's ctrl-r run-now or
 	// §36c's resume preflight is showing — screen-owned staged state before
-	// ever calling actions.Begin(TierNone, …), same contract browse's own
+	// ever calling actions.Begin on a TierNone verb, same contract browse's own
 	// pendingCronJobRun/pendingCronJobResume follow (jobs.go/
 	// cronjob_actions.go's own doc comments). Single-target only: this
 	// screen has no marked-set bulk concept.

@@ -274,3 +274,12 @@ func (m Model) selectedTarget() (kube.ResourceKind, string, bool) {
 	}
 	return "", "", false
 }
+
+// isProd reports whether the active context is tagged PROD — the input
+// actions.Controller.Begin resolves this screen's verbs' confirm policy with.
+func (m Model) isProd() bool {
+	if m.session == nil {
+		return false
+	}
+	return m.session.Config.IsProd(m.session.Location.Context)
+}

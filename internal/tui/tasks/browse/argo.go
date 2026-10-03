@@ -21,6 +21,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -37,7 +38,7 @@ func (m Model) argoVerbsApply() bool {
 // on screen the moment the key lands, same as beginFluxReconcile.
 func (m *Model) beginArgoRefresh(row resources.Row) tea.Cmd {
 	m.execFeedback = kube.ArgoRefreshCommandString(m.kind, row.Namespace, row.Name)
-	return m.actions.Begin(verbs.ArgoRefresh.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.ArgoRefresh, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "argo-refresh-" + row.Name,
 		Label: fmt.Sprintf("Refresh %s?", row.Name),
 		Scope: tui.TaskScope{
@@ -52,12 +53,11 @@ func (m *Model) beginArgoRefresh(row resources.Row) tea.Cmd {
 // the row's own rendered REVISION cell, the same "read the cell instead of
 // re-fetching the object" idiom fluxSourceRef uses) — a re-apply of what
 // git already says to run, never a move to a different ref. TierInline:
-// PROD escalates to the modal automatically via verbs.TierFor, same as
-// beginRolloutRestart.
+// PROD escalates to a y/N card (never the type-the-name modal) via
+// verbs.Resolve.
 func (m *Model) beginArgoSync(row resources.Row) tea.Cmd {
 	revision := argoSyncRevisionFromRow(row)
-	tier := verbs.TierFor(verbs.ArgoSync, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.ArgoSync, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "argo-sync-" + row.Name,
 		Label: fmt.Sprintf("Sync %s?", row.Name),
 		Scope: tui.TaskScope{

@@ -17,6 +17,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -208,13 +209,12 @@ func (m Model) openSelectedHelmDetail() (tea.Model, tea.Cmd, bool) {
 
 // beginRollback confirms rolling row back to its previous revision —
 // verbs.Rollback's Tier (TierInline, escalated to TierModal in PROD by
-// verbs.TierFor — "Rollback inherits 8b friction"). Executes through
+// verbs.Resolve — "Rollback inherits 8b friction"). Executes through
 // kube.Mutator.HelmRollback like every other write verb.
 func (m *Model) beginRollback(row resources.Row) tea.Cmd {
 	release := m.helmReleases[helmReleaseKey(row.Namespace, row.Name)]
 	toRevision := release.Revision - 1 // 0 once Revision is 1, which HelmRollback/HelmRollbackCommandString both read as "Helm's own default: the previous revision"
-	tier := verbs.TierFor(verbs.Rollback, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Rollback, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "rollback-" + row.Namespace + "/" + row.Name,
 		Label: fmt.Sprintf("Rollback %s to revision %d?", row.Name, toRevision),
 		Scope: tui.TaskScope{

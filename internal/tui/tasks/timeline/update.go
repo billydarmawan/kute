@@ -366,8 +366,7 @@ func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // (docs/design README.md §16b: "inherits the same two-tier friction"),
 // duplicated here per the repo's package-local-seam convention.
 func (m *Model) beginRollback(rev kube.TimelineEntry) tea.Cmd {
-	tier := verbs.TierFor(verbs.RolloutUndo, m.isProd())
-	return m.actionsCtl.Begin(tier, tui.TaskAction{
+	return m.actionsCtl.Begin(actions.Request{Verb: verbs.RolloutUndo, Prod: m.isProd()}, tui.TaskAction{
 		ID:    fmt.Sprintf("rollout-undo-%s/%s-r%d", m.namespace, m.railDeployment, rev.Revision),
 		Label: fmt.Sprintf("Roll %s back to revision %d?", m.railDeployment, rev.Revision),
 		Scope: tui.TaskScope{

@@ -22,7 +22,7 @@ func cordonAction() tui.TaskAction {
 // the confirm label's trailing "?" dropped (10 L3).
 func TestFailedResultIsAFailedResultLine(t *testing.T) {
 	c := New(&fakeMutator{err: errors.New("forbidden")})
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	if !c.Result().Empty() {
 		t.Fatal("no result while the confirm is showing")
 	}
@@ -39,7 +39,7 @@ func TestFailedResultIsAFailedResultLine(t *testing.T) {
 
 func TestSuccessResultIsAGreenLine(t *testing.T) {
 	c := New(&fakeMutator{})
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	c.HandleResult(c.Confirm()().(ResultMsg))
 	if r := c.Result(); r.Failed || r.Empty() {
 		t.Fatalf("result = %+v, want a success line", r)
@@ -51,7 +51,7 @@ func TestSuccessResultIsAGreenLine(t *testing.T) {
 func TestBeginRefusalIsAResultLine(t *testing.T) {
 	c := New(&fakeMutator{})
 	c.SetOffline(true)
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	if r := c.Result(); !r.Failed || !strings.Contains(r.Text, "offline") {
 		t.Fatalf("result = %+v, want the offline refusal", r)
 	}
@@ -64,11 +64,11 @@ func TestBeginRefusalIsAResultLine(t *testing.T) {
 func TestStaleResultKeepsNewerConfirm(t *testing.T) {
 	mut := &fakeMutator{err: errors.New("nodes is forbidden")}
 	c := New(mut)
-	cordon := c.Begin(TierNone, cordonAction())
+	cordon := beginAt(&c, TierNone, cordonAction())
 	if cordon == nil {
 		t.Fatal("TierNone should execute immediately")
 	}
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	if !c.Active() {
 		t.Fatal("expected the delete confirm to be showing")
 	}
@@ -86,7 +86,7 @@ func TestStaleResultKeepsNewerConfirm(t *testing.T) {
 // TestStaleBulkResultKeepsNewerConfirm is the bulk counterpart.
 func TestStaleBulkResultKeepsNewerConfirm(t *testing.T) {
 	c := New(&fakeMutator{})
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	c.HandleBulkResult(BulkResultMsg{ActionID: "old", Label: "Suspend 2", Seq: c.seq + 100})
 	if !c.Active() {
 		t.Fatal("a stale bulk result cleared the newer confirm")

@@ -86,7 +86,7 @@ func (m Model) Body(width, height int) string {
 }
 
 // typeNameConfirmModal renders §41c's cleanup delete in PROD — the ordinary
-// type-the-name modal every Pod delete gets (actions.RequiresTypedName's
+// type-the-name modal every Pod delete gets (Controller.TypeToConfirm's
 // "delete" entry), unchanged from browse's own shape.
 func (m Model) typeNameConfirmModal(width, height int) string {
 	theme := m.Theme()

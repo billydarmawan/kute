@@ -212,12 +212,6 @@ func tickCmd() tea.Cmd {
 
 func (m *Model) SetSize(w, h int) { m.width, m.height = w, h }
 
-// No isProd here, deliberately: §30a's two verbs are both TierNone and do
-// not escalate in a PROD context (suspend is reversible, reconcile changes
-// nothing the controller wasn't about to change anyway), so there is no
-// tier for a prod tag to raise. A future destructive Flux verb would need
-// TierFor and this read back.
-
 // offline mirrors the shared connection gate.
 func (m Model) offline() bool { return m.conn.Offline() }
 
@@ -287,4 +281,13 @@ func (m *Model) clampOffset(rows int) {
 
 func isUnhealthy(c resources.StatusClass) bool {
 	return c == resources.StatusFail || c == resources.StatusWarn
+}
+
+// isProd reports whether the active context is tagged PROD — the input
+// actions.Controller.Begin resolves this screen's verbs' confirm policy with.
+func (m Model) isProd() bool {
+	if m.session == nil {
+		return false
+	}
+	return m.session.Config.IsProd(m.session.Location.Context)
 }

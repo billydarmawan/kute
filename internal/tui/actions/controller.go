@@ -1,6 +1,7 @@
 // Package actions is the shared confirm→execute framework for mutating
 // operations. A screen embeds a Controller, calls Begin with the action's
-// resolved Tier (verbs.TierFor) when the user presses a mutating key,
+// registry verb when the user presses a mutating key — Begin resolves the
+// confirm policy itself (verbs.Resolve), so no call site picks a tier —
 // routes confirm-state keys to Confirm/Cancel/HandleTypeKey/Escalate
 // while the controller is Active, and feeds ResultMsg back through
 // HandleResult. Execution runs through kube.Mutator, so no screen calls a
@@ -18,6 +19,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // ResultMsg reports the outcome of an executed action. Screens pass it to
@@ -110,6 +112,10 @@ type Controller struct {
 	mutator kube.Mutator
 	pending *tui.TaskAction
 	tier    Tier
+	// typed is the pending confirm's verbs.Policy.TypedName: a TierModal
+	// confirm that types the name (a marked set: the count) rather than
+	// answering a y/N card.
+	typed bool
 	// typedInput is the type-ahead buffer for a TierModal confirmation
 	// (mvp-plan.md §8b: "type the name to confirm") — unused for
 	// TierNone/TierInline. Never rendered via its own View(): components/
@@ -229,13 +235,42 @@ func (c Controller) NameMatches() bool {
 	return c.pending != nil && c.typedInput.Value() == c.pending.Scope.ResourceName
 }
 
-// Begin starts an action at the given tier (resolved by the caller via
-// verbs.TierFor — Controller never imports verbs, see mvp-tasks.md's Phase
-// 5/8b exit notes on the import-cycle constraint). TierNone executes
-// immediately; TierInline/TierModal both move to the confirming state,
-// remembering which so screens can render the right surface (inline keybar
-// prompt vs. the centered type-the-name modal).
-func (c *Controller) Begin(tier Tier, action tui.TaskAction) tea.Cmd {
+// Request names the verb an action runs and the facts verbs.Resolve needs
+// that the action's Scope can't carry. Kind, direction (Verb.ReverseID) and
+// key removal come from the Scope itself, so they can't disagree with what
+// executes.
+type Request struct {
+	Verb verbs.Verb
+	// Prod is the active context's PROD tag (config.yaml's prodContexts).
+	Prod bool
+	// Overwrite: an add that replaces an existing key (27a/27b).
+	Overwrite bool
+	// Joined: a label edit whose Service-selector join is real or unknown (26a).
+	Joined bool
+}
+
+// Begin starts action under r.Verb's confirm policy, resolved here through
+// verbs.Resolve — the one place the destructive-action policy is decided, so
+// a call site can't pass the wrong tier. TierNone executes immediately;
+// TierInline/TierModal both move to the confirming state, remembering which
+// (and whether the modal types the name) so screens render the right
+// surface.
+func (c *Controller) Begin(r Request, action tui.TaskAction) tea.Cmd {
+	return c.begin(verbs.Resolve(r.Verb, target(r, action.Scope), r.Prod), action)
+}
+
+// target derives Resolve's Target from the request and the action's Scope.
+func target(r Request, scope tui.TaskScope) verbs.Target {
+	return verbs.Target{
+		Kind:      kube.ResourceKind(scope.ResourceKind),
+		Reverse:   r.Verb.ReverseID != "" && scope.Verb == r.Verb.ReverseID,
+		Remove:    scope.MetaRemove || scope.SecretRemove || scope.ConfigMapRemove,
+		Overwrite: r.Overwrite,
+		Joined:    r.Joined,
+	}
+}
+
+func (c *Controller) begin(p verbs.Policy, action tui.TaskAction) tea.Cmd {
 	if c.RefuseIfOffline() {
 		return nil
 	}
@@ -255,12 +290,13 @@ func (c *Controller) Begin(tier Tier, action tui.TaskAction) tea.Cmd {
 	}
 	c.seq++
 	c.pending = &action
-	c.tier = tier
+	c.tier = p.Tier
+	c.typed = p.TypedName
 	c.typedInput = textfield.New()
 	c.typedInput.Focus()
 	c.message = ""
 	c.result = tui.ResultLine{}
-	if tier == TierNone {
+	if p.Tier == TierNone {
 		return c.execute()
 	}
 	c.state = tui.TaskStateConfirming
@@ -268,11 +304,9 @@ func (c *Controller) Begin(tier Tier, action tui.TaskAction) tea.Cmd {
 }
 
 // Confirm executes the pending action. It is a no-op unless a confirmation
-// is showing, and — for a delete/force-delete at TierModal specifically —
-// unless the typed name matches. Other TierModal verbs (Drain) stay a plain
-// y/N confirm even at TierModal: only delete's PROD escalation gets the
-// type-the-name treatment (mvp-tasks.md's Phase 5/8b exit notes: "Cordon/
-// Drain... left exactly as Phase 9 built them").
+// is showing, and — for a type-the-name modal (TypeToConfirm) — unless the
+// typed name matches. Other TierModal verbs (Drain, PROD Argo sync) stay a
+// plain y/N card: verbs.Resolve decides which.
 //
 // The typed-name gate is skipped outright when BulkTargets is non-empty: a
 // marked-set "cronjob-suspend" PROD confirm has no single ResourceName to
@@ -284,43 +318,18 @@ func (c *Controller) Confirm() tea.Cmd {
 	if c.state != tui.TaskStateConfirming || c.pending == nil {
 		return nil
 	}
-	if c.tier == TierModal && len(c.pending.Scope.BulkTargets) == 0 &&
-		RequiresTypedName(c.pending.Scope.Verb) && !c.NameMatches() {
+	if c.TypeToConfirm() && len(c.pending.Scope.BulkTargets) == 0 && !c.NameMatches() {
 		return nil
 	}
 	return c.execute()
 }
 
-// RequiresTypedName reports whether verb's TierModal confirmation needs the
-// typed-name match — the delete family, 16b's rollout-undo (docs/design
-// README.md §16b: "type-the-deployment-name modal in PROD"), 9a's
-// rollout-restart (§9a/§419: "delete and rollout restart are both tiered —
-// inline y/N in non-prod, type-the-name modal in PROD contexts"), 36c's
-// cronjob-suspend (0.8.0 plan §3 task 2/3: "suspend/PROD: TierModal with
-// typed resource name" — cronjob-resume never reaches TierModal at all, so
-// it's deliberately absent here, the same way job-retry stays absent
-// below), and v0.9.0's own two additions: job-suspend (§37a: "same
-// asymmetric confirm as 36c" — job-resume, like cronjob-resume, never
-// reaches TierModal) and job-replace (§37c: unlike job-retry's clone, this
-// deletes the original Job — its Status, events, and §37b's own attempt
-// history — before recreating it, which is exactly delete/rollout-restart's
-// own "this destroys something" bar), and 18a's Helm rollback ("Rollback
-// inherits 8b friction" — the same PROD type-the-name modal 16b's narrower
-// rollout-undo gets). Drain's TierModal confirm stays the simple y/N
-// ConfirmCard. Job's own
-// "job-retry" deliberately never reaches TierModal at all (browse/jobs.go's
-// beginJobRetry) — components.TypeNameModal this gates is reserved for
-// destructive confirms, and Retry (a clone, not a delete+recreate) isn't
-// one.
-//
-// This is the single predicate every confirm surface, key router, and paste
-// router must call — browse's own requiresTypeNameConfirm used to duplicate
-// this verb list locally (0.8.0 plan §3 Phase 3 task 11: "Export one
-// action-controller predicate... rather than duplicating verb lists").
-func RequiresTypedName(verb string) bool {
-	return verb == "delete" || verb == "force-delete" || verb == "rollout-undo" ||
-		verb == "rollout-restart" || verb == "cronjob-suspend" ||
-		verb == "job-suspend" || verb == "job-replace" || verb == "rollback"
+// TypeToConfirm reports whether the pending confirm is a type-the-name modal
+// (a marked set: type-the-count) rather than a y/N — verbs.Resolve's
+// Policy.TypedName for the pending verb. Every confirm surface, key router
+// and paste router asks this, never a verb list of its own.
+func (c Controller) TypeToConfirm() bool {
+	return c.pending != nil && c.tier == TierModal && c.typed
 }
 
 // Cancel abandons the pending confirmation.
@@ -334,6 +343,7 @@ func (c *Controller) Cancel() {
 	}
 	c.pending = nil
 	c.tier = TierNone
+	c.typed = false
 	c.typedInput.Blur()
 	c.state = tui.TaskStateCancelled
 	c.message = "Cancelled " + label + "."
@@ -366,22 +376,40 @@ func (c *Controller) PasteTarget() tui.PasteTarget {
 	return tui.PasteInto(&c.typedInput)
 }
 
-// Escalate switches the pending action to verb at tier — the delete
-// confirm's force-delete escalation (verbs.EscalateForceDelete, the only
-// caller, decides whether the pending action qualifies and resolves tier from
-// the verb registry; Controller never imports verbs). The tier only ever
-// rises: escalating an inline y/N to TierModal opens a fresh, focused
-// type-ahead buffer, while escalating inside an already-open modal keeps the
-// typed progress — it's still the same resource name either way. A no-op
-// unless a confirmation is showing.
-func (c *Controller) Escalate(verb string, tier Tier) {
+// EscalateForceDelete is the handler for verbs.ForceDelete.Key inside any
+// delete confirm: when the pending action is a Delete of a kind ForceDelete
+// applies to, it becomes a force-delete under verbs.Resolve(ForceDelete, …)
+// — the type-the-name modal, whether it started as an inline y/N or as
+// PROD's modal. Reports whether it escalated; anything else is left
+// untouched, so a modal's caller can hand an unclaimed chord on to its text
+// buffer.
+func (c *Controller) EscalateForceDelete(isProd bool) bool {
+	p := c.pending
+	if !c.Active() || p == nil || p.Scope.Verb != verbs.Delete.ID {
+		return false
+	}
+	kind := kube.ResourceKind(p.Scope.ResourceKind)
+	if !verbs.ForceDelete.AppliesTo(kind) {
+		return false
+	}
+	c.escalate(verbs.ForceDelete.ID, verbs.Resolve(verbs.ForceDelete, verbs.Target{Kind: kind}, isProd))
+	return true
+}
+
+// escalate switches the pending action to verb under policy p. The tier
+// only ever rises: escalating an inline y/N to TierModal opens a fresh,
+// focused type-ahead buffer, while escalating inside an already-open modal
+// keeps the typed progress — it's still the same resource name either way.
+// A no-op unless a confirmation is showing.
+func (c *Controller) escalate(verb string, p verbs.Policy) {
 	if c.state != tui.TaskStateConfirming || c.pending == nil {
 		return
 	}
 	c.pending.Scope.Verb = verb
 	c.pending.Label = capitalize(strings.ReplaceAll(verb, "-", " ")) + " " + c.pending.Scope.ResourceName + "?"
-	if tier > c.tier {
-		c.tier = tier
+	c.typed = c.typed || p.TypedName
+	if p.Tier > c.tier {
+		c.tier = p.Tier
 		c.typedInput = textfield.New()
 		c.typedInput.Focus()
 	}
@@ -412,6 +440,7 @@ func (c *Controller) HandleResult(msg ResultMsg) {
 	}
 	c.pending = nil
 	c.tier = TierNone
+	c.typed = false
 	c.typedInput.Blur()
 	c.message = message
 	if msg.Err != nil {
@@ -440,6 +469,7 @@ func (c *Controller) HandleBulkResult(msg BulkResultMsg) {
 	}
 	c.pending = nil
 	c.tier = TierNone
+	c.typed = false
 	c.typedInput.Blur()
 	c.message = message
 	if len(failed) == 0 {

@@ -27,8 +27,8 @@ const (
 	// name — genuinely destructive (the original's Status/events/attempt
 	// history are gone), so choosing it in the staged list does not itself
 	// confirm anything: committing still routes through actions.Controller's
-	// ordinary TierInline/TierModal confirm (RequiresTypedName's "job-
-	// replace" entry) rather than executing directly.
+	// ordinary TierInline/TierModal confirm (verbs.Resolve's JobReplace row,
+	// the type-the-name modal in PROD) rather than executing directly.
 	JobRerunReplace
 )
 

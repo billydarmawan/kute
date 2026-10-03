@@ -370,20 +370,22 @@ func (m *Model) beginCommit(key, value string, isEdit bool, original string, res
 		restartConsumers: restart, consumers: m.consumers, resourceVersion: m.bufferRV,
 	}
 	m.message, m.lastError = "", ""
-	tier := verbs.TierForConfigMapData(m.isProd())
+	verb := verbs.AddConfigMapKey
+	if restart {
+		verb = verbs.RestartConfigMapConsumers
+	}
 	label := fmt.Sprintf("Add key %s to %s?", key, m.name)
 	id := "add-configmap-key-" + m.namespace + "/" + m.name + "/" + key
 	if overwrite {
 		// 'a' with a key that's already there replaces its value — the
 		// merge patch can't tell an add from an overwrite, so ask first.
-		tier = max(tier, actions.TierInline)
 		label = fmt.Sprintf("Overwrite existing key %s on %s?", key, m.name)
 	}
 	if isEdit {
 		label = fmt.Sprintf("Update key %s on %s?", key, m.name)
 		id = "edit-configmap-key-" + m.namespace + "/" + m.name + "/" + key
 	}
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verb, Prod: m.isProd(), Overwrite: overwrite}, tui.TaskAction{
 		ID:    id,
 		Label: label,
 		Scope: tui.TaskScope{
@@ -441,7 +443,7 @@ func (m *Model) commitMultiline(restart bool) tea.Cmd {
 func (m *Model) beginRemove(row configMapKeyRow) tea.Cmd {
 	m.pendingCommit = &configMapPendingCommit{key: row.key, remove: true, resourceVersion: m.resourceVersion}
 	m.message, m.lastError = "", ""
-	return m.actions.Begin(actions.TierInline, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.RemoveConfigMapKey, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "remove-configmap-key-" + m.namespace + "/" + m.name + "/" + row.key,
 		Label: fmt.Sprintf("Remove key %s from %s?", row.key, m.name),
 		Scope: tui.TaskScope{

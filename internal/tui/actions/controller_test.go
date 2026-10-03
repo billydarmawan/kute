@@ -11,7 +11,16 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
+
+// beginAt starts action under a fixed policy, bypassing verbs.Resolve — for
+// the tests below that pin the controller's own mechanics (execution, state,
+// typed-name gating) independent of which verb gets which tier, which
+// verbs' TestResolvePolicyTable and TestBeginResolvesPolicy pin instead.
+func beginAt(c *Controller, tier Tier, action tui.TaskAction) tea.Cmd {
+	return c.begin(verbs.Policy{Tier: tier, TypedName: tier == TierModal}, action)
+}
 
 // typeRune feeds a single character into the type-ahead buffer via
 // HandleTypeKey — the test-only equivalent of the old TypeRune(string(r)).
@@ -206,7 +215,7 @@ func deleteAction() tui.TaskAction {
 func TestBeginRequiresConfirmationBeforeExecuting(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	if cmd := c.Begin(TierInline, deleteAction()); cmd != nil {
+	if cmd := beginAt(&c, TierInline, deleteAction()); cmd != nil {
 		t.Fatal("Begin with TierInline should not execute immediately")
 	}
 	if !c.Active() {
@@ -223,7 +232,7 @@ func TestBeginRequiresConfirmationBeforeExecuting(t *testing.T) {
 func TestConfirmExecutesThroughMutator(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	cmd := c.Confirm()
 	if cmd == nil {
 		t.Fatal("Confirm should return an execution command")
@@ -247,7 +256,7 @@ func TestConfirmExecutesThroughMutator(t *testing.T) {
 func TestCancelDoesNotExecute(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	c.Cancel()
 	if c.Active() {
 		t.Fatal("still active after cancel")
@@ -263,7 +272,7 @@ func TestCancelDoesNotExecute(t *testing.T) {
 func TestHandleResultSurfacesError(t *testing.T) {
 	mut := &fakeMutator{err: errors.New("forbidden")}
 	c := New(mut)
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	msg := c.Confirm()().(ResultMsg)
 	c.HandleResult(msg)
 	if c.State() != tui.TaskStateError {
@@ -276,7 +285,7 @@ func TestHandleResultSurfacesError(t *testing.T) {
 
 func TestBeginRejectsIncompleteScope(t *testing.T) {
 	c := New(&fakeMutator{})
-	c.Begin(TierInline, tui.TaskAction{ID: "x", Label: "bad", Scope: tui.TaskScope{Verb: "delete"}})
+	beginAt(&c, TierInline, tui.TaskAction{ID: "x", Label: "bad", Scope: tui.TaskScope{Verb: "delete"}})
 	if c.State() != tui.TaskStateError {
 		t.Fatalf("state = %q, want error for incomplete scope", c.State())
 	}
@@ -304,7 +313,7 @@ func TestBeginAcceptsBulkActionWithEmptyResourceName(t *testing.T) {
 			},
 		},
 	}
-	cmd := c.Begin(TierInline, action)
+	cmd := beginAt(&c, TierInline, action)
 	if c.State() != tui.TaskStateConfirming {
 		t.Fatalf("state = %q, want confirming (empty ResourceName must not fail a bulk action)", c.State())
 	}
@@ -318,7 +327,7 @@ func TestBeginAcceptsBulkActionWithEmptyResourceName(t *testing.T) {
 
 func TestNilMutatorReportsUnconfigured(t *testing.T) {
 	c := New(nil)
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	if c.State() != tui.TaskStateError {
 		t.Fatalf("state = %q, want error", c.State())
 	}
@@ -332,7 +341,7 @@ func TestBeginRefusesWhileOffline(t *testing.T) {
 	c := New(mut)
 	c.SetOffline(true)
 
-	if cmd := c.Begin(TierNone, deleteAction()); cmd != nil {
+	if cmd := beginAt(&c, TierNone, deleteAction()); cmd != nil {
 		t.Fatal("Begin should not return an execution command while offline")
 	}
 	if c.Active() {
@@ -349,7 +358,7 @@ func TestBeginRefusesWhileOffline(t *testing.T) {
 	}
 
 	c.SetOffline(false)
-	if cmd := c.Begin(TierNone, deleteAction()); cmd == nil {
+	if cmd := beginAt(&c, TierNone, deleteAction()); cmd == nil {
 		t.Fatal("expected Begin to execute again once back online")
 	}
 }
@@ -357,7 +366,7 @@ func TestBeginRefusesWhileOffline(t *testing.T) {
 func TestBeginTierNoneExecutesImmediately(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	cmd := c.Begin(TierNone, deleteAction())
+	cmd := beginAt(&c, TierNone, deleteAction())
 	if cmd == nil {
 		t.Fatal("expected TierNone to return an execution command immediately")
 	}
@@ -376,7 +385,7 @@ func TestBeginTierNoneExecutesImmediately(t *testing.T) {
 func TestExecuteDispatchesSetMetaToPatchMeta(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	cmd := c.Begin(TierNone, tui.TaskAction{
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID:    "set-meta-default/nva-worker/env",
 		Label: "Set label env on nva-worker?",
 		Scope: tui.TaskScope{
@@ -400,7 +409,7 @@ func TestExecuteDispatchesSetMetaToPatchMeta(t *testing.T) {
 func TestExecuteDispatchesInitContainerSetImage(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	cmd := c.Begin(TierNone, tui.TaskAction{
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID:    "set-image-default/api/prepare",
 		Label: "Set image for api?",
 		Scope: tui.TaskScope{
@@ -426,7 +435,7 @@ func TestExecuteDispatchesInitContainerSetImage(t *testing.T) {
 func TestExecuteDispatchesSecretDataToPatchSecretData(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	cmd := c.Begin(TierNone, tui.TaskAction{
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID:    "add-secret-key-default/nva-secrets/SMTP_PASSWORD",
 		Label: "Add key SMTP_PASSWORD to nva-secrets?",
 		Scope: tui.TaskScope{
@@ -453,7 +462,7 @@ func TestExecuteDispatchesSecretDataToPatchSecretData(t *testing.T) {
 func TestExecuteDispatchesConfigMapDataToPatchConfigMapData(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	cmd := c.Begin(TierNone, tui.TaskAction{
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID:    "add-configmap-key-default/nva-config/LOG_LEVEL",
 		Label: "Add key LOG_LEVEL to nva-config?",
 		Scope: tui.TaskScope{
@@ -487,7 +496,7 @@ func TestExecuteDispatchesConfigMapDataToPatchConfigMapData(t *testing.T) {
 func TestExecuteConfigMapDataChainsRolloutRestart(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	cmd := c.Begin(TierNone, tui.TaskAction{
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID:    "edit-configmap-key-default/nva-config/LOG_LEVEL",
 		Label: "Update key LOG_LEVEL on nva-config?",
 		Scope: tui.TaskScope{
@@ -517,7 +526,7 @@ func TestExecuteConfigMapDataChainsRolloutRestart(t *testing.T) {
 func TestBeginTierInlineConfirmsWithoutTypedName(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	if c.Tier() != TierInline {
 		t.Fatalf("Tier() = %v, want TierInline", c.Tier())
 	}
@@ -536,7 +545,7 @@ func TestBeginTierInlineConfirmsWithoutTypedName(t *testing.T) {
 func TestBeginTierModalRequiresNameMatch(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	c.Begin(TierModal, deleteAction())
+	beginAt(&c, TierModal, deleteAction())
 	if c.Tier() != TierModal {
 		t.Fatalf("Tier() = %v, want TierModal", c.Tier())
 	}
@@ -573,7 +582,7 @@ func TestBeginTierModalRequiresNameMatch(t *testing.T) {
 
 func TestBackspaceRemovesLastRuneUnicodeSafe(t *testing.T) {
 	c := New(&fakeMutator{})
-	c.Begin(TierModal, deleteAction())
+	beginAt(&c, TierModal, deleteAction())
 	for _, r := range "aβc" {
 		typeRune(&c, r)
 	}
@@ -593,7 +602,7 @@ func TestBackspaceRemovesLastRuneUnicodeSafe(t *testing.T) {
 // no-op.
 func TestTypedCursorTracksMotionKeys(t *testing.T) {
 	c := New(&fakeMutator{})
-	c.Begin(TierModal, deleteAction())
+	beginAt(&c, TierModal, deleteAction())
 	for _, r := range "aβc" {
 		typeRune(&c, r)
 	}
@@ -635,7 +644,7 @@ func TestTypedCursorTracksMotionKeys(t *testing.T) {
 
 func TestTypeRuneAndBackspaceNoOpOutsideTierModal(t *testing.T) {
 	c := New(&fakeMutator{})
-	c.Begin(TierInline, deleteAction())
+	beginAt(&c, TierInline, deleteAction())
 	typeRune(&c, 'x')
 	if c.TypedName() != "" {
 		t.Fatalf("expected TypeRune to no-op for TierInline, got %q", c.TypedName())
@@ -645,9 +654,9 @@ func TestTypeRuneAndBackspaceNoOpOutsideTierModal(t *testing.T) {
 func TestEscalateSwitchesToForceDelete(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	c.Begin(TierModal, deleteAction())
+	beginAt(&c, TierModal, deleteAction())
 	typeRune(&c, 'a')
-	c.Escalate("force-delete", TierModal)
+	c.EscalateForceDelete(false)
 	// Escalating inside an already-open modal keeps the typed progress.
 	for _, r := range "pi" {
 		typeRune(&c, r)
@@ -671,8 +680,8 @@ func TestEscalateSwitchesToForceDelete(t *testing.T) {
 func TestEscalateFromInlineRaisesToTypedModal(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	c.Begin(TierInline, deleteAction())
-	c.Escalate("force-delete", TierModal)
+	beginAt(&c, TierInline, deleteAction())
+	c.EscalateForceDelete(false)
 	if c.Tier() != TierModal {
 		t.Fatalf("Tier() = %v, want TierModal after escalating an inline confirm", c.Tier())
 	}
@@ -697,8 +706,8 @@ func TestEscalateFromInlineRaisesToTypedModal(t *testing.T) {
 
 func TestEscalateNeverLowersTier(t *testing.T) {
 	c := New(&fakeMutator{})
-	c.Begin(TierModal, deleteAction())
-	c.Escalate("force-delete", TierInline)
+	beginAt(&c, TierModal, deleteAction())
+	c.escalate("force-delete", verbs.Policy{Tier: TierInline})
 	if c.Tier() != TierModal {
 		t.Fatalf("Tier() = %v, want TierModal kept", c.Tier())
 	}
@@ -706,9 +715,9 @@ func TestEscalateNeverLowersTier(t *testing.T) {
 
 func TestEscalateNoOpsWhenNotConfirming(t *testing.T) {
 	c := New(&fakeMutator{})
-	c.Begin(TierModal, deleteAction())
+	beginAt(&c, TierModal, deleteAction())
 	c.Cancel()
-	c.Escalate("force-delete", TierModal)
+	c.EscalateForceDelete(false)
 	if c.Active() || c.Pending() != nil {
 		t.Fatal("expected Escalate to no-op once the confirm is gone")
 	}
@@ -739,7 +748,7 @@ func cronJobRunNowAction() tui.TaskAction {
 func TestCronJobRunNowPassesNewNameCreatorAndStagedAtThrough(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	cmd := c.Begin(TierNone, cronJobRunNowAction())
+	cmd := beginAt(&c, TierNone, cronJobRunNowAction())
 	if cmd == nil {
 		t.Fatal("expected TierNone cronjob-run-now to return an execution command")
 	}
@@ -775,7 +784,7 @@ func TestCronJobSuspendPassesResourceVersionGenerationAndStagedAtThrough(t *test
 	mut := &fakeMutator{}
 	c := New(mut)
 	at := time.Date(2026, 8, 11, 10, 0, 0, 0, time.UTC)
-	cmd := c.Begin(TierNone, tui.TaskAction{
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID: "cronjob-suspend-nightly", Label: "Suspend nightly?",
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindCronJob), ResourceName: "nightly", Namespace: "default",
@@ -813,7 +822,7 @@ func TestCronJobSuspendPassesResourceVersionGenerationAndStagedAtThrough(t *test
 func TestCronJobResumePassesResourceVersionAndGenerationThrough(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
-	cmd := c.Begin(TierNone, tui.TaskAction{
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID: "cronjob-resume-nightly", Label: "Resume nightly?",
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindCronJob), ResourceName: "nightly", Namespace: "default",
@@ -842,7 +851,7 @@ func TestCronJobSetScheduleReturnsResultOnSuccess(t *testing.T) {
 	mut := &fakeMutator{scheduleResult: result}
 	c := New(mut)
 	tz := "America/New_York"
-	cmd := c.Begin(TierNone, tui.TaskAction{
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID: "cronjob-set-schedule-nightly", Label: "Update schedule?",
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindCronJob), ResourceName: "nightly", Namespace: "default",
@@ -878,7 +887,7 @@ func TestCronJobSetScheduleReturnsResultOnSuccess(t *testing.T) {
 func TestCronJobSetScheduleReturnsNilResultOnFailure(t *testing.T) {
 	mut := &fakeMutator{scheduleErr: errors.New("Conflict")}
 	c := New(mut)
-	cmd := c.Begin(TierNone, tui.TaskAction{
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID: "cronjob-set-schedule-nightly", Label: "Update schedule?",
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindCronJob), ResourceName: "nightly", Namespace: "default",
@@ -958,7 +967,7 @@ func TestBulkExecutionRunsOncePerTargetSubstitutingPerTargetFields(t *testing.T)
 		{Namespace: "default", ResourceName: "nightly", ResourceVersion: "10", Generation: 1},
 		{Namespace: "batch", ResourceName: "hourly", ResourceVersion: "20", Generation: 2},
 	}
-	cmd := c.Begin(TierNone, bulkSuspendAction(targets...))
+	cmd := beginAt(&c, TierNone, bulkSuspendAction(targets...))
 	if cmd == nil {
 		t.Fatal("expected a bulk TierNone action to return an execution command")
 	}
@@ -1004,7 +1013,7 @@ func TestBulkExecutionReportsPerTargetPartialFailure(t *testing.T) {
 		{Namespace: "default", ResourceName: "nightly", ResourceVersion: "10", Generation: 1},
 		{Namespace: "batch", ResourceName: "hourly", ResourceVersion: "20", Generation: 2},
 	}
-	cmd := c.Begin(TierNone, bulkSuspendAction(targets...))
+	cmd := beginAt(&c, TierNone, bulkSuspendAction(targets...))
 	msg := cmd().(BulkResultMsg)
 	if len(msg.Results) != 2 {
 		t.Fatalf("Results = %v, want 2 entries", msg.Results)
@@ -1072,40 +1081,8 @@ func TestHandleBulkResultAllFail(t *testing.T) {
 
 // --- 0.8.0 plan Phase 3: verb registry and action policy ------------------
 
-// TestRequiresTypedName pins the exported predicate's verb set (0.8.0 plan
-// §3 Phase 3 task 11, v0.9.0 §37a/§37c additions): the delete family,
-// rollout-restart, rollout-undo, cronjob-suspend, and now job-suspend/
-// job-replace — but never cronjob-resume/job-resume, neither of which ever
-// reaches TierModal at all (verbs.TierForCronJobSuspend/TierForJobSuspend),
-// nor job-retry (a clone, not a delete+recreate — verbs.JobRetry's own doc
-// comment), nor drain. 18a's Helm rollback is in: "Rollback inherits 8b
-// friction".
-func TestRequiresTypedName(t *testing.T) {
-	t.Parallel()
-
-	want := map[string]bool{
-		"delete": true, "force-delete": true, "rollout-undo": true,
-		"rollout-restart": true, "cronjob-suspend": true,
-		"job-suspend": true, "job-replace": true, "rollback": true,
-	}
-	dontWant := []string{
-		"cronjob-resume", "job-resume", "job-retry", "drain",
-		"cordon", "flux-suspend", "cronjob-set-schedule", "set-image",
-	}
-	for verb := range want {
-		if !RequiresTypedName(verb) {
-			t.Errorf("RequiresTypedName(%q) = false, want true", verb)
-		}
-	}
-	for _, verb := range dontWant {
-		if RequiresTypedName(verb) {
-			t.Errorf("RequiresTypedName(%q) = true, want false", verb)
-		}
-	}
-}
-
-// TestConfirmRequiresTypedNameForCronJobSuspendInProd pins RequiresTypedName
-// actually gating Confirm(), not just the predicate in isolation — the same
+// TestConfirmRequiresTypedNameForCronJobSuspendInProd pins the typed-name
+// policy actually gating Confirm() — the same
 // name-match requirement TestBeginTierModalRequiresNameMatch pins for
 // delete, now exercised through cronjob-suspend's own verb string.
 func TestConfirmRequiresTypedNameForCronJobSuspendInProd(t *testing.T) {
@@ -1119,7 +1096,7 @@ func TestConfirmRequiresTypedNameForCronJobSuspendInProd(t *testing.T) {
 			Verb: "cronjob-suspend", IsMutating: true,
 		},
 	}
-	c.Begin(TierModal, action)
+	c.Begin(Request{Verb: verbs.CronJobSuspend, Prod: true}, action)
 	if cmd := c.Confirm(); cmd != nil {
 		t.Fatal("expected Confirm to no-op before any name is typed")
 	}
@@ -1149,5 +1126,93 @@ func TestConfirmRequiresTypedNameForCronJobSuspendInProd(t *testing.T) {
 	}
 	if len(mut.cronJobSuspends) != 1 {
 		t.Fatalf("cronJobSuspends = %v, want one call", mut.cronJobSuspends)
+	}
+}
+
+// --- review 10 M1: Begin resolves the confirm policy itself ---------------
+
+// TestBeginResolvesPolicy: Begin derives the target from the action's own
+// Scope — kind (cascade escalation), direction (Verb.ReverseID) and key
+// removal — so a call site can't hand it a tier that disagrees with what
+// executes.
+func TestBeginResolvesPolicy(t *testing.T) {
+	scope := func(kind kube.ResourceKind, verb string) tui.TaskAction {
+		return tui.TaskAction{ID: "x", Label: "x?", Scope: tui.TaskScope{
+			ResourceKind: string(kind), ResourceName: "api", Namespace: "dev", Verb: verb, IsMutating: true,
+		}}
+	}
+	metaRemove := scope(kube.KindPod, "set-meta")
+	metaRemove.Scope.MetaRemove = true
+	tests := []struct {
+		name      string
+		req       Request
+		action    tui.TaskAction
+		wantTier  Tier
+		wantTyped bool
+	}{
+		{"pod delete", Request{Verb: verbs.Delete}, scope(kube.KindPod, "delete"), TierInline, false},
+		{"pod delete prod", Request{Verb: verbs.Delete, Prod: true}, scope(kube.KindPod, "delete"), TierModal, true},
+		{"namespace delete", Request{Verb: verbs.Delete}, scope(kube.KindNamespace, "delete"), TierModal, true},
+		{"cronjob suspend prod", Request{Verb: verbs.CronJobSuspend, Prod: true}, scope(kube.KindCronJob, "cronjob-suspend"), TierModal, true},
+		{"cronjob resume prod", Request{Verb: verbs.CronJobSuspend, Prod: true}, scope(kube.KindCronJob, "cronjob-resume"), TierNone, false},
+		{"drain", Request{Verb: verbs.Drain}, scope(kube.KindNode, "drain"), TierModal, false},
+		{"argo sync prod", Request{Verb: verbs.ArgoSync, Prod: true}, scope(kube.KindPod, "argo-sync"), TierModal, false},
+		{"meta removal", Request{Verb: verbs.Meta}, metaRemove, TierInline, false},
+		{"meta joined", Request{Verb: verbs.Meta, Joined: true}, scope(kube.KindPod, "set-meta"), TierInline, false},
+		{"secret overwrite", Request{Verb: verbs.AddSecretKey, Overwrite: true}, scope(kube.KindSecret, "secret-data"), TierInline, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New(&fakeMutator{})
+			cmd := c.Begin(tt.req, tt.action)
+			if tt.wantTier == TierNone {
+				if cmd == nil || c.Active() {
+					t.Fatalf("expected immediate execution, got cmd=%v active=%v", cmd != nil, c.Active())
+				}
+				return
+			}
+			if !c.Active() || c.Tier() != tt.wantTier || c.TypeToConfirm() != tt.wantTyped {
+				t.Fatalf("active=%v tier=%v typed=%v, want tier=%v typed=%v",
+					c.Active(), c.Tier(), c.TypeToConfirm(), tt.wantTier, tt.wantTyped)
+			}
+		})
+	}
+}
+
+func deleteOf(kind kube.ResourceKind) tui.TaskAction {
+	return tui.TaskAction{
+		ID: "delete", Label: "Delete api?",
+		Scope: tui.TaskScope{ResourceKind: string(kind), ResourceName: "api", Namespace: "dev", Verb: verbs.Delete.ID, IsMutating: true},
+	}
+}
+
+// TestEscalateForceDeleteIsModalOutsideProd: escalating a non-prod inline
+// Pod delete must reach the type-the-name modal, never stay an inline y/N.
+func TestEscalateForceDeleteIsModalOutsideProd(t *testing.T) {
+	c := New(&fakeMutator{})
+	c.Begin(Request{Verb: verbs.Delete}, deleteOf(kube.KindPod))
+	if !c.EscalateForceDelete(false) {
+		t.Fatal("expected EscalateForceDelete to claim a pending Pod delete")
+	}
+	if c.Tier() != TierModal || c.Pending().Scope.Verb != verbs.ForceDelete.ID {
+		t.Fatalf("tier=%v verb=%q, want TierModal force-delete", c.Tier(), c.Pending().Scope.Verb)
+	}
+	if !c.TypeToConfirm() {
+		t.Fatal("force-delete's modal must be type-the-name")
+	}
+}
+
+func TestEscalateForceDeleteIgnoresOtherKindsAndVerbs(t *testing.T) {
+	c := New(&fakeMutator{})
+	c.Begin(Request{Verb: verbs.Delete}, deleteOf(kube.KindDeployment))
+	if c.EscalateForceDelete(false) || c.Pending().Scope.Verb != verbs.Delete.ID || c.Tier() != TierInline {
+		t.Fatalf("expected a Deployment delete to stay an inline delete, got tier=%v verb=%q", c.Tier(), c.Pending().Scope.Verb)
+	}
+
+	drain := deleteOf(kube.KindNode)
+	drain.Scope.Verb = verbs.Drain.ID
+	c.Begin(Request{Verb: verbs.Drain}, drain)
+	if c.EscalateForceDelete(false) || c.Pending().Scope.Verb != verbs.Drain.ID {
+		t.Fatalf("expected a drain to be left alone, got %q", c.Pending().Scope.Verb)
 	}
 }

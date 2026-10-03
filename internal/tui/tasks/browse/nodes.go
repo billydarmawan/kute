@@ -20,6 +20,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
@@ -288,7 +289,7 @@ func (m *Model) beginCordon(row resources.Row) tea.Cmd {
 	if row.Cordoned {
 		verb, label = "uncordon", fmt.Sprintf("Uncordon %s?", row.Name)
 	}
-	return m.actions.Begin(verbs.Cordon.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Cordon, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "node-" + verb + "-" + row.Name,
 		Label: label,
 		Scope: tui.TaskScope{ResourceKind: string(kube.KindNode), ResourceName: row.Name, Verb: verb, IsMutating: true},
@@ -300,7 +301,7 @@ func (m *Model) beginCordon(row resources.Row) tea.Cmd {
 // cache says will be evicted, and which of them won't come back) on its own
 // line under it, so a long node name can't push them off the card.
 func (m *Model) beginDrain(row resources.Row) tea.Cmd {
-	return m.actions.Begin(verbs.Drain.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Drain, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "node-drain-" + row.Name,
 		Label: fmt.Sprintf("Drain %s?", row.Name),
 		Scope: tui.TaskScope{ResourceKind: string(kube.KindNode), ResourceName: row.Name, Verb: "drain", IsMutating: true},

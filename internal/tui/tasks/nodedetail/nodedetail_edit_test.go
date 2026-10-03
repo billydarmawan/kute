@@ -12,7 +12,7 @@ import (
 )
 
 // TestEditNonProdLaunchesImmediately confirms 'E' in a non-prod context
-// launches kubectl edit directly (verbs.TierForEdit == TierNone) — no
+// launches kubectl edit directly (verbs.Resolve(verbs.Edit, …) == TierNone) — no
 // pendingEdit confirm gate, and the returned Cmd is the tea.ExecProcess
 // wrapping kube.EditSpec.
 func TestEditNonProdLaunchesImmediately(t *testing.T) {
@@ -37,7 +37,7 @@ func TestEditNonProdLaunchesImmediately(t *testing.T) {
 }
 
 // TestEditProdShowsInlinePromptAndLaunchesOnY confirms 'E' in a PROD context
-// stages pendingEdit and shows the inline y/N line (verbs.TierForEdit ==
+// stages pendingEdit and shows the inline y/N line (verbs.Resolve(verbs.Edit, …) ==
 // TierInline), and only launches kubectl edit once 'y' confirms.
 func TestEditProdShowsInlinePromptAndLaunchesOnY(t *testing.T) {
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{

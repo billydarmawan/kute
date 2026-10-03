@@ -704,7 +704,7 @@ func (m Model) Body(width, height int) string {
 			// type-the-count modal instead (0.8.0 plan §3 Phase 5 task 8).
 			return m.bulkCronJobSuspendConfirmModal(width, height)
 		}
-		if pending := m.actions.Pending(); pending != nil && actions.RequiresTypedName(pending.Scope.Verb) {
+		if m.actions.TypeToConfirm() {
 			return m.typeNameConfirmModal(width, height)
 		}
 		return m.confirmBody(width, height)

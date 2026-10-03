@@ -17,6 +17,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -63,7 +64,7 @@ func (m *Model) beginFluxSuspend(row resources.Row) tea.Cmd {
 		verb, label = "flux-resume", fmt.Sprintf("Resume %s?", row.Name)
 	}
 	m.execFeedback = kube.FluxSuspendCommandString(m.kind, row.Namespace, row.Name, !row.Suspended)
-	return m.actions.Begin(verbs.FluxSuspend.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.FluxSuspend, Prod: m.isProd()}, tui.TaskAction{
 		ID:    verb + "-" + row.Name,
 		Label: label,
 		Scope: tui.TaskScope{
@@ -78,7 +79,7 @@ func (m *Model) beginFluxSuspend(row resources.Row) tea.Cmd {
 // carries.
 func (m *Model) beginFluxReconcile(row resources.Row) tea.Cmd {
 	m.execFeedback = kube.FluxReconcileCommandString(m.kind, row.Namespace, row.Name, time.Now())
-	return m.actions.Begin(verbs.FluxReconcile.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.FluxReconcile, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "flux-reconcile-" + row.Name,
 		Label: fmt.Sprintf("Reconcile %s?", row.Name),
 		Scope: tui.TaskScope{

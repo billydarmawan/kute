@@ -1089,7 +1089,7 @@ func (m *Model) openSelectedEnter() (tea.Model, tea.Cmd, bool) {
 // ConfirmCard, deliberately not upgraded — see mvp-tasks.md's Phase 5/8b
 // exit notes) — stays the simple y/n/esc prompt, plus verbs.ForceDelete.Key
 // on a pending inline Pod delete, which escalates it to force-delete at
-// ForceDelete's own TierModal (verbs.EscalateForceDelete): the confirm
+// ForceDelete's own TierModal (Controller.EscalateForceDelete): the confirm
 // becomes the type-the-name modal, never a second inline "y" (CLAUDE.md:
 // "drain/force-delete always modal"). Everything else is swallowed so
 // movement/filter can't act underneath.
@@ -1101,7 +1101,7 @@ func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "y":
 		return m, m.actions.Confirm()
 	case verbs.ForceDelete.Key:
-		verbs.EscalateForceDelete(&m.actions, m.isProd())
+		m.actions.EscalateForceDelete(m.isProd())
 	case "n", "esc":
 		m.cancelInlineConfirm()
 	}
@@ -1172,7 +1172,7 @@ func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		}
 		return m, m.actions.Confirm()
 	case verbs.ForceDelete.Key:
-		if verbs.EscalateForceDelete(&m.actions, m.isProd()) {
+		if m.actions.EscalateForceDelete(m.isProd()) {
 			return m, nil
 		}
 		return m, m.actions.HandleTypeKey(msg)

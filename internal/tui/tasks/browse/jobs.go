@@ -25,6 +25,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -197,10 +198,10 @@ func (m Model) cronJobLogsTarget() (pod kube.Pod, reason string, ok bool) {
 // beginJobSuspend starts verbs.JobSuspend ('s'): one verb, two directions,
 // exactly beginFluxSuspend's (flux.go) shape — Scope.Verb flips between
 // "job-suspend"/"job-resume" based on row.Suspended. v0.9.0 §37a routes this
-// through verbs.TierForJobSuspend, not the flat verbs.TierFor: resume is
+// through verbs.Resolve's JobSuspend row, not the flat verbs.Resolve: resume is
 // always TierNone (reversible, immediate — mirrors CronJob's own resume),
 // suspend is TierInline outside PROD, TierModal (the type-the-name modal,
-// actions.RequiresTypedName's own "job-suspend" entry) inside one — tearing
+// verbs.Resolve's typed-name policy for "job-suspend") inside one — tearing
 // down a Job's active pods immediately is a real destructive side effect
 // Retry's clone-only semantics don't have.
 func (m *Model) beginJobSuspend(row resources.Row) tea.Cmd {
@@ -209,8 +210,7 @@ func (m *Model) beginJobSuspend(row resources.Row) tea.Cmd {
 	if !suspending {
 		verb, label = "job-resume", fmt.Sprintf("Resume %s?", row.Name)
 	}
-	tier := verbs.TierForJobSuspend(suspending, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.JobSuspend, Prod: m.isProd()}, tui.TaskAction{
 		ID:    verb + "-" + row.Name,
 		Label: label,
 		Scope: tui.TaskScope{
@@ -245,7 +245,7 @@ func (m Model) jobKeybarGroup() []tui.KeyHint {
 }
 
 // CronJobRunNow (ctrl-r) and CronJobSuspend's resume direction both stage a
-// screen-owned preview before ever calling actions.Begin(TierNone, …) —
+// screen-owned preview before ever calling actions.Begin on a TierNone verb —
 // 0.8.0 plan §36b/§36c/Phase 5. Their staging/commit/render logic lives in
 // cronjob_actions.go, big enough on its own (overlap detection, missed-run
 // math, bulk marked-set support) to outgrow this file's "navigation plus a
@@ -258,7 +258,7 @@ func (m Model) jobKeybarGroup() []tui.KeyHint {
 
 // beginCronJobSuspend starts verbs.CronJobSuspend's suspend direction only:
 // TierInline outside PROD, TierModal (the type-the-name modal,
-// actions.RequiresTypedName's "cronjob-suspend" entry) inside one — the
+// verbs.Resolve's typed-name policy for "cronjob-suspend") inside one — the
 // ordinary Controller-driven confirm every other tiered verb gets, rendered
 // generically (keys.go's "cronjob-suspend" case, delete.go's
 // typeNameConfirmModal). CronJobResourceVersion/CronJobGeneration are the
@@ -273,8 +273,7 @@ func (m *Model) beginCronJobSuspend(row resources.Row) tea.Cmd {
 		resourceVersion = summary.Object.ResourceVersion
 		generation = summary.Object.Generation
 	}
-	tier := verbs.TierForCronJobSuspend(true, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CronJobSuspend, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cronjob-suspend-" + row.Namespace + "/" + row.Name,
 		Label: fmt.Sprintf("Suspend %s?", row.Name),
 		Scope: tui.TaskScope{

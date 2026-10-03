@@ -1,6 +1,6 @@
 // §36b/§36c's staged CronJob action preflights (0.8.0 plan Phase 5):
 // ctrl-r run-now and 's' resume both gather everything their preview needs
-// into screen state *before* ever calling actions.Begin(TierNone, …) — the
+// into screen state *before* ever calling actions.Begin on a TierNone verb — the
 // staging step is itself the confirmation, the same "bespoke gate, TierNone
 // commit" shape scale.go's pendingScale uses for 17b's +/− prompt. Suspend
 // (the dangerous direction) stays on jobs.go's beginCronJobSuspend, routed
@@ -21,6 +21,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -108,7 +109,7 @@ func (m *Model) commitCronJobRun() tea.Cmd {
 	t := m.pendingCronJobRun
 	m.pendingCronJobRun = nil
 	m.lastCronJobRunName = t.newName
-	return m.actions.Begin(verbs.CronJobRunNow.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CronJobRunNow, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cronjob-run-now-" + t.namespace + "/" + t.name,
 		Label: fmt.Sprintf("Run %s now", t.name),
 		Scope: tui.TaskScope{
@@ -323,7 +324,7 @@ func (m *Model) commitCronJobResume() tea.Cmd {
 	m.pendingCronJobResume = nil
 	if len(t.entries) == 1 {
 		e := t.entries[0]
-		return m.actions.Begin(verbs.TierForCronJobSuspend(false, m.isProd()), tui.TaskAction{
+		return m.actions.Begin(actions.Request{Verb: verbs.CronJobSuspend, Prod: m.isProd()}, tui.TaskAction{
 			ID:    "cronjob-resume-" + e.namespace + "/" + e.name,
 			Label: "Resume " + e.name,
 			Scope: tui.TaskScope{
@@ -339,7 +340,7 @@ func (m *Model) commitCronJobResume() tea.Cmd {
 	for i, e := range t.entries {
 		targets[i] = tui.BulkTarget{Namespace: e.namespace, ResourceName: e.name, ResourceVersion: e.resourceVersion, Generation: e.generation}
 	}
-	return m.actions.Begin(verbs.TierForCronJobSuspend(false, m.isProd()), tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CronJobSuspend, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cronjob-bulk-resume",
 		Label: fmt.Sprintf("Resume %d cronjobs", len(targets)),
 		Scope: tui.TaskScope{
@@ -491,8 +492,7 @@ func (m *Model) beginCronJobSuspendBulk(marked []resources.Row) tea.Cmd {
 	if len(targets) == 0 {
 		return nil
 	}
-	tier := verbs.TierForCronJobSuspend(true, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CronJobSuspend, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cronjob-bulk-suspend",
 		Label: fmt.Sprintf("Suspend %d cronjobs", len(targets)),
 		Scope: tui.TaskScope{

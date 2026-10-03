@@ -291,7 +291,7 @@ func (m *Model) cycleProfile() {
 	}
 }
 
-// beginLaunch resolves 'enter': verbs.TierForDebug(isProd) decides whether
+// beginLaunch resolves 'enter': verbs.Resolve(verbs.NodeDebug, …) decides whether
 // to launch immediately (TierNone, outside PROD — reproduces the retired
 // 's' NodeShell verb's zero-friction launch for an unmodified node target)
 // or stage launchPending for one inline y/N line first (TierInline, PROD
@@ -299,7 +299,7 @@ func (m *Model) cycleProfile() {
 // nodedetail/edit.go's beginEdit uses, since the actual launch is a
 // tea.ExecProcess handoff, never a Mutator call.
 func (m *Model) beginLaunch() tea.Cmd {
-	if verbs.TierForDebug(m.isProd()) == actions.TierNone {
+	if verbs.Resolve(verbs.NodeDebug, verbs.Target{}, m.isProd()).Tier == verbs.TierNone {
 		return m.launchCmd()
 	}
 	m.launchPending = true
@@ -457,8 +457,7 @@ func (m *Model) beginCleanupDelete() tea.Cmd {
 	if m.cleanup == nil {
 		return nil
 	}
-	tier := verbs.TierForDelete(verbs.Delete, kube.KindPod, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Delete, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "delete-" + string(kube.KindPod) + "-" + m.cleanup.namespace + "/" + m.cleanup.name,
 		Label: fmt.Sprintf("Delete Pod %s?", m.cleanup.name),
 		Scope: tui.TaskScope{
@@ -473,7 +472,7 @@ func (m *Model) beginCleanupDelete() tea.Cmd {
 
 // updateActionsConfirmKey routes keys while the cleanup delete's confirm is
 // showing — the ordinary y/n/esc inline confirm outside PROD, or the
-// type-the-name modal in PROD (actions.RequiresTypedName's "delete" entry),
+// type-the-name modal in PROD (verbs.Resolve's typed-name policy for "delete"),
 // mirroring browse's own updateConfirmKey/updateModalConfirmKey split.
 func (m *Model) updateActionsConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.actions.Tier() == actions.TierModal {

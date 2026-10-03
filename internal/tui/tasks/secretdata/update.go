@@ -302,7 +302,7 @@ func (m *Model) moveHalfPage(direction int) {
 
 // commitAdd executes the add row's key=value through actions.Controller —
 // TierNone (applies immediately) outside PROD, TierInline (inline y/N)
-// in PROD (docs/design README.md §27b, verbs.TierForAddSecretKey). A no-op
+// in PROD (docs/design README.md §27b, verbs.Resolve's AddSecretKey row). A no-op
 // while the key buffer is blank.
 func (m *Model) commitAdd() tea.Cmd {
 	a := m.adding
@@ -315,16 +315,14 @@ func (m *Model) commitAdd() tea.Cmd {
 	_, overwrite := indexOfSecretKey(m.keys, key)
 	m.pendingCommit = &secretPendingCommit{key: key, value: value, overwrite: overwrite, resourceVersion: m.bufferRV}
 	m.message, m.lastError = "", ""
-	tier := verbs.TierForAddSecretKey(m.isProd())
 	label := fmt.Sprintf("Add key %s to %s?", key, m.name)
 	if overwrite {
 		// 'a' with a key that's already there replaces its value — for a
 		// Secret often the only copy of a credential — and the merge patch
 		// can't tell an add from an overwrite, so ask first.
-		tier = max(tier, actions.TierInline)
 		label = fmt.Sprintf("Overwrite existing key %s on %s?", key, m.name)
 	}
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.AddSecretKey, Prod: m.isProd(), Overwrite: overwrite}, tui.TaskAction{
 		ID:    "add-secret-key-" + m.namespace + "/" + m.name + "/" + key,
 		Label: label,
 		Scope: tui.TaskScope{
@@ -337,7 +335,7 @@ func (m *Model) commitAdd() tea.Cmd {
 
 // commitEdit executes the edit row's rewritten value through
 // actions.Controller — same TierNone-outside-PROD/TierInline-in-PROD policy
-// as commitAdd (verbs.TierForAddSecretKey; both go through the same
+// as commitAdd (verbs.Resolve's AddSecretKey row; both go through the same
 // PatchSecretData call, so the same tiering applies). A no-op when the
 // value is unchanged from its original decoded value — nothing to apply.
 func (m *Model) commitEdit() tea.Cmd {
@@ -350,8 +348,7 @@ func (m *Model) commitEdit() tea.Cmd {
 	m.editing = nil
 	m.pendingCommit = &secretPendingCommit{key: key, value: value, isEdit: true, original: original, resourceVersion: m.bufferRV}
 	m.message, m.lastError = "", ""
-	tier := verbs.TierForAddSecretKey(m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.AddSecretKey, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "edit-secret-key-" + m.namespace + "/" + m.name + "/" + key,
 		Label: fmt.Sprintf("Update key %s on %s?", key, m.name),
 		Scope: tui.TaskScope{
@@ -369,7 +366,7 @@ func (m *Model) commitEdit() tea.Cmd {
 func (m *Model) beginRemove(row secretKeyRow) tea.Cmd {
 	m.pendingCommit = &secretPendingCommit{key: row.key, remove: true, resourceVersion: m.resourceVersion}
 	m.message, m.lastError = "", ""
-	return m.actions.Begin(actions.TierInline, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.RemoveSecretKey, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "remove-secret-key-" + m.namespace + "/" + m.name + "/" + row.key,
 		Label: fmt.Sprintf("Remove key %s from %s?", row.key, m.name),
 		Scope: tui.TaskScope{

@@ -362,7 +362,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // backspace, force-delete escalation, enter-when-matched — while
 // TierInline/TierNone stay the simple y/n/esc prompt (mvp-plan.md §8b), plus
 // verbs.ForceDelete.Key on the inline delete confirm, which escalates it
-// into the type-the-name modal (verbs.EscalateForceDelete) — force delete
+// into the type-the-name modal (Controller.EscalateForceDelete) — force delete
 // is always modal, PROD or not.
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.actions.Tier() == actions.TierModal {
@@ -372,7 +372,7 @@ func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "y":
 		return m, m.actions.Confirm()
 	case verbs.ForceDelete.Key:
-		verbs.EscalateForceDelete(&m.actions, m.isProd())
+		m.actions.EscalateForceDelete(m.isProd())
 	case "n", "esc":
 		m.cancelInlineConfirm()
 	}
@@ -401,7 +401,7 @@ func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 	case "enter":
 		return m, m.actions.Confirm()
 	case verbs.ForceDelete.Key:
-		if verbs.EscalateForceDelete(&m.actions, m.isProd()) {
+		if m.actions.EscalateForceDelete(m.isProd()) {
 			return m, nil
 		}
 		return m, m.actions.HandleTypeKey(msg)
@@ -675,13 +675,13 @@ func execCmd(target kube.CommandTarget, namespace, pod, container string, demo b
 }
 
 // beginDelete confirms deleting the pod — inline y/N in non-prod contexts,
-// the full type-the-name modal in PROD (mvp-plan.md §8b, verbs.TierFor).
+// the full type-the-name modal in PROD (mvp-plan.md §8b, verbs.Resolve).
 // Owner rides along for the modal's "will be recreated" line when known.
 func (m *Model) beginDelete() tea.Cmd {
 	if !m.found {
 		return nil
 	}
-	return m.actions.Begin(verbs.TierForDelete(verbs.Delete, kube.KindPod, m.isProd()), tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Delete, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "pod-delete-" + m.namespace + "/" + m.name,
 		Label: "Delete pod " + m.name + "?",
 		Owner: m.pod.Owner,

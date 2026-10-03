@@ -5,7 +5,7 @@
 // request/limit buffer to gather (plus a dry-run round-trip) before there's
 // anything to Begin. Once ↵ commits and the dry-run succeeds, execution
 // itself does go through actions.Controller/kube.Mutator
-// (verbs.TierForSetResources decides TierNone outside PROD vs. TierInline in
+// (verbs.Resolve(verbs.SetResources, …) decides TierNone outside PROD vs. TierInline in
 // PROD — the same ordinary inline y/N Controller already renders for
 // rollback/delete/set-image). Kept in its own file, browse's per-concern
 // split convention (like scale.go/setimage.go).
@@ -662,7 +662,7 @@ func (m *Model) handleDryRunSetResources(msg dryRunSetResourcesMsg) (tea.Model, 
 	}
 	edits := msg.target.edits()
 	m.pendingSetResources.pendingCommit = &setResourcesPendingCommit{container: msg.target.activeContainer().Name}
-	return m, m.actions.Begin(verbs.TierForSetResources(m.isProd()), tui.TaskAction{
+	return m, m.actions.Begin(actions.Request{Verb: verbs.SetResources, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "set-resources-" + msg.target.namespace + "/" + msg.target.name,
 		Label: fmt.Sprintf("Set resources for %s?", msg.target.name),
 		Scope: tui.TaskScope{

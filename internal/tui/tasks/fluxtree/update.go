@@ -240,7 +240,7 @@ func (m *Model) beginReconcile(row treeRow) tea.Cmd {
 		label = fmt.Sprintf("Reconcile %s with source?", row.name)
 	}
 	m.execFeedback = strings.Join(cmds, " && ")
-	return m.actionsCtl.Begin(verbs.FluxReconcile.Tier, tui.TaskAction{
+	return m.actionsCtl.Begin(actions.Request{Verb: verbs.FluxReconcile, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "flux-reconcile-" + row.name,
 		Label: label,
 		Scope: scope,
@@ -255,7 +255,7 @@ func (m *Model) beginSuspend(row treeRow) tea.Cmd {
 		verb, label = "flux-resume", fmt.Sprintf("Resume %s?", row.name)
 	}
 	m.execFeedback = kube.FluxSuspendCommandString(row.kind, row.namespace, row.name, !row.suspended)
-	return m.actionsCtl.Begin(verbs.FluxSuspend.Tier, tui.TaskAction{
+	return m.actionsCtl.Begin(actions.Request{Verb: verbs.FluxSuspend, Prod: m.isProd()}, tui.TaskAction{
 		ID:    verb + "-" + row.name,
 		Label: label,
 		Scope: tui.TaskScope{

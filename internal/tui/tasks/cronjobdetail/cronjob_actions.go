@@ -20,6 +20,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -77,7 +78,7 @@ func (m *Model) updateRunKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) commitRunNow() tea.Cmd {
 	t := m.pendingRun
 	m.pendingRun = nil
-	return m.actions.Begin(verbs.CronJobRunNow.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CronJobRunNow, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cronjob-run-now-" + t.namespace + "/" + t.name,
 		Label: fmt.Sprintf("Run %s now", t.name),
 		Scope: tui.TaskScope{
@@ -225,7 +226,7 @@ func (m *Model) updateResumeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) commitResume() tea.Cmd {
 	e := m.pendingResume.entry
 	m.pendingResume = nil
-	return m.actions.Begin(verbs.TierForCronJobSuspend(false, m.isProd()), tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CronJobSuspend, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cronjob-resume-" + e.namespace + "/" + e.name,
 		Label: "Resume " + e.name,
 		Scope: tui.TaskScope{
@@ -312,8 +313,7 @@ func (m *Model) beginSuspend() tea.Cmd {
 		resourceVersion = m.summary.Object.ResourceVersion
 		generation = m.summary.Object.Generation
 	}
-	tier := verbs.TierForCronJobSuspend(true, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CronJobSuspend, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cronjob-suspend-" + m.namespace + "/" + m.name,
 		Label: fmt.Sprintf("Suspend %s?", m.name),
 		Scope: tui.TaskScope{

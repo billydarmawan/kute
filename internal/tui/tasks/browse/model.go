@@ -380,7 +380,7 @@ type Model struct {
 	// (nodeShellResultMsg) — same transient channel, same reasoning.
 	execFeedback string
 	// pendingEdit is non-nil while 'E' edit's PROD-only y/N line is showing
-	// (edit.go's bespoke gate — verbs.TierForEdit) — nil the rest of the
+	// (edit.go's bespoke gate — verbs.Resolve(verbs.Edit, …)) — nil the rest of the
 	// time, including right after a non-prod 'E' press, which skips this
 	// state entirely and launches kubectl edit directly.
 	pendingEdit *editTarget
@@ -413,7 +413,7 @@ type Model struct {
 	// pendingCronJobRun is non-nil while §36b's ctrl-r run-now preflight is
 	// showing (cronjob_actions.go) — a bespoke gate like pendingScale, since
 	// run-now stages its own preview (overlap warning, generated name)
-	// before ever calling actions.Begin(TierNone, …): the staging step is
+	// before ever calling actions.Begin on a TierNone verb: the staging step is
 	// itself the confirmation (0.8.0 plan §36b/Phase 5), so there's no
 	// TierInline/TierModal for actions.Controller to render.
 	pendingCronJobRun *cronJobRunTarget

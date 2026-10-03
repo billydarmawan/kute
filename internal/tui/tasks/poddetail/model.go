@@ -174,7 +174,7 @@ type Model struct {
 	// transient channel, same reasoning.
 	execFeedback string
 	// pendingEdit is non-nil while 'E' edit's PROD-only y/N line is showing
-	// (verbs.TierForEdit) — mirrors browse.Model's own pendingEdit field.
+	// (verbs.Resolve(verbs.Edit, …)) — mirrors browse.Model's own pendingEdit field.
 	pendingEdit *editTarget
 	// meta is non-nil while 26a's labels/annotations panel is open on this
 	// pod (the shared internal/tui/metapanel editor) — the only place labels

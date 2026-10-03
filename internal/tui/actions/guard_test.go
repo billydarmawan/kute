@@ -146,3 +146,73 @@ func callsDismiss(pkg []*ast.File, fields map[string]bool) bool {
 	}
 	return found
 }
+
+// resolveOutsideBegin are the only confirms that resolve verbs.Resolve
+// themselves instead of through Controller.Begin, each because it never
+// reaches kube.Mutator through the controller: the kubectl edit/debug tty
+// handoffs (a bespoke PROD y/N before tea.ExecProcess) and 20a's marked-set
+// delete (its own type-the-count machine, review 10 M2).
+var resolveOutsideBegin = map[string]bool{
+	"tasks/browse/edit.go":       true,
+	"tasks/poddetail/edit.go":    true,
+	"tasks/nodedetail/edit.go":   true,
+	"tasks/debugpanel/update.go": true,
+	"tasks/browse/bulk.go":       true,
+}
+
+// TestConfirmPolicyOnlyResolvedByBegin is review 10 M1's guard: the confirm
+// tier is decided in one place. Begin takes the verb, not a tier, so a call
+// site can't pass a wrong one; this catches the other way around it — a
+// screen calling verbs.Resolve (or building a verbs.Policy) to make its own
+// decision. A new bespoke gate needs a reason and an entry above.
+func TestConfirmPolicyOnlyResolvedByBegin(t *testing.T) {
+	root := ".."
+	var dirs []string
+	for _, pattern := range []string{"tasks/*", "*"} {
+		matches, err := filepath.Glob(filepath.Join(root, pattern))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dirs = append(dirs, matches...)
+	}
+	seen := map[string]bool{}
+	for _, dir := range dirs {
+		rel, _ := filepath.Rel(root, dir)
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() ||
+			rel == "verbs" || rel == "actions" || rel == "tasks" {
+			continue
+		}
+		paths, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+		for _, path := range paths {
+			if strings.HasSuffix(path, "_test.go") {
+				continue
+			}
+			f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+			if err != nil {
+				t.Fatalf("%s: %v", path, err)
+			}
+			file, _ := filepath.Rel(root, path)
+			file = filepath.ToSlash(file)
+			ast.Inspect(f, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok || (sel.Sel.Name != "Resolve" && sel.Sel.Name != "Policy") {
+					return true
+				}
+				if x, ok := sel.X.(*ast.Ident); !ok || x.Name != "verbs" {
+					return true
+				}
+				seen[file] = true
+				if !resolveOutsideBegin[file] {
+					t.Errorf("%s uses verbs.%s directly — start the action with Controller.Begin(Request{Verb: …}) "+
+						"so the policy is resolved in one place", file, sel.Sel.Name)
+				}
+				return true
+			})
+		}
+	}
+	for file := range resolveOutsideBegin {
+		if !seen[file] {
+			t.Errorf("%s is allow-listed but no longer calls verbs.Resolve — drop it from resolveOutsideBegin", file)
+		}
+	}
+}

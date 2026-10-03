@@ -66,6 +66,7 @@ import (
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // Config carries what the panel needs from its host screen. The host keeps
@@ -720,17 +721,17 @@ func (p *Model) updateAddKey(msg tea.KeyPressMsg, ctrl *actions.Controller) tea.
 // interaction state to restore on failure, "added"/"updated" wording on
 // success) — it has no effect on tiering or the patch itself.
 func (p *Model) commitMeta(t metaTarget, row metaRow, overwrite, isAdd bool, ctrl *actions.Controller) tea.Cmd {
-	tier := actions.TierNone
+	joined := false
 	scope := tui.TaskScope{
 		ResourceKind: string(t.kind), ResourceName: t.name, Namespace: t.namespace,
 		Verb: "set-meta", IsMutating: true,
 		MetaKey: row.key, MetaValue: row.input.Value(), MetaIsAnnotation: row.isAnnotation, MetaOverwrite: overwrite,
 	}
 	if row.joinService != "" {
-		tier = actions.TierInline
+		joined = true
 		scope.MetaJoinService, scope.MetaJoinPodCount = row.joinService, row.joinPodCount
 	} else if row.joinUnknown != "" {
-		tier = actions.TierInline
+		joined = true
 	}
 	kind := "label"
 	if row.isAnnotation {
@@ -740,7 +741,7 @@ func (p *Model) commitMeta(t metaTarget, row metaRow, overwrite, isAdd bool, ctr
 		isAdd: isAdd, section: sectionOf(row.isAnnotation),
 		key: row.key, isAnnotation: row.isAnnotation, value: row.input.Value(),
 	})
-	return ctrl.Begin(tier, tui.TaskAction{
+	return ctrl.Begin(actions.Request{Verb: verbs.Meta, Joined: joined}, tui.TaskAction{
 		ID:    "set-meta-" + t.namespace + "/" + t.name + "/" + row.key,
 		Label: fmt.Sprintf("Set %s %s on %s?", kind, row.key, t.name),
 		Scope: scope,
@@ -759,7 +760,7 @@ func (p *Model) commitMetaRemove(t metaTarget, row metaRow, ctrl *actions.Contro
 		isRemove: true, section: sectionOf(row.isAnnotation),
 		key: row.key, isAnnotation: row.isAnnotation,
 	})
-	return ctrl.Begin(actions.TierInline, tui.TaskAction{
+	return ctrl.Begin(actions.Request{Verb: verbs.Meta}, tui.TaskAction{
 		ID:    "remove-meta-" + t.namespace + "/" + t.name + "/" + row.key,
 		Label: fmt.Sprintf("Remove %s %s from %s?", kind, row.key, t.name),
 		Scope: tui.TaskScope{

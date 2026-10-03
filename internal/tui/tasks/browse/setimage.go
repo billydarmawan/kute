@@ -3,7 +3,7 @@
 // bespoke gate (pendingSetImage) rather than actions.Controller's y/N/
 // type-name flow, since there's a container/tag/history buffer to gather
 // before there's anything to Begin. Once ↵ commits, execution itself does
-// go through actions.Controller/kube.Mutator (verbs.TierForSetImage decides
+// go through actions.Controller/kube.Mutator (verbs.Resolve(verbs.SetImage, …) decides
 // TierNone outside PROD vs. TierInline in PROD — the ordinary inline y/N
 // Controller already renders for rollback/delete). Kept in its own file,
 // browse's per-concern split convention (like scale.go/edit.go).
@@ -331,7 +331,7 @@ func matchHistoryIndex(t *setImageTarget) int {
 	return slices.IndexFunc(t.history, func(e imageHistoryEntry) bool { return e.tag == tag })
 }
 
-// commitSetImage executes t through actions.Controller — verbs.TierForSetImage
+// commitSetImage executes t through actions.Controller — verbs.Resolve(verbs.SetImage, …)
 // resolves TierNone outside PROD (Begin runs it immediately, mirroring
 // commitScale) or TierInline in PROD (Controller's ordinary inline y/N, the
 // same path rollback/delete already take). Arms pendingCommit first so
@@ -343,7 +343,7 @@ func (m *Model) commitSetImage(t setImageTarget) tea.Cmd {
 	c := t.activeContainer()
 	image := t.composedImage()
 	m.armSetImageCommit(&setImagePendingCommit{container: c.Name, image: image, initContainer: c.initContainer})
-	return m.actions.Begin(verbs.TierForSetImage(m.isProd()), tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.SetImage, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "set-image-" + t.namespace + "/" + t.name,
 		Label: fmt.Sprintf("Set image for %s?", t.name),
 		Scope: tui.TaskScope{

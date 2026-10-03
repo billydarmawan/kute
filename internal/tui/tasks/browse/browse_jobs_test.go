@@ -311,7 +311,7 @@ func TestJobRerunStaysStagedEvenInProd(t *testing.T) {
 // real destructive side effect (tears down the Job's active pods
 // immediately), so a prod-tagged context escalates 's' from TierInline to
 // TierModal — and, since job-suspend is now in
-// actions.RequiresTypedName (mirroring cronjob-suspend), that lands on the
+// Controller.TypeToConfirm (mirroring cronjob-suspend), that lands on the
 // full type-the-name modal, not the plain ConfirmCard.
 func TestJobSuspendEscalatesToTypeNameModalConfirmInProd(t *testing.T) {
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
@@ -606,7 +606,7 @@ func TestSKeyOnCronJobSuspendRequiresConfirmNonProd(t *testing.T) {
 // TestJobSuspendEscalatesToModalConfirmInProd, but — unlike Job's own
 // suspend, which is a plain y/N even in PROD (browse's ConfirmCard) — a
 // CronJob suspend confirmation in PROD is routed to the full type-the-name
-// modal (actions.RequiresTypedName's "cronjob-suspend" entry, 0.8.0 plan §3
+// modal (verbs.Resolve's typed-name policy for "cronjob-suspend", 0.8.0 plan §3
 // tasks 2/3), the same red-bordered surface delete/rollout-restart use.
 func TestCronJobSuspendEscalatesToModalConfirmInProd(t *testing.T) {
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
@@ -649,7 +649,7 @@ func TestCronJobSuspendEscalatesToModalConfirmInProd(t *testing.T) {
 // way run-now does, so by the time 's' lands there's nothing left for
 // Controller's own confirm to add (0.8.0 plan §36c: "Resume is reversible
 // and executes on ↵ with no destructive escalation"). This holds in PROD
-// too — TierForCronJobSuspend never escalates the resume direction.
+// too — verbs.Resolve's CronJobSuspend row never escalates the resume direction.
 func TestSKeyOnCronJobSuspendResumeStaysTierNone(t *testing.T) {
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindCronJob: {suspendedCronJobObj("default", "nightly", false)},

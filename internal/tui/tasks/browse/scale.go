@@ -21,6 +21,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -197,7 +198,7 @@ func (m *Model) updateScaleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // "reversible, no confirm" path RolloutRestart/Cordon already take.
 func (m *Model) commitScale(t scaleTarget) tea.Cmd {
 	replicas := scaleValue(t.input.Value())
-	return m.actions.Begin(verbs.Scale.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.Scale, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "scale-" + t.namespace + "/" + t.name,
 		Label: fmt.Sprintf("Scale %s to %d", t.name, replicas),
 		Scope: tui.TaskScope{

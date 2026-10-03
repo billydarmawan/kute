@@ -185,12 +185,11 @@ func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // beginCertRenew starts verbs.CertRenew ('r') against the Certificate this
-// screen is about — verbs.CertRenew.Tier is used directly rather than
-// resolved through verbs.TierFor, deliberately (same skip
-// tasks/browse/certmanager.go's own beginCertRenew takes, whose doc comment
-// has the full reasoning).
+// screen is about — one inline y/N that PROD never escalates (verbs.CertRenew's
+// policy row; tasks/browse/certmanager.go's own beginCertRenew has the full
+// reasoning).
 func (m *Model) beginCertRenew() tea.Cmd {
-	return m.actions.Begin(verbs.CertRenew.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CertRenew, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cert-renew-" + m.namespace + "/" + m.name,
 		Label: fmt.Sprintf("Renew %s?", m.name),
 		Scope: tui.TaskScope{

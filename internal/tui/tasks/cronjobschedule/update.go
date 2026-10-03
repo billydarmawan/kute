@@ -337,7 +337,7 @@ func (m *Model) commitApply() tea.Cmd {
 	before := m.accepted
 	m.pendingCommit = &scheduleCommit{schedule: schedule, timezone: tzEdit, resourceVersion: m.accepted.resourceVersion, before: before}
 	m.message, m.lastError = "", ""
-	return m.actions.Begin(actions.TierNone, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CronJobSetSchedule, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cronjob-set-schedule-" + m.namespace + "/" + m.name,
 		Label: fmt.Sprintf("Set %s's schedule?", m.name),
 		Scope: tui.TaskScope{
@@ -378,7 +378,7 @@ func (m *Model) commitUndo() tea.Cmd {
 	before := m.accepted
 	m.pendingCommit = &scheduleCommit{schedule: prev.schedule, timezone: tzEdit, resourceVersion: m.accepted.resourceVersion, isUndo: true, before: before}
 	m.message, m.lastError = "", ""
-	return m.actions.Begin(actions.TierNone, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CronJobScheduleUndo, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cronjob-schedule-undo-" + m.namespace + "/" + m.name,
 		Label: fmt.Sprintf("Undo %s's schedule change?", m.name),
 		Scope: tui.TaskScope{

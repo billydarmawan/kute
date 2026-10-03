@@ -13,7 +13,6 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
-	"github.com/kute-dev/kute/internal/tui/actions"
 )
 
 // Verb is one registry entry.
@@ -21,8 +20,12 @@ type Verb struct {
 	ID    string // stable id ("delete", "logs") — future key-remapping hook
 	Key   string // "ctrl+d"
 	Label string // "delete"
-	Tier  actions.Tier
-	Kinds []kube.ResourceKind // applicable kinds; nil = all
+	// ReverseID is the Scope.Verb of a two-direction verb's undo direction
+	// ("uncordon", "cronjob-resume", …) — empty for a one-way verb. The
+	// policy table (Resolve) gives that direction its own tier, so resume
+	// can stay reversible-and-immediate while suspend gets friction.
+	ReverseID string
+	Kinds     []kube.ResourceKind // applicable kinds; nil = all
 	// Mutating verbs are hidden from the keybar and refused at
 	// actions.Controller.Begin while OFFLINE (docs/design README.md §52,
 	// §301) — screens call HiddenWhileOffline when building their own
@@ -103,8 +106,8 @@ var (
 	// (tasks/debugpanel) absorbs the retired verb's exact command — same
 	// image/profile defaults, same chroot/shell-fallback entrypoint,
 	// same tea.ExecProcess handoff — behind a will-run line and, in PROD, a
-	// confirmation the old key never had. Tier is a nominal placeholder:
-	// TierForDebug resolves the real policy, since the launch is a
+	// confirmation the old key never had. Its policy row (policy.go) gates
+	// that launch from tasks/debugpanel itself, since the launch is a
 	// tea.ExecProcess handoff, never a Mutator call.
 	NodeDebug = Verb{ID: "node-debug", Key: "x", Label: "debug", Mutating: true, Kinds: []kube.ResourceKind{kube.KindNode}}
 	// NodeDebugDetail is tasks/nodedetail's own key for the identical §41d
@@ -113,15 +116,15 @@ var (
 	// verb is Exec's 'x' on a different object (the pod row, not the node the
 	// screen is about) — the two coexist on one screen, so the node action
 	// keeps the key it already had rather than colliding. Same target
-	// (tasks/debugpanel, node), same TierForDebug policy as NodeDebug; only
+	// (tasks/debugpanel, node), same policy row as NodeDebug; only
 	// the physical key differs, and only in this one screen.
 	NodeDebugDetail = Verb{ID: "node-debug-detail", Key: "s", Label: "debug node", Mutating: true, Kinds: []kube.ResourceKind{kube.KindNode}}
 	// Edit is 'E' on any row, any kind — kubectl edit (kube.EditSpec) over
 	// tea.ExecProcess, the same tty-handoff path as Exec/NodeShell, and
 	// Mutating for the plainest reason of the three: it applies whatever the
-	// user saves. Tier stays None because kubectl owns the session once kute
-	// suspends; the PROD-only y/N gate each call site applies is driven by
-	// TierForEdit below, not this field. §4a names it alongside delete and
+	// user saves. kubectl owns the session once kute suspends, so the only
+	// confirm is the PROD-only y/N gate each call site applies from Edit's
+	// policy row (Resolve). §4a names it alongside delete and
 	// exec as disabled while offline.
 	Edit          = Verb{ID: "edit", Key: "E", Label: "edit", Mutating: true, Global: true}
 	Events        = Verb{ID: "events", Key: "e", Label: "events", Global: true}
@@ -193,11 +196,12 @@ var (
 )
 
 // Mutating verbs — every write path funnels through kube.Mutator, gated by
-// Tier + actions.Controller (mvp-plan.md §0.4, §8b).
+// actions.Controller under the policy table in policy.go (mvp-plan.md §0.4,
+// §8b).
 var (
 	Delete = Verb{
 		ID: "delete", Key: "D", Label: "delete",
-		Tier: actions.TierInline, Mutating: true, Bulk: true,
+		Mutating: true, Bulk: true,
 	}
 	// ForceDelete is never a list-screen key of its own: it escalates a
 	// pending Pod delete confirm (inline or modal) to grace-period-0, and
@@ -207,11 +211,11 @@ var (
 	// buffer — a bare key would be swallowed as (or steal) a typed rune.
 	ForceDelete = Verb{
 		ID: "force-delete", Key: "ctrl+k", Label: "force delete",
-		Tier: actions.TierModal, Kinds: []kube.ResourceKind{kube.KindPod}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindPod}, Mutating: true,
 	}
 	RolloutRestart = Verb{
 		ID: "rollout-restart", Key: "R", Label: "restart",
-		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindDeployment}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindDeployment}, Mutating: true,
 	}
 	// JobRetry is §37c's "create" rerun choice: clones a Job's spec into a
 	// brand-new "<name>-rerun-N" Job — not a delete+recreate of the same
@@ -225,11 +229,10 @@ var (
 	// reach this through the same staged create-vs-replace choice
 	// (jobRerunTarget) rather than firing it directly — the staging step is
 	// itself the confirmation for this branch, the same "stage first,
-	// TierNone commit" shape CronJobRunNow's own doc comment describes; Tier
-	// here is the nominal SetImage-style fallback.
+	// TierNone commit" shape CronJobRunNow's own doc comment describes.
 	JobRetry = Verb{
 		ID: "job-retry", Key: "R", Label: "rerun",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindJob}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindJob}, Mutating: true,
 	}
 	// JobReplace is §37c's "replace" choice within the same staged 'R'
 	// list: delete the Job, then recreate it under the same name from its
@@ -237,14 +240,14 @@ var (
 	// Status, events, and §37b's own attempt history are gone — so choosing
 	// it in the staged list does not itself confirm anything; committing
 	// still routes through actions.Controller's ordinary TierInline/
-	// TierModal confirm (RequiresTypedName's own "job-replace" entry routes
+	// TierModal confirm (verbs.Resolve's typed-name policy for "job-replace" routes
 	// PROD to the type-the-name modal, not Drain/Rollback's plain
 	// ConfirmCard). No dedicated Key: it's reached only from within the
 	// staged choice list (↑↓ to select, enter to commit), never a bare
 	// list-screen keybinding of its own.
 	JobReplace = Verb{
 		ID: "job-replace", Label: "replace",
-		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindJob}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindJob}, Mutating: true,
 	}
 	// FluxReconcile is §30a's 'r' on a Flux row: a fresh
 	// reconcile.fluxcd.io/requestedAt timestamp — the same
@@ -264,7 +267,7 @@ var (
 	// changes cluster state the controller wasn't already going to make.
 	FluxReconcile = Verb{
 		ID: "flux-reconcile", Key: "r", Label: "reconcile",
-		Tier: actions.TierNone, Mutating: true,
+		Mutating: true,
 	}
 	// FluxSuspend is §30a's 's': one verb, two directions, exactly Cordon's
 	// shape — the Scope.Verb is "flux-suspend" or "flux-resume" depending on
@@ -275,8 +278,8 @@ var (
 	// Kinds stays nil because the Flux kind set is *discovered* at connect,
 	// not known at compile time; browse gates it on Descriptor.Flux instead.
 	FluxSuspend = Verb{
-		ID: "flux-suspend", Key: "s", Label: "suspend",
-		Tier: actions.TierNone, Mutating: true,
+		ID: "flux-suspend", Key: "s", Label: "suspend", ReverseID: "flux-resume",
+		Mutating: true,
 	}
 	// JobSuspend is a Job's own 's': one verb, two directions — Scope.Verb is
 	// "job-suspend" or "job-resume" depending on the row's own Suspended
@@ -285,17 +288,14 @@ var (
 	// tears down its currently-active pods immediately, a real destructive
 	// side effect resume doesn't have (resume only lets the Job resume
 	// creating pods toward its existing completion target, restoring exactly
-	// the prior state) — TierForJobSuspend resolves the real per-direction/
-	// PROD tier (resume always TierNone, suspend TierInline outside PROD,
-	// TierModal — the type-the-name modal, RequiresTypedName's own
-	// "job-suspend" entry — inside one). This field's own TierInline is the
-	// nominal fallback (SetImage's own nominal-Tier shape), matching
-	// suspend's non-PROD default. Never contends with NodeShell's own 's'
+	// the prior state) — its policy row (Resolve) gives each direction its own
+	// tier (resume, ReverseID, always TierNone; suspend TierInline outside
+	// PROD, the type-the-name modal inside one). Never contends with NodeShell's own 's'
 	// (Node-only) or FluxSuspend's (gated on Descriptor.Flux, never true for
 	// a Job row).
 	JobSuspend = Verb{
-		ID: "job-suspend", Key: "s", Label: "suspend",
-		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindJob}, Mutating: true,
+		ID: "job-suspend", Key: "s", Label: "suspend", ReverseID: "job-resume",
+		Kinds: []kube.ResourceKind{kube.KindJob}, Mutating: true,
 	}
 	// CronJobRunNow is 'R' on a CronJob row — the exact
 	// `kubectl create job --from=cronjob/<name>` recipe JobRetry already
@@ -304,13 +304,13 @@ var (
 	// schedule, its own spawned-Job history) is never touched. Same physical
 	// key as JobRetry/RolloutRestart above (Kinds is disjoint — a row is
 	// never both a Job and a CronJob) and the same non-destructive argument
-	// JobRetry's own doc comment makes for staying out of RequiresTypedName:
+	// JobRetry's own doc comment makes for staying off the type-the-name modal:
 	// this is a clone into a new object, not a delete+recreate.
 	//
-	// Tier is TierNone (0.8.0 plan Phase 5): browse stages the preflight
+	// Its policy is TierNone (0.8.0 plan Phase 5): browse stages the preflight
 	// (selected CronJob, overlap warning, generated name) in screen state —
 	// cronjob_actions.go's pendingCronJobRun — *before* ever calling
-	// Begin(TierNone, …); the staging step is itself the confirmation, so by
+	// Begin; the staging step is itself the confirmation, so by
 	// the time Begin runs there's nothing left for actions.Controller's own
 	// TierInline/TierModal confirm to add. Never contends with delete/
 	// rollout-restart's own escalation because staging is screen-owned, not
@@ -318,7 +318,7 @@ var (
 	// level for a PROD context to escalate.
 	CronJobRunNow = Verb{
 		ID: "cronjob-run-now", Key: "R", Label: "run now",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindCronJob}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindCronJob}, Mutating: true,
 	}
 	// CronJobSuspend is a CronJob's own 's': one verb, two directions —
 	// Scope.Verb is "cronjob-suspend"/"cronjob-resume" depending on the
@@ -329,15 +329,14 @@ var (
 	// a keystroke — TierInline outside PROD, the type-the-name modal inside
 	// one — while resume stays reversible-and-immediate TierNone, restoring
 	// exactly the prior state the same way Cordon/FluxSuspend's own resume
-	// does. TierForCronJobSuspend resolves the real per-direction/PROD tier;
-	// this field's own TierNone is the nominal fallback (SetImage's own
-	// nominal-Tier shape), matching resume's default. Bulk: true — 36c: "s
+	// does. Its policy row (Resolve) carries both directions, resume being
+	// ReverseID. Bulk: true — 36c: "s
 	// suspends or resumes every marked CronJob behind one confirmation".
 	// Never contends with Job's own 's' (disjoint Kinds) or NodeShell's
 	// (Node-only).
 	CronJobSuspend = Verb{
-		ID: "cronjob-suspend", Key: "s", Label: "suspend",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindCronJob}, Mutating: true, Bulk: true,
+		ID: "cronjob-suspend", Key: "s", Label: "suspend", ReverseID: "cronjob-resume",
+		Kinds: []kube.ResourceKind{kube.KindCronJob}, Mutating: true, Bulk: true,
 	}
 	// CronJobSetSchedule is 'S' (shift) on a CronJob row — pure navigation to
 	// the pushed schedule editor (0.8.0 plan §36d, `internal/tui/tasks/
@@ -410,7 +409,7 @@ var (
 	// same shape as FluxReconcile/Descriptor.Flux.
 	ArgoRefresh = Verb{
 		ID: "argo-refresh", Key: "r", Label: "refresh",
-		Tier: actions.TierNone, Mutating: true,
+		Mutating: true,
 	}
 	// ArgoSync is §33a's 'S': a merge patch on operation.sync.revision,
 	// what `argocd app sync` does as a plain API write. Unlike
@@ -420,15 +419,16 @@ var (
 	// state-changing verb gets rather than FluxReconcile's TierNone —
 	// RolloutRestart's own doc comment draws this exact line between
 	// "asks for what the controller would do anyway" (TierNone) and "a
-	// real, unconfirmed run" (TierInline). PROD escalates to the modal via
-	// TierFor automatically, same as RolloutRestart. Capital 'S', matching
+	// real, unconfirmed run" (TierInline). PROD escalates to the modal like
+	// RolloutRestart — but a y/N card, never the delete-grade type-the-name
+	// treatment (policy.go). Capital 'S', matching
 	// the mockup and staying clear of FluxSuspend/JobSuspend/
 	// CronJobSuspend's lowercase 's' — the two never contend on the same
 	// row (Kinds is disjoint by construction: an Application row is never
 	// a Job/CronJob/Flux kind).
 	ArgoSync = Verb{
 		ID: "argo-sync", Key: "S", Label: "sync",
-		Tier: actions.TierInline, Mutating: true,
+		Mutating: true,
 	}
 	// ArgoURL is §33a's 'u': copies the app's dashboard deep link
 	// (read from argocd-cm, not a cluster write) to the clipboard — the
@@ -443,42 +443,41 @@ var (
 	// renew`: the will-run line names the literal patch kute sends, never a
 	// binary the user may not have installed (docs/design/v.0.7.0.dc.html
 	// §35c). TierInline, but — unlike
-	// ArgoSync/RolloutRestart — never resolved through TierFor: cert-manager
+	// ArgoSync/RolloutRestart — never PROD-escalated (policy.go): cert-manager
 	// reissues into a new Secret and keeps serving the old one until the new
 	// one is ready, so PROD never escalates it past the plain y/N, the same
 	// "clone, not destroy" reasoning JobRetry's own doc comment gives for
-	// skipping TierFor outright. Shares 'r' with FluxReconcile/ArgoRefresh —
+	// skipping escalation outright. Shares 'r' with FluxReconcile/ArgoRefresh —
 	// Kinds is disjoint, so the three never contend on the same row.
 	CertRenew = Verb{
 		ID: "cert-renew", Key: "r", Label: "renew",
-		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindCertificate}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindCertificate}, Mutating: true,
 	}
 	Cordon = Verb{
-		ID: "cordon", Key: "C", Label: "cordon",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindNode}, Mutating: true,
+		ID: "cordon", Key: "C", Label: "cordon", ReverseID: "uncordon",
+		Kinds: []kube.ResourceKind{kube.KindNode}, Mutating: true,
 	}
 	Drain = Verb{
 		ID: "drain", Key: "ctrl+d", Label: "drain",
-		Tier: actions.TierModal, Kinds: []kube.ResourceKind{kube.KindNode}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindNode}, Mutating: true,
 	}
 	// Rollback is 18a's 'R' on a Helm release — "inherits 8b friction":
-	// inline y/N in non-prod, escalated by TierFor in PROD to TierModal,
-	// where actions.RequiresTypedName makes it the type-the-name modal,
-	// same as Delete's own Tier. Shells out to the real helm binary
+	// inline y/N in non-prod, the type-the-name modal in PROD, same as
+	// Delete (policy.go). Shells out to the real helm binary
 	// (kube.Mutator.HelmRollback) rather than reading the watch cache.
 	Rollback = Verb{
 		ID: "rollback", Key: "R", Label: "rollback",
-		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindHelmRelease}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindHelmRelease}, Mutating: true,
 	}
 	// RolloutUndo is 16b's 'R' on the revision rail — a deliberately
 	// separate verb from the Helm-only Rollback above (same key/label,
 	// different Kind and a different Scope.Verb string: "rollout-undo"),
-	// though both now share actions.RequiresTypedName's PROD gate. §16b:
+	// though both share the same policy (policy.go). §16b:
 	// "y/N in the keybar for non-prod, type-the-deployment-name modal in
 	// PROD".
 	RolloutUndo = Verb{
 		ID: "rollout-undo", Key: "R", Label: "rollback",
-		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindDeployment}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindDeployment}, Mutating: true,
 	}
 	// Scale is 17b's '+'/'−' on a Deployment/StatefulSet row — TierNone
 	// (docs/design README.md §17b: "reversible → inline keybar prompt, never
@@ -489,46 +488,38 @@ var (
 	// replica count before there's anything to Begin.
 	Scale = Verb{
 		ID: "scale", Key: "+/−", Label: "scale",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindDeployment, kube.KindStatefulSet}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindDeployment, kube.KindStatefulSet}, Mutating: true,
 	}
-	// SetImage is 24a's 'i' on a Deployment/StatefulSet/DaemonSet/CronJob row — like
-	// Scale, TierNone here is a nominal default: the real tier comes from
-	// TierForSetImage below (TierNone outside PROD, TierInline in PROD),
-	// since Controller.Begin needs a resolved actions.Tier and TierFor only
-	// escalates TierInline→TierModal, not TierNone→TierInline (mirrors
-	// TierForEdit's own doc comment on this same constraint).
+	// SetImage is 24a's 'i' on a Deployment/StatefulSet/DaemonSet/CronJob row —
+	// TierNone outside PROD, one inline y/N in PROD (policy.go).
 	SetImage = Verb{
 		ID: "set-image", Key: "i", Label: "set image",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindDeployment, kube.KindStatefulSet, kube.KindDaemonSet, kube.KindCronJob}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindDeployment, kube.KindStatefulSet, kube.KindDaemonSet, kube.KindCronJob}, Mutating: true,
 	}
 	// SetResources is 'r' on a Deployment/StatefulSet/DaemonSet row. Deployment
 	// rollout restart owns uppercase R; lowercase r remains distinct by case.
-	// same TierNone-nominal/TierForSetResources-resolves-the-real-tier shape
-	// as SetImage above (see SetImage's own doc comment for why TierNone here
-	// is nominal rather than final).
+	// Same policy as SetImage above (policy.go).
 	SetResources = Verb{
 		ID: "set-resources", Key: "r", Label: "resources",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindDeployment, kube.KindStatefulSet, kube.KindDaemonSet}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindDeployment, kube.KindStatefulSet, kube.KindDaemonSet}, Mutating: true,
 	}
 	// Meta is 26a's 'm' on any row, any kind (CRDs included) — the
-	// labels/annotations editor. Tier here is nominal (TierNone), like
-	// Scale/SetImage/SetResources: the real per-edit tier is resolved in
-	// browse's own meta.go, not through TierFor's PROD escalation, since
-	// 26a's own escalation is join-driven (editing a Service-selector-
-	// matched label, or any key removal) rather than PROD-driven — see
-	// meta.go's commitMeta/commitMetaRemove.
+	// labels/annotations editor. Immediate, PROD or not: 26a's escalation is
+	// join-driven (editing a Service-selector-matched label, or any key
+	// removal, gets one y/N) rather than PROD-driven — policy.go's Meta row,
+	// fed by metapanel's commitMeta/commitMetaRemove.
 	Meta = Verb{
 		ID: "meta", Key: "m", Label: "labels/annotations",
-		Tier: actions.TierNone, Mutating: true, Global: true,
+		Mutating: true, Global: true,
 	}
 	// AddSecretKey is 27b's 'a' line-insert add on a Secret's Data view —
-	// same TierNone-nominal/TierForAddSecretKey-resolves-the-real-tier shape
-	// as SetImage/SetResources above (docs/design README.md §27b: "PROD
-	// contexts add the inline y/N on apply"), routed through
+	// same policy as SetImage/SetResources above (docs/design README.md
+	// §27b: "PROD contexts add the inline y/N on apply"), plus a y/N for an
+	// add that overwrites an existing key, routed through
 	// actions.Controller/kube.Mutator.
 	AddSecretKey = Verb{
 		ID: "add-secret-key", Key: "a", Label: "add key",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindSecret}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindSecret}, Mutating: true,
 	}
 	// RemoveSecretKey is 27b's D removal of an existing Data-view key —
 	// always TierInline regardless of PROD, the same "removal always
@@ -538,26 +529,24 @@ var (
 	// prompt says so, not destructive enough for 8b's modal tier).
 	RemoveSecretKey = Verb{
 		ID: "remove-secret-key", Key: "D", Label: "remove key",
-		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindSecret}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindSecret}, Mutating: true,
 	}
 	// AddConfigMapKey is 27a's 'a' line-insert add on a ConfigMap's Data
-	// view — same TierNone-nominal/TierForConfigMapData-resolves-the-real-tier
-	// shape as AddSecretKey above.
+	// view — same policy as AddSecretKey above.
 	AddConfigMapKey = Verb{
 		ID: "add-configmap-key", Key: "a", Label: "add key",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindConfigMap}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindConfigMap}, Mutating: true,
 	}
 	// RemoveConfigMapKey is 27a's D removal of an existing Data-view
 	// key — always TierInline regardless of PROD, the same "removal always
 	// confirms inline" policy RemoveSecretKey uses.
 	RemoveConfigMapKey = Verb{
 		ID: "remove-configmap-key", Key: "D", Label: "remove key",
-		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindConfigMap}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindConfigMap}, Mutating: true,
 	}
 	// RestartConfigMapConsumers is 27a's ctrl-r — chains a value apply with
 	// `kubectl rollout restart` for every workload that consumes the
-	// ConfigMap. TierNone here is nominal like AddConfigMapKey/SetImage/etc:
-	// the real tier is TierForConfigMapData, the same PROD gate the plain
+	// ConfigMap. Same policy as AddConfigMapKey — the PROD gate the plain
 	// apply uses (it's the same patch, plus extra restarts). It is only ever
 	// pressed while a value buffer has focus, so it must be a chord: as a
 	// bare 'R' (72af16b) every capital R typed into a value ("Release",
@@ -566,7 +555,7 @@ var (
 	// textfield nor textarea binds ctrl+r.
 	RestartConfigMapConsumers = Verb{
 		ID: "restart-configmap-consumers", Key: "ctrl+r", Label: "apply + restart consumers",
-		Tier: actions.TierNone, Kinds: []kube.ResourceKind{kube.KindConfigMap}, Mutating: true,
+		Kinds: []kube.ResourceKind{kube.KindConfigMap}, Mutating: true,
 	}
 )
 
@@ -592,7 +581,7 @@ var (
 	}
 	StopAllForwards = Verb{
 		ID: "stop-all-forwards", Key: "X", Label: "stop all",
-		Tier: actions.TierInline, Kinds: []kube.ResourceKind{kube.KindForward},
+		Kinds: []kube.ResourceKind{kube.KindForward},
 	}
 	CopyForwardURL = Verb{
 		ID: "copy-forward-url", Key: "y", Label: "copy url",
@@ -666,194 +655,9 @@ func ByID(id string) (Verb, bool) {
 	return Verb{}, false
 }
 
-// TierFor returns v's effective confirmation tier: v.Tier, escalated
-// TierInline to TierModal when isProd (mvp-plan.md §8b, docs/design
-// README.md §8b: "PROD contexts... = centered modal with type-the-name
-// confirmation"). Non-Inline tiers are untouched — Drain/ForceDelete are
-// always modal regardless of prod (the delete family resolves through
-// TierForDelete, which adds the cascade-kind rule on top of this); Cordon is TierNone and never confirms at
-// all. RolloutRestart is TierInline like Delete, so it escalates the same
-// way: inline y/N in non-prod, type-the-name modal in PROD (§9a/§419).
-//
-// This lives here rather than on actions.Controller because verbs already
-// imports actions (for the Tier type on Verb.Tier); actions importing verbs
-// back for this function would cycle (mvp-tasks.md's Phase 5/8b exit notes
-// have the full explanation — the same class of problem
-// Session.HelpScope/HelpList/HelpResource/HelpMisc already solves for the
-// root shell).
-func TierFor(v Verb, isProd bool) actions.Tier {
-	if v.Tier == actions.TierInline && isProd {
-		return actions.TierModal
-	}
-	return v.Tier
-}
-
-// cascadeDeleteKinds are the kinds whose delete removes far more than the
-// row: a Namespace takes every object inside it, a CustomResourceDefinition
-// every instance of its kind, and a Node every pod bound to it (PodGC
-// deletes them, DaemonSet pods included, and the node is gone until its
-// kubelet re-registers — strictly more disruptive than Drain, which is
-// already always modal). Deleting one always gets the modal — the
-// type-the-name modal for one row, type-the-count for a marked set —
-// PROD or not (docs/design README.md §8b/§11a/§14b/§20a).
-var cascadeDeleteKinds = []kube.ResourceKind{kube.KindNamespace, kube.KindCustomResourceDefinition, kube.KindNode}
-
-// TierForDelete is the one confirm-policy resolver for the delete family
-// (Delete, ForceDelete) — every delete call site (browse single and bulk,
-// poddetail, objectdetail, debugpanel's cleanup, and ForceDelete's
-// escalation) asks it rather than combining TierFor with a kind check of its
-// own. It is TierFor plus the target-aware escalation: a cascadeDeleteKinds
-// target is always TierModal. ForceDelete's own Tier is already TierModal,
-// so TierFor returns it unchanged.
-func TierForDelete(v Verb, kind kube.ResourceKind, isProd bool) actions.Tier {
-	if slices.Contains(cascadeDeleteKinds, kind) {
-		return actions.TierModal
-	}
-	return TierFor(v, isProd)
-}
-
-// EscalateForceDelete is the handler for ForceDelete.Key inside any delete
-// confirm: when c's pending action is a Delete of a kind ForceDelete applies
-// to, it becomes a force-delete at TierForDelete(ForceDelete, …) — the
-// type-the-name modal, whether it started as an inline y/N or as PROD's
-// modal. Reports whether it escalated; anything else is left untouched, so a
-// modal's caller can hand an unclaimed chord on to its text buffer.
-func EscalateForceDelete(c *actions.Controller, isProd bool) bool {
-	p := c.Pending()
-	if !c.Active() || p == nil || p.Scope.Verb != Delete.ID {
-		return false
-	}
-	kind := kube.ResourceKind(p.Scope.ResourceKind)
-	if !ForceDelete.AppliesTo(kind) {
-		return false
-	}
-	c.Escalate(ForceDelete.ID, TierForDelete(ForceDelete, kind, isProd))
-	return true
-}
-
 // ForceDeleteModalHint is the type-the-name modal's detail-line pointer at
 // ForceDelete, rendered from the registry so the advertised chord is the one
-// EscalateForceDelete's callers match on.
+// actions.Controller.EscalateForceDelete's callers match on.
 func ForceDeleteModalHint() string {
 	return ForceDelete.Key + " " + ForceDelete.Label + " (immediate)"
-}
-
-// TierForEdit resolves Edit's confirmation policy for the call sites
-// (browse/poddetail/nodedetail) that drive their own bespoke gate, since
-// Edit never reaches actions.Controller for TierFor's usual Inline→Modal
-// escalation to apply to (Edit has no Verb.Tier — see Edit's doc comment).
-// TierNone (launch immediately) outside PROD — kubectl aborts cleanly on an
-// unchanged save, so an accidental launch costs nothing, the same
-// "reversible, no confirm" bucket Cordon/RolloutRestart sit in — escalating
-// to TierInline (one y/N line, not the type-the-name modal — editing isn't
-// delete/drain-grade destructive) only in PROD contexts.
-func TierForEdit(isProd bool) actions.Tier {
-	if isProd {
-		return actions.TierInline
-	}
-	return actions.TierNone
-}
-
-// TierForDebug resolves the debug panel's launch policy (§41b/§41c/§41d,
-// tasks/debugpanel) — the same TierNone-outside-PROD/TierInline-in-PROD
-// shape as TierForEdit, for the same reason: kubectl debug owns the tty
-// once kute suspends via tea.ExecProcess, so this never reaches
-// actions.Controller's own TierFor escalation. One resolver covers all
-// three sub-screens (pod attach, pod copy, node debug) — the friction
-// policy doesn't vary by target/mode, only the command that eventually
-// runs does.
-func TierForDebug(isProd bool) actions.Tier {
-	if isProd {
-		return actions.TierInline
-	}
-	return actions.TierNone
-}
-
-// TierForSetImage resolves SetImage's confirmation policy — the same
-// TierNone-outside-PROD/TierInline-in-PROD shape as TierForEdit (docs/design
-// README.md §24a: "PROD contexts get the inline y/N on apply, per 8b's
-// tiering"), but SetImage — unlike Edit — does execute through
-// actions.Controller/kube.Mutator, so its PROD confirm is the ordinary
-// TierInline y/N Controller already renders for rollback/delete, not a
-// screen-local gate.
-func TierForSetImage(isProd bool) actions.Tier {
-	if isProd {
-		return actions.TierInline
-	}
-	return actions.TierNone
-}
-
-// TierForCronJobSuspend resolves CronJobSuspend's confirmation policy, which
-// — unlike TierForEdit/TierForSetImage's single PROD axis — depends on
-// direction first (0.8.0 plan §36c, decision §3 task 2): resume is always
-// TierNone, reversible-and-immediate exactly like Cordon, because it stages
-// its own preview (suspended duration, missed-run count, next run) before
-// ever reaching Begin, the same "stage first, TierNone execute" shape
-// CronJobRunNow's own doc comment describes for run-now. Suspend is the
-// asymmetric, dangerous half — TierInline outside PROD (the ordinary inline
-// y/N Controller already renders), escalating to TierModal in PROD, where
-// RequiresTypedName's own "cronjob-suspend" entry routes it to the
-// type-the-name modal rather than Drain/Rollback's plain ConfirmCard.
-func TierForCronJobSuspend(suspending, isProd bool) actions.Tier {
-	if !suspending {
-		return actions.TierNone
-	}
-	if isProd {
-		return actions.TierModal
-	}
-	return actions.TierInline
-}
-
-// TierForJobSuspend resolves JobSuspend's confirmation policy — v0.9.0
-// §37a made this asymmetric to match TierForCronJobSuspend exactly (see
-// JobSuspend's own doc comment): resume is TierNone, reversible-and-
-// immediate, restoring exactly the Job's prior state; suspend is the
-// dangerous half — TierInline outside PROD, escalating to TierModal in
-// PROD, where RequiresTypedName's own "job-suspend" entry routes it to the
-// type-the-name modal rather than a plain ConfirmCard.
-func TierForJobSuspend(suspending, isProd bool) actions.Tier {
-	if !suspending {
-		return actions.TierNone
-	}
-	if isProd {
-		return actions.TierModal
-	}
-	return actions.TierInline
-}
-
-// TierForSetResources resolves SetResources's confirmation policy — the same
-// TierNone-outside-PROD/TierInline-in-PROD shape as TierForSetImage (docs/design
-// README.md §25a inherits 8b's PROD tiering the same way 24a does), routed
-// through actions.Controller/kube.Mutator like SetImage rather than a
-// screen-local gate.
-func TierForSetResources(isProd bool) actions.Tier {
-	if isProd {
-		return actions.TierInline
-	}
-	return actions.TierNone
-}
-
-// TierForAddSecretKey resolves AddSecretKey's confirmation policy — the same
-// TierNone-outside-PROD/TierInline-in-PROD shape as TierForSetImage/
-// TierForSetResources (docs/design README.md §27b: "PROD contexts add the
-// inline y/N on apply"), routed through actions.Controller/kube.Mutator like
-// those two rather than a screen-local gate.
-func TierForAddSecretKey(isProd bool) actions.Tier {
-	if isProd {
-		return actions.TierInline
-	}
-	return actions.TierNone
-}
-
-// TierForConfigMapData resolves AddConfigMapKey's/an edit's/ctrl-r's
-// confirmation policy — the same TierNone-outside-PROD/TierInline-in-PROD
-// shape as TierForAddSecretKey (docs/design README.md §27a inherits 8b's
-// PROD tiering the same way 27b does), used for both a plain apply and a
-// ctrl-r apply+restart commit since both run through the same
-// actions.Controller/kube.Mutator path.
-func TierForConfigMapData(isProd bool) actions.Tier {
-	if isProd {
-		return actions.TierInline
-	}
-	return actions.TierNone
 }

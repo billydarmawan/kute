@@ -13,6 +13,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -66,7 +67,7 @@ func (m *Model) commitRerun() tea.Cmd {
 	t := m.pendingRerun
 	m.pendingRerun = nil
 	if t.choice == resources.JobRerunCreate {
-		return m.actions.Begin(verbs.JobRetry.Tier, tui.TaskAction{
+		return m.actions.Begin(actions.Request{Verb: verbs.JobRetry, Prod: m.isProd()}, tui.TaskAction{
 			ID:    "job-retry-" + m.namespace + "/" + m.name,
 			Label: "Rerun " + m.name,
 			Scope: tui.TaskScope{
@@ -76,8 +77,7 @@ func (m *Model) commitRerun() tea.Cmd {
 			},
 		})
 	}
-	tier := verbs.TierFor(verbs.JobReplace, m.isProd())
-	return m.actions.Begin(tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.JobReplace, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "job-replace-" + m.namespace + "/" + m.name,
 		Label: fmt.Sprintf("Replace %s?", m.name),
 		Scope: tui.TaskScope{

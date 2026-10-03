@@ -16,6 +16,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -26,13 +27,12 @@ func (m Model) certVerbsApply() bool {
 	return m.kind == kube.KindCertificate && m.mutator != nil && m.state == tui.TaskStateReady
 }
 
-// beginCertRenew starts verbs.CertRenew ('r'): verbs.CertRenew.Tier is used
-// directly rather than resolved through verbs.TierFor, deliberately — see
-// its own doc comment for why PROD never escalates this past the plain
-// inline y/N, the same skip beginJobRetry's own doc comment explains for
-// Retry.
+// beginCertRenew starts verbs.CertRenew ('r'): its policy row never
+// escalates past the plain inline y/N in PROD — see CertRenew's own doc
+// comment for why, the same reasoning beginJobRetry's own doc comment
+// explains for Retry.
 func (m *Model) beginCertRenew(row resources.Row) tea.Cmd {
-	return m.actions.Begin(verbs.CertRenew.Tier, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.CertRenew, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "cert-renew-" + row.Namespace + "/" + row.Name,
 		Label: fmt.Sprintf("Renew %s?", row.Name),
 		Scope: tui.TaskScope{

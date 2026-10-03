@@ -164,7 +164,7 @@ type Mutator interface {
 	// Job of the same name from the deleted Job's own spec — unlike RetryJob,
 	// this destroys the original (its Status, events, and §37b's own
 	// attempt-ledger history are gone), which is why it is gated behind
-	// RequiresTypedName/a real Controller-driven confirm rather than
+	// a real Controller-driven confirm (the type-the-name modal in PROD) rather than
 	// RetryJob's staged-then-TierNone shape. There is no single kubectl
 	// one-liner this is equivalent to (the source is gone once deleted) —
 	// ReplaceCommandString documents the two-step recipe honestly instead of

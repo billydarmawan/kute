@@ -26,7 +26,7 @@ func (m Model) Keybar() tui.Keybar {
 		if pending := m.actions.Pending(); pending != nil {
 			switch pending.Scope.Verb {
 			case "cronjob-suspend":
-				// Only reached outside PROD — verbs.TierForCronJobSuspend
+				// Only reached outside PROD — verbs.Resolve's CronJobSuspend row
 				// escalates to TierModal in PROD instead (this screen's own
 				// suspendConfirmModal). cronjob-resume never appears here,
 				// fixed TierNone (staged, reversible, immediate) the same way

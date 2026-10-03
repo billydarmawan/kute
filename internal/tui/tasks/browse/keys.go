@@ -187,10 +187,10 @@ func (m Model) Keybar() tui.Keybar {
 					// through the confirm note since this one is TierInline.
 					note = jobSuspendWillRunLine(pending.Scope)
 				case "cronjob-suspend":
-					// only reached outside PROD — verbs.TierForCronJobSuspend
+					// only reached outside PROD — verbs.Resolve's CronJobSuspend row
 					// escalates suspend to TierModal in PROD instead (routed to
 					// delete.go's typeNameConfirmModal via
-					// actions.RequiresTypedName's "cronjob-suspend" entry, single-
+					// verbs.Resolve's typed-name policy for "cronjob-suspend", single-
 					// target only — a marked-set confirm routes to
 					// cronjob_bulk.go's own bulk count modal instead, Body()'s
 					// dispatch). cronjob-run-now no longer reaches here at all
