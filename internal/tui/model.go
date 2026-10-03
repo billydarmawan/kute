@@ -1053,7 +1053,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// same contract as a task's DismissResult.
 		m.rootResult = ResultLine{}
 		var keycastCmd tea.Cmd
-		if m.keycastEnabled && !(msg.Text != "" && taskMasksInput(m.task)) {
+		if m.keycastEnabled && (msg.Text == "" || !taskMasksInput(m.task)) {
 			keycastCmd = m.keycast.record(msg, time.Now())
 		}
 		// After the keycast record (the chord still shows in a demo) and
