@@ -312,6 +312,12 @@ func switchContextCmd(sess *Session, name string) tea.Cmd {
 	if cluster == nil || name == "" || name == sess.Location.Context {
 		return nil
 	}
+	// Refused before any Session write below: the rebuild already running
+	// owns the cluster until it lands (rebuildgate.go).
+	token, ok := sess.BeginClusterRebuild()
+	if !ok {
+		return func() tea.Msg { return SwitchContextMsg{Context: name, Err: ErrClusterRebuildInFlight} }
+	}
 
 	sess.SyncLocationToPerContext()
 	sess.ClearPendingKind()
@@ -360,7 +366,7 @@ func switchContextCmd(sess *Session, name string) tea.Cmd {
 				// Failed before anything was torn down: the original context
 				// is still live, and rebuilding it would only throw away its
 				// lazily started informers for nothing.
-				return SwitchContextMsg{Context: name, Err: err}
+				return SwitchContextMsg{Context: name, Err: err, token: token}
 			}
 			// SwitchContext replaces informer factories in place. Rebuild the
 			// original context before reporting failure so the task and Session
@@ -372,9 +378,9 @@ func switchContextCmd(sess *Session, name string) tea.Cmd {
 			if rollbackErr != nil {
 				err = errors.Join(err, fmt.Errorf("restore context %s: %w", oldContext, rollbackErr))
 			}
-			return SwitchContextMsg{Context: name, Err: err, RolledBack: true}
+			return SwitchContextMsg{Context: name, Err: err, RolledBack: true, token: token}
 		}
-		return SwitchContextMsg{Context: name, Namespace: restoreNS, Kind: restoreKind, Filter: restoreFilter}
+		return SwitchContextMsg{Context: name, Namespace: restoreNS, Kind: restoreKind, Filter: restoreFilter, token: token}
 	}
 }
 

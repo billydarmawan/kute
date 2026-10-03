@@ -83,6 +83,9 @@ type SwitchContextMsg struct {
 	// informer is gone, so the active task must re-read what it shows or
 	// sit on rows nothing will ever update again.
 	RolledBack bool
+	// token releases the Session's rebuild gate (rebuildgate.go) the
+	// switch was started under; zero for a refused one.
+	token uint64
 }
 
 type ContextLoadedMsg struct {
@@ -149,7 +152,10 @@ type ReplaceRootMsg struct {
 	// and activates the task it returns. It is where a rebuild built in a
 	// tea.Cmd makes its Session writes (Cluster, Lister, Location, …), which
 	// must not happen on the Cmd's goroutine while the root reads them.
-	Commit      func() Task
+	Commit func() Task
+	// Token releases the Session's rebuild gate (rebuildgate.go) the
+	// rebuild was started under.
+	Token       uint64
 	Events      <-chan kube.ResourceChangedMsg
 	Conn        <-chan kube.ConnStateMsg
 	BuildSetup  func(kube.ConnState) Task

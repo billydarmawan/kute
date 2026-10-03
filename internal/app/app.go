@@ -921,6 +921,13 @@ func attemptSwitchContext(cfg Config, sess *tui.Session, contextName string) tea
 // doesn't, as 7a's doesn't.
 func rebuildCluster(cfg Config, sess *tui.Session, kubeconfig string, relaunch bool, build func() (*kube.Cluster, error)) tea.Cmd {
 	old := sess.Cluster // captured on the Update loop, before the Cmd runs
+	// Also on the Update loop: refused outright while a 7a switch (or
+	// another rebuild) is still running on old, which this Cmd would
+	// otherwise stop underneath it (tui/rebuildgate.go).
+	token, ok := sess.BeginClusterRebuild()
+	if !ok {
+		return func() tea.Msg { return setup.RetryFailedMsg{Err: tui.ErrClusterRebuildInFlight} }
+	}
 	return func() tea.Msg {
 		// Built before the old cluster is touched: a build that fails (a
 		// broken context entry, a missing cert file) leaves 4c up with r
@@ -928,7 +935,7 @@ func rebuildCluster(cfg Config, sess *tui.Session, kubeconfig string, relaunch b
 		// cluster's health loop is still running.
 		cluster, err := build()
 		if err != nil {
-			return setup.RetryFailedMsg{Err: err}
+			return setup.RetryFailedMsg{Token: token, Err: err}
 		}
 		// A scoped session that reconnects must stay scoped — otherwise a
 		// namespace-bound identity's fresh cluster launches cluster-wide and
@@ -953,12 +960,8 @@ func rebuildCluster(cfg Config, sess *tui.Session, kubeconfig string, relaunch b
 		_ = cluster.Start(ctx) // best-effort: an unreachable cluster still hands back ReplaceRootMsg; 4c's neverConnected watch takes over from there.
 
 		return tui.ReplaceRootMsg{
+			Token: token,
 			Commit: func() tui.Task {
-				if old != nil && old != cluster {
-					// Stop is idempotent; a second one undoes a 7a switch
-					// that revived the old cluster while this rebuild ran.
-					old.Stop()
-				}
 				if sess.Forwards == nil {
 					sess.Forwards = kube.NewForwardManager()
 				}

@@ -240,3 +240,131 @@ func switchResult(cmd tea.Cmd) tea.Msg {
 	}
 	return nil
 }
+
+// rebuildingTask stands in for 4c's setup screen: r starts a rebuild under
+// the Session's gate, and its result is the task's own (owned) message.
+type rebuildingTask struct {
+	frameTask
+	sess *tui.Session
+}
+
+func (t *rebuildingTask) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyPressMsg); ok && k.String() == "r" {
+		token, ok := t.sess.BeginClusterRebuild()
+		if !ok {
+			return t, nil
+		}
+		return t, func() tea.Msg { return tui.ClusterRebuildFailedMsg{Token: token, Err: errors.New("unreachable")} }
+	}
+	return t, nil
+}
+
+// 02 M4: a 4c rebuild landing while a 7a switch was still running revived
+// the cluster the rebuild had just stopped, and the switch's result then
+// relabelled the session for a context the new cluster isn't on. One of
+// them now has to wait for the other: a switch asked for while a rebuild
+// runs is refused before it writes anything, and says so.
+func TestContextSwitchRefusedWhileRebuildInFlight(t *testing.T) {
+	writeContextTestKubeconfig(t)
+	sess := &tui.Session{
+		Theme:    tui.Dark(),
+		Location: tui.Location{Context: "dev", Namespace: "default"},
+		State:    state.State{PerContext: map[string]state.PerContext{}, RecentContexts: []string{"dev", "prod-eks"}},
+		Cluster:  &kube.Cluster{},
+	}
+	token, ok := sess.BeginClusterRebuild()
+	if !ok {
+		t.Fatal("BeginClusterRebuild refused with nothing running")
+	}
+	model := tui.NewWithSession(&frameTask{screenTask: screenTask{name: "setup"}}, sess)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "c"})
+	updated, cmd := updated.(tui.Model).Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected the refused switch to report back")
+	}
+	got, ok := switchResult(cmd).(tui.SwitchContextMsg)
+	if !ok || !errors.Is(got.Err, tui.ErrClusterRebuildInFlight) {
+		t.Fatalf("switch result = %#v, want ErrClusterRebuildInFlight", got)
+	}
+	if sess.Location.Context != "dev" || len(sess.State.RecentContexts) != 2 || sess.State.RecentContexts[0] != "dev" {
+		t.Fatalf("a refused switch wrote the Session: location %+v, recents %v", sess.Location, sess.State.RecentContexts)
+	}
+	updated, _ = updated.(tui.Model).Update(got)
+	if lines := frameLines(updated.(tui.Model)); !strings.Contains(lines[len(lines)-1], "✕ couldn't switch to prod-eks: another context switch or reconnect is still running") {
+		t.Fatalf("keybar = %q, want the refusal", lines[len(lines)-1])
+	}
+	if !sess.ClusterRebuildInFlight() {
+		t.Fatal("the refused switch's result released the rebuild it was refused for")
+	}
+
+	_, _ = updated.(tui.Model).Update(tui.ReplaceRootMsg{Token: token, Task: &frameTask{screenTask: screenTask{name: "browse"}}})
+	if sess.ClusterRebuildInFlight() {
+		t.Fatal("the rebuild's ReplaceRootMsg didn't release the gate")
+	}
+}
+
+// The other order: a rebuild asked for while a 7a switch runs is refused
+// (before it could stop the cluster being switched), until the switch's
+// own result lands.
+func TestRebuildRefusedWhileContextSwitchInFlight(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	kubeconfig := `
+apiVersion: v1
+kind: Config
+current-context: dev
+contexts:
+- name: dev
+  context: {cluster: dev, namespace: default}
+- name: broken
+  context: {cluster: missing, namespace: default}
+clusters:
+- name: dev
+  cluster: {server: https://dev.example.invalid}
+users: []
+`
+	if err := os.WriteFile(path, []byte(kubeconfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", path)
+	cluster, err := kube.NewClusterForContext("dev")
+	if err != nil {
+		t.Fatalf("NewClusterForContext(dev): %v", err)
+	}
+	t.Cleanup(cluster.Stop)
+	sess := &tui.Session{
+		Theme:    tui.Dark(),
+		Location: tui.Location{Context: "dev"},
+		State:    state.State{PerContext: map[string]state.PerContext{}, RecentContexts: []string{"dev", "broken"}},
+		Cluster:  cluster,
+	}
+	model := tui.NewWithSession(&rebuildingTask{sess: sess}, sess)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "c"})
+	updated, cmd := updated.(tui.Model).Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a switch-context cmd")
+	}
+	if _, ok := sess.BeginClusterRebuild(); ok {
+		t.Fatal("a rebuild was allowed to start while the switch was in flight")
+	}
+	msg := switchResult(cmd)
+	if _, ok := sess.BeginClusterRebuild(); ok {
+		t.Fatal("the gate reopened before the switch's result reached the root")
+	}
+	updated, _ = updated.(tui.Model).Update(msg)
+	if sess.ClusterRebuildInFlight() {
+		t.Fatal("the switch's result didn't release the gate")
+	}
+
+	// And a rebuild's failure releases it on the way to its task, even
+	// though that message is routed to the task that started it.
+	updated, cmd = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "r"})
+	if cmd == nil || !sess.ClusterRebuildInFlight() {
+		t.Fatal("expected the task's rebuild to hold the gate")
+	}
+	_, _ = updated.(tui.Model).Update(cmd())
+	if sess.ClusterRebuildInFlight() {
+		t.Fatal("a failed rebuild's owned result didn't release the gate")
+	}
+}

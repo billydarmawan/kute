@@ -11,8 +11,10 @@ import (
 
 // RetryFailedMsg reports a failed Reconnect attempt: setup stays on screen
 // (the root shell only swaps away on ReplaceRootMsg, which Reconnect's
-// success path sends instead) and shows the new error.
-type RetryFailedMsg struct{ Err error }
+// success path sends instead) and shows the new error. It is
+// tui.ClusterRebuildFailedMsg, so the root releases the rebuild gate the
+// attempt held on its way here.
+type RetryFailedMsg = tui.ClusterRebuildFailedMsg
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, ok := tui.RoutePaste(msg, m.pasteTarget()); ok {

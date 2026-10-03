@@ -75,6 +75,9 @@ type Session struct {
 	// cluster. Filled by fetchGotoCountsCmd off the Update loop; see
 	// gotoCount for why the palette must never count synchronously.
 	counts countCache
+	// rebuild lets one context switch or cluster rebuild run at a time
+	// (rebuildgate.go).
+	rebuild rebuildGate
 	// fluxSubjects retains §32a's revision→commit-subject pairs for the life
 	// of the session, so a "◆ revision applied" row keeps naming its commit
 	// after the source-controller event that carried the subject has aged

@@ -684,6 +684,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var rewatch tea.Cmd
 	switch wm := msg.(type) {
 	case ownedMsg:
+		m.settleRebuild(wm.msg)
 		return m.routeOwned(wm)
 	case clusterEventMsg:
 		msg = wm.inner
@@ -700,6 +701,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Replaying the old outage would mark the reconnected browse
 		// offline.
 		m.conn = kube.ConnState{}
+		m.settleRebuild(msg)
 		task := msg.Task
 		if msg.Commit != nil {
 			task = msg.Commit()
@@ -825,6 +827,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case SwitchContextMsg:
 		m.switching = false
+		m.settleRebuild(msg)
 		m.rootResult = switchFailureResult(msg)
 		if m.session != nil && msg.Err != nil && msg.RolledBack {
 			// The original context was rebuilt in place: same Location, but
@@ -989,6 +992,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, rewatch // no buffer to paste into; swallow
 		}
 		// Otherwise it belongs to the active task, reached below.
+	case ClusterRebuildFailedMsg:
+		m.settleRebuild(msg)
 	case spinner.TickMsg:
 		if cmd, ok := m.tickSwitchSpinner(msg); ok {
 			return m, cmd

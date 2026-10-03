@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -350,5 +351,35 @@ func TestReconnectWithTypedKubeconfigOutranksFlagAndRestoresLocation(t *testing.
 	}
 	if sess.Kubeconfig != right {
 		t.Errorf("Session.Kubeconfig = %q, want the typed path %q for kubectl", sess.Kubeconfig, right)
+	}
+}
+
+// 02 M4: a rebuild started while a 7a switch is still running would stop
+// the cluster that switch is rebuilding, and the switch would then revive
+// it. The rebuild is refused before its Cmd runs, so the old cluster is
+// never touched, and the gate the switch holds stays held.
+func TestRebuildRefusedWhileContextSwitchHoldsTheGate(t *testing.T) {
+	writeTestKubeconfig(t, "ctx-a")
+	sess, old, err := BuildSession(Config{})
+	if err != nil || old == nil {
+		t.Fatalf("BuildSession() = %v, cluster %v", err, old)
+	}
+	t.Cleanup(old.Stop)
+	if _, ok := sess.BeginClusterRebuild(); !ok {
+		t.Fatal("BeginClusterRebuild refused on a fresh session")
+	}
+
+	msg, ok := attemptSwitchContext(Config{}, sess, "ctx-b")().(setup.RetryFailedMsg)
+	if !ok || !errors.Is(msg.Err, tui.ErrClusterRebuildInFlight) {
+		t.Fatalf("attemptSwitchContext() = %#v, want a RetryFailedMsg for ErrClusterRebuildInFlight", msg)
+	}
+	if msg.Token != 0 {
+		t.Errorf("a refused rebuild carries token %d, which could release the switch's gate", msg.Token)
+	}
+	if sess.Cluster != old {
+		t.Error("a refused rebuild replaced the session's cluster")
+	}
+	if !sess.ClusterRebuildInFlight() {
+		t.Error("the gate was released by a refused rebuild")
 	}
 }
