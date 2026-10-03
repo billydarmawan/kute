@@ -837,3 +837,13 @@ func TestRegistryRebuildsOnlyWhenColumnsArrive(t *testing.T) {
 		t.Fatal("printer columns arriving did not rebuild the kind registry")
 	}
 }
+
+// TestModelScreenNamesTheTaskTypeWithoutThePointer: tasks are pointers, and
+// the crash report's screen row reads "tui_test.screenTask", not
+// "*tui_test.screenTask" (14 L8).
+func TestModelScreenNamesTheTaskTypeWithoutThePointer(t *testing.T) {
+	m := tui.NewWithSession(&screenTask{name: "browse"}, &tui.Session{Theme: tui.Dark()})
+	if got := m.Screen(); got != "tui_test.screenTask" {
+		t.Fatalf("Screen() = %q, want %q", got, "tui_test.screenTask")
+	}
+}

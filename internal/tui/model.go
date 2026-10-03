@@ -557,7 +557,8 @@ func (m Model) Screen() string {
 	if m.task == nil {
 		return ""
 	}
-	return reflect.TypeOf(m.task).String()
+	// Tasks are pointers, so the type prints as "*browse.Model".
+	return strings.TrimPrefix(reflect.TypeOf(m.task).String(), "*")
 }
 
 // Theme returns the session's active theme, or Dark() before a session is
