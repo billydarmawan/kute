@@ -251,7 +251,7 @@ func wrapDiagnosticText(value string, width int) []string {
 }
 
 func (m Model) Keybar() tui.Keybar {
-	groups := [][]tui.KeyHint{{{Key: "↑↓", Label: "move"}}}
+	groups := [][]tui.KeyHint{{verbs.Move.Hint()}}
 	if m.state == tui.TaskStateReady && len(m.rows) > 0 {
 		row, _ := m.selectedRow()
 		rowGroup := []tui.KeyHint{}

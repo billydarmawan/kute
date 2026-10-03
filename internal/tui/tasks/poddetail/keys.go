@@ -100,7 +100,7 @@ func (m Model) Keybar() tui.Keybar {
 		groups = append(groups, []tui.KeyHint{verbs.Delete.Hint()})
 	}
 	if len(m.siblings) > 1 && !narrowOverflow {
-		groups = append(groups, []tui.KeyHint{{Key: "[/]", Label: "next/prev"}})
+		groups = append(groups, []tui.KeyHint{verbs.Siblings.Hint()})
 	}
 	// 4a's offline treatment (docs/design README.md §52, §301): mutating
 	// verbs disappear from the keybar the same way browse's own list does,

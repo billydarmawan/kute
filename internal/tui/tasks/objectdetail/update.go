@@ -224,7 +224,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.moveSibling(1)
 	case "k", "up":
 		return m, m.moveSibling(-1)
-	case "1":
+	case verbs.OpenOwner.Key:
 		// The OWNER link's jump — poddetail's numbered RELATED grammar.
 		if cmd := m.openOwner(); cmd != nil {
 			return m, cmd

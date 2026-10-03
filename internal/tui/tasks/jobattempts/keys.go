@@ -43,7 +43,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeBrowse,
 			PillText:  "ATTEMPTS",
-			Groups:    [][]tui.KeyHint{{{Key: verbs.JobAttemptDiff.Key + "/esc", Label: "back"}}},
+			Groups:    [][]tui.KeyHint{{verbs.Either("back", verbs.JobAttemptDiff, verbs.Back)}},
 			RightNote: "comparing selected attempt vs attempt 1",
 		}
 	}
@@ -56,7 +56,7 @@ func (m Model) Keybar() tui.Keybar {
 	groups = append(groups, attemptGroup)
 	groups = append(groups, []tui.KeyHint{verbs.Events.Hint()})
 	if m.mutator != nil && !m.conn.Offline() {
-		groups = append(groups, []tui.KeyHint{{Key: verbs.JobRetry.Key, Label: verbs.JobRetry.Label}})
+		groups = append(groups, []tui.KeyHint{verbs.JobRetry.Hint()})
 	}
 	if m.summary.Indexed {
 		failedOnly := verbs.JobIndexFailedOnly.Hint()
@@ -66,7 +66,7 @@ func (m Model) Keybar() tui.Keybar {
 		groups = append(groups, []tui.KeyHint{failedOnly})
 	}
 	if len(m.siblings) > 1 {
-		groups = append(groups, []tui.KeyHint{{Key: "[/]", Label: "sibling job"}})
+		groups = append(groups, []tui.KeyHint{verbs.Siblings.HintAs("sibling job")})
 	}
 
 	pill, pillText, rightNote := tui.ModeBrowse, "ATTEMPTS", m.execFeedback

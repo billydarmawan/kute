@@ -70,7 +70,7 @@ func (m Model) Keybar() tui.Keybar {
 
 	groups := [][]tui.KeyHint{}
 	if len(m.summary.Runs) > 0 {
-		jobGroup := []tui.KeyHint{{Key: "↵", Label: "open job"}}
+		jobGroup := []tui.KeyHint{verbs.Open.HintAs("open job")}
 		if m.openLogs != nil {
 			jobGroup = append(jobGroup, verbs.Logs.Hint())
 		}
@@ -80,7 +80,7 @@ func (m Model) Keybar() tui.Keybar {
 		groups = append(groups, m.cronJobKeybarGroup())
 	}
 	if len(m.siblings) > 1 {
-		groups = append(groups, []tui.KeyHint{{Key: "[/]", Label: "sibling cronjob"}})
+		groups = append(groups, []tui.KeyHint{verbs.Siblings.HintAs("sibling cronjob")})
 	}
 
 	pill, pillText, rightNote := tui.ModeBrowse, "DETAIL", m.execFeedback

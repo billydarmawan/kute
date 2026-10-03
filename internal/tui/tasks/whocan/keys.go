@@ -24,10 +24,10 @@ func (m Model) Keybar() tui.Keybar {
 	}
 
 	groups := [][]tui.KeyHint{
-		{{Key: "v", Label: "verb"}, {Key: "K", Label: "pick resource kind"}},
+		{verbs.WhoCanVerb.Hint(), verbs.WhoCanResource.Hint()},
 	}
 	if row, ok := m.selectedRow(); ok && row.subject.BindingName != "" {
-		groups = append(groups, []tui.KeyHint{{Key: "↵", Label: "open binding yaml"}})
+		groups = append(groups, []tui.KeyHint{verbs.Open.HintAs("open binding yaml")})
 	}
 
 	return tui.Keybar{

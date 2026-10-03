@@ -37,7 +37,7 @@ func (m Model) Keybar() tui.Keybar {
 	if m.mutator != nil && !verbs.CronJobScheduleFullEdit.HiddenWhileOffline(m.conn.Offline()) {
 		hints = append(hints, verbs.CronJobScheduleFullEdit.Hint())
 	}
-	hints = append(hints, tui.KeyHint{Key: "esc", Label: "back"})
+	hints = append(hints, verbs.Back.Hint())
 
 	pill, pillText := tui.ModeBrowse, "SCHEDULE"
 	rightNote, rightWarn := m.message, ""

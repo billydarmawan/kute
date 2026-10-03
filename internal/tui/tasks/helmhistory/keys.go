@@ -62,7 +62,7 @@ func (m Model) Keybar() tui.Keybar {
 		}
 	}
 
-	groups := [][]tui.KeyHint{{{Key: "↑↓", Label: "move"}}}
+	groups := [][]tui.KeyHint{{verbs.Move.Hint()}}
 	if m.mutator != nil && !verbs.Rollback.HiddenWhileOffline(m.conn.Offline()) {
 		hint := verbs.Rollback.Hint()
 		// The current revision is no rollback target (update.go refuses it).
