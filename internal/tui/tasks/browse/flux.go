@@ -74,9 +74,11 @@ func (m *Model) beginFluxSuspend(row resources.Row) tea.Cmd {
 	})
 }
 
-// beginFluxReconcile stamps the reconcile annotation on row. The timestamp
-// is taken once here so the will-run line names the same instant the patch
-// carries.
+// beginFluxReconcile stamps the reconcile annotation on row. The will-run
+// line's timestamp is taken here, at the key press; the patch stamps its own
+// time.Now() when it executes, so the two can differ by the execution
+// latency — harmless, since the controller only compares the value against
+// its last-handled one.
 func (m *Model) beginFluxReconcile(row resources.Row) tea.Cmd {
 	m.execFeedback = kube.FluxReconcileCommandString(m.kind, row.Namespace, row.Name, time.Now())
 	return m.actions.Begin(actions.Request{Verb: verbs.FluxReconcile, Prod: m.isProd()}, tui.TaskAction{
