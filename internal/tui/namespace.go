@@ -592,4 +592,3 @@ func namespacePaletteSelection(sess *Session, items []palette.Item, query string
 	}
 	return namespaceBrowseSelection(items, contextRecentNamespaces(sess), sess.Location.Namespace)
 }
-
