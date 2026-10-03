@@ -85,6 +85,11 @@ it, saying the value is unavailable rather than implying the run ended
 cleanly — the context, kind and terminal size in it are still most of what a
 maintainer needs.
 
+After any `ErrProgramPanic`, `run` still saves `state.json` but does not fold
+the current location into it (`saveSessionState`): if the kind, filter or
+screen the user was on is what crashed, restoring it would crash every launch
+after this one.
+
 ### The live snapshot
 
 Every field a report needs about *where the user was* is read on the update

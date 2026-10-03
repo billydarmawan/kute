@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -1857,11 +1858,25 @@ func run(cfg Config, opts ...tea.ProgramOption) error {
 
 	_, err = program.Run()
 
-	if sess := model.Session(); sess != nil {
-		sess.SyncLocationToPerContext()
-		_ = sess.State.Save()
-	}
+	saveSessionState(sink, model.Session(), err)
 	return reportProgramCrash(sink, err)
+}
+
+// saveSessionState persists the session on exit. After a panic the current
+// location is deliberately not folded into PerContext: if the screen, kind
+// or filter the user was on is what crashed, restoring it would crash every
+// launch after this one. The rest of the state (recents, the update-check
+// cache, other contexts' locations) is still saved.
+func saveSessionState(sink *diag.Sink, sess *tui.Session, runErr error) {
+	if sess == nil {
+		return
+	}
+	if !errors.Is(runErr, tea.ErrProgramPanic) {
+		sess.SyncLocationToPerContext()
+	}
+	if err := sess.State.Save(); err != nil {
+		sink.Logf("state: save: %v", err)
+	}
 }
 
 // logConfigLoad records a config.yaml that didn't load cleanly — the header
