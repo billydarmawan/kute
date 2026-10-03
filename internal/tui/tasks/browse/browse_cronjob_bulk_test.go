@@ -115,7 +115,7 @@ func TestBulkResumeStagesPreviewThenExecutesOnEnter(t *testing.T) {
 
 	m = step(t, m, tea.KeyPressMsg{Text: "*"})
 	m = step(t, m, tea.KeyPressMsg{Text: "s"})
-	if m.pendingCronJobResume == nil || len(m.pendingCronJobResume.entries) != 2 {
+	if m.pendingCronJobResume == nil || len(m.pendingCronJobResume.Entries) != 2 {
 		t.Fatalf("expected a 2-entry bulk resume preview staged, got %+v", m.pendingCronJobResume)
 	}
 	if m.actions.Active() {

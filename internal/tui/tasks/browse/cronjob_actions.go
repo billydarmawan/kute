@@ -7,12 +7,15 @@
 // through actions.Controller's ordinary TierInline/TierModal confirm — this
 // file only adds the marked-set (20a bulk) dispatch on top of it. Kept
 // separate from jobs.go per that file's own note: this outgrew "navigation
-// plus a kind's mutating verbs."
+// plus a kind's mutating verbs." The staging state, keys, will-run text
+// and requests live in internal/tui/jobactions, shared with cronjobdetail
+// (36e: "every mutating verb from the list works here unchanged"); this
+// file keeps only what is browse's own — reading rows and the marked set,
+// and where the preflight renders.
 package browse
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -22,6 +25,7 @@ import (
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -31,45 +35,18 @@ import (
 // kubeconfig user name (CurrentUser), else "". The SOURCE column's "manual ·
 // you" compares against the same answer the stamps use.
 func (m Model) actingUser() string {
-	if m.identity != nil {
-		if id, ok := m.identity.ReviewedIdentity(); ok && id.Username != "" {
-			return id.Username
-		}
-	}
-	return m.currentUser
+	return jobactions.ActingUser(m.identity, m.currentUser)
 }
 
 // cronJobTriggerCreator is the identity §36b's run-now stamps into
-// kube.AnnotationTriggeredBy — actingUser, falling back to a generic,
-// still-truthful "kute" rather than an empty annotation value when neither
-// identity is known (a test model with no CurrentUser set).
+// kube.AnnotationTriggeredBy — actingUser, falling back to "kute".
 func (m Model) cronJobTriggerCreator() string {
-	if who := m.actingUser(); who != "" {
-		return who
-	}
-	return "kute"
+	return jobactions.Creator(m.identity, m.currentUser)
 }
 
 // ---------------------------------------------------------------------
 // §36b run-now
 // ---------------------------------------------------------------------
-
-// cronJobRunTarget is the state pendingCronJobRun gates on while §36b's
-// ctrl-r preflight is showing.
-type cronJobRunTarget struct {
-	namespace, name string
-	newName         string
-	concurrency     string
-	// activeRuns is the CronJob's own ActiveRuns snapshot at staging time —
-	// re-staging (esc, ctrl-r again) always re-reads the live summary, so
-	// this never goes stale while the preflight sits open.
-	activeRuns []resources.JobSummary
-	// unknownOverlap is true when the Job cache couldn't be read (§4.4 task
-	// 6): "never treat a failed Job read as evidence that no run is
-	// active" — the overlap card renders "overlap unknown" rather than
-	// silently taking the no-conflict path.
-	unknownOverlap bool
-}
 
 // beginCronJobRunNow stages §36b's preflight for the selected CronJob row —
 // screen state only, no actions.Begin yet (0.8.0 plan §36b: "ctrl-r ...
@@ -80,140 +57,52 @@ func (m *Model) beginCronJobRunNow(row resources.Row) bool {
 		return false
 	}
 	summary, ok := m.cronJobSummaryFor(row.Namespace, row.Name)
-	if !ok || summary.Object == nil {
+	if !ok {
 		return false
 	}
-	taken := make(map[string]bool, len(summary.Runs))
-	for _, r := range summary.Runs {
-		taken[r.Name] = true
+	t, ok := jobactions.StageRunNow(row.Namespace, row.Name, summary, m.cronJobJobsErr, m.now)
+	if !ok {
+		return false
 	}
-	m.pendingCronJobRun = &cronJobRunTarget{
-		namespace:      row.Namespace,
-		name:           row.Name,
-		newName:        kube.ManualJobName(row.Name, m.now, func(n string) bool { return taken[n] }),
-		concurrency:    resources.ConcurrencyPolicyLabel(summary.Object.Spec),
-		activeRuns:     summary.ActiveRuns,
-		unknownOverlap: m.cronJobJobsErr != nil,
-	}
+	m.pendingCronJobRun = t
 	return true
 }
 
 // updateCronJobRunKey routes keys while pendingCronJobRun's preflight is
-// showing: esc cancels, ctrl-r/y copies the will-run command
-// (verbs.CronJobCopyCommand), enter commits.
+// showing (jobactions.RunNow.Key: esc cancels, y copies the will-run
+// command, enter commits).
 func (m *Model) updateCronJobRunKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	out, cmd := m.pendingCronJobRun.Key(msg.String())
+	switch out {
+	case jobactions.Cancel:
 		m.pendingCronJobRun = nil
-	case "enter":
+	case jobactions.Commit:
 		return m, m.commitCronJobRun()
-	case verbs.CronJobCopyCommand.Key:
-		return m, tea.SetClipboard(cronJobRunCommand(*m.pendingCronJobRun))
 	}
-	return m, nil
+	return m, cmd
 }
 
 // commitCronJobRun executes the staged run-now through actions.Controller at
-// TierNone (0.8.0 plan §36b: "the staging step is itself the confirmation")
-// — clones a new standalone Job from the CronJob's jobTemplate, never
-// touching the CronJob itself.
+// TierNone (0.8.0 plan §36b: "the staging step is itself the confirmation").
 func (m *Model) commitCronJobRun() tea.Cmd {
 	t := m.pendingCronJobRun
 	m.pendingCronJobRun = nil
-	m.lastCronJobRunName = t.newName
-	return m.actions.Begin(actions.Request{Verb: verbs.CronJobRunNow, Prod: m.isProd()}, tui.TaskAction{
-		ID:    "cronjob-run-now-" + t.namespace + "/" + t.name,
-		Label: fmt.Sprintf("Run %s now", t.name),
-		Scope: tui.TaskScope{
-			ResourceKind: string(kube.KindCronJob), ResourceName: t.name,
-			Namespace: t.namespace, Verb: "cronjob-run-now", IsMutating: true,
-			NewName:        t.newName,
-			TriggerCreator: m.cronJobTriggerCreator(),
-			StagedAt:       m.now,
-		},
-	})
-}
-
-// cronJobRunCommand is the exact `kubectl create job ... --from=cronjob/...`
-// invocation TriggerCronJob is equivalent to — the same command both the
-// keybar's will-run line and 'y' copy show, so they can never disagree.
-func cronJobRunCommand(t cronJobRunTarget) string {
-	return kube.CronJobTriggerCommandString(t.namespace, t.name, t.newName)
-}
-
-// cronJobOverlapNote is §36b's overlap card text: "" (no chrome at all) when
-// there's no active run, an "overlap unknown" warning when the Job cache
-// couldn't be read, a warning naming the active Job(s) under Forbid/Replace,
-// or a quieter informational note under Allow (docs/design README.md §36b:
-// "Forbid/Replace concurrency get warning treatment, Allow gets quieter
-// informational treatment"). warn selects which of the two treatments a
-// caller should render the note with.
-func cronJobOverlapNote(t cronJobRunTarget) (note string, warn bool) {
-	if t.unknownOverlap {
-		return "overlap unknown — job history could not be listed", true
-	}
-	if len(t.activeRuns) == 0 {
-		return "", false
-	}
-	names := make([]string, len(t.activeRuns))
-	for i, r := range t.activeRuns {
-		names[i] = r.Name
-	}
-	plural := ""
-	if len(t.activeRuns) != 1 {
-		plural = "s"
-	}
-	joined := strings.Join(names, ", ")
-	switch t.concurrency {
-	case "Forbid", "Replace":
-		return fmt.Sprintf("%d job%s already active (%s) · manual run bypasses concurrencyPolicy: %s · next scheduled run unaffected",
-			len(t.activeRuns), plural, joined, t.concurrency), true
-	default: // Allow
-		return fmt.Sprintf("%d job%s already active (%s) · concurrencyPolicy: Allow, no conflict",
-			len(t.activeRuns), plural, joined), false
-	}
-}
-
-// cronJobRunKeybar is Keybar()'s rendering while pendingCronJobRun is
-// showing (docs/design README.md §36b: "↵ run · y copy · esc cancel", "a
-// complete Job view with no overlap renders zero warning chrome — just the
-// will-run line").
-func (m Model) cronJobRunKeybar() tui.Keybar {
-	t := *m.pendingCronJobRun
-	kb := tui.Keybar{
-		Pill: tui.ModeBrowse, PillText: "RUN NOW",
-		Groups: [][]tui.KeyHint{{
-			verbs.Open.HintAs("run"),
-			verbs.CronJobCopyCommand.Hint(),
-			verbs.Back.HintAs("cancel"),
-		}},
-		RightNote: "will run: " + cronJobRunCommand(t),
-	}
-	if note, warn := cronJobOverlapNote(t); note != "" {
-		if warn {
-			kb.RightWarnNote = note
-		} else {
-			kb.RightNote += "   " + note
-		}
-	}
-	return kb
+	m.lastCronJobRunName = t.NewName
+	return m.actions.Begin(t.Action(m.isProd(), m.cronJobTriggerCreator(), m.now))
 }
 
 // cronJobRunOverlapBannerLine renders §36b's amber overlap-warning banner in
 // the behavior strip's own reserved slot (view.go's cronJobBehaviorStripLine
 // swaps to this while it applies) — the one filled-background line
 // WarnBanner* tokens exist for (0.8.0 plan Phase 5 theme requirement 1),
-// shown only for a genuine Forbid/Replace conflict. ok is false for every
-// other pendingCronJobRun state (no overlap, Allow policy, or overlap
-// unknown — all of which stay on the keybar's own RightNote/RightWarnNote
-// line instead), which cronJobBehaviorStripLine falls back to its ordinary
-// content for.
+// shown only for a genuine Forbid/Replace conflict (jobactions.RunNow.
+// Conflict). ok is false for every other pendingCronJobRun state (no
+// overlap, Allow policy, or overlap unknown — all of which stay on the
+// keybar's own RightNote/RightWarnNote line instead), which
+// cronJobBehaviorStripLine falls back to its ordinary content for.
 func (m Model) cronJobRunOverlapBannerLine(theme tui.Theme, width int) (string, bool) {
 	t := m.pendingCronJobRun
-	if t == nil || t.unknownOverlap || len(t.activeRuns) == 0 {
-		return "", false
-	}
-	if t.concurrency != "Forbid" && t.concurrency != "Replace" {
+	if t == nil || !t.Conflict() {
 		return "", false
 	}
 	fill := lipgloss.NewStyle().Background(theme.WarnBannerBg)
@@ -221,80 +110,27 @@ func (m Model) cronJobRunOverlapBannerLine(theme tui.Theme, width int) (string, 
 	text := fill.Foreground(theme.WarnBannerText)
 	dim := fill.Foreground(theme.WarnBannerMuted)
 
-	names := make([]string, len(t.activeRuns))
-	for i, r := range t.activeRuns {
-		names[i] = r.Name
-	}
+	n := len(t.ActiveRuns)
 	left := warn.Render(tui.GlyphCronActive) + fill.Render(" ") +
-		text.Render(fmt.Sprintf("%d job%s already active", len(t.activeRuns), pluralSuffix(len(t.activeRuns))))
-	right := dim.Render(fmt.Sprintf("concurrencyPolicy: %s · bypasses policy · %s", t.concurrency, strings.Join(names, ", ")))
+		text.Render(fmt.Sprintf("%d job%s already active", n, jobactions.PluralSuffix(n)))
+	right := dim.Render(fmt.Sprintf("concurrencyPolicy: %s · bypasses policy · %s", t.Concurrency, strings.Join(t.ActiveNames(), ", ")))
 	return insetStripLineFill(padBetweenFill(left, right, stripInnerWidth(width), fill), width, fill), true
-}
-
-func pluralSuffix(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
 }
 
 // ---------------------------------------------------------------------
 // §36c resume (and suspend/resume's marked-set dispatch)
 // ---------------------------------------------------------------------
 
-// cronJobResumeEntry is one CronJob's own resume preview — computed once at
-// staging time from its cache-local summary, so the panel never re-reads
-// the clock or the lister while it's open (only the commit re-executes).
-type cronJobResumeEntry struct {
-	namespace, name, resourceVersion string
-	generation                       int64
-	// suspendedLabel/suspendedKnown are resources.SuspendedDuration's own
-	// pair — "" / false renders "start unknown" rather than a fabricated
-	// duration (§3.3: externally suspended, or a stale generation marker).
-	suspendedLabel string
-	suspendedKnown bool
-	missedCount    int
-	missedTrunc    bool
-	missedEligible bool
-	missedReason   string
-	nextRun        string
-}
-
-// cronJobResumeTarget is the state pendingCronJobResume gates on while
-// §36c's resume preflight is showing — one entry for the selected row, N for
-// a marked-set bulk resume.
-type cronJobResumeTarget struct {
-	entries []cronJobResumeEntry
-}
-
 // cronJobResumeEntryFor computes row's own resume preview from its
 // cache-local summary. ok is false when the summary isn't available (row
 // not actually a known CronJob — defensive, since callers only ever pass
 // rows already confirmed Suspended).
-func (m Model) cronJobResumeEntryFor(row resources.Row) (cronJobResumeEntry, bool) {
+func (m Model) cronJobResumeEntryFor(row resources.Row) (jobactions.ResumeEntry, bool) {
 	summary, ok := m.cronJobSummaryFor(row.Namespace, row.Name)
-	if !ok || summary.Object == nil {
-		return cronJobResumeEntry{}, false
+	if !ok {
+		return jobactions.ResumeEntry{}, false
 	}
-	spec := summary.Object.Spec
-	suspendedLabel, suspendedKnown := resources.SuspendedDuration(summary.SuspendedAt, m.now)
-
-	var missedCount int
-	var missedTrunc, missedEligible bool
-	var missedReason string
-	if summary.SuspendedAt != nil {
-		missedCount, missedTrunc, missedEligible, missedReason = resources.MissedRuns(spec, *summary.SuspendedAt, m.now)
-	} else {
-		missedReason = "suspension start unknown"
-	}
-
-	return cronJobResumeEntry{
-		namespace: row.Namespace, name: row.Name,
-		resourceVersion: summary.Object.ResourceVersion, generation: summary.Object.Generation,
-		suspendedLabel: suspendedLabel, suspendedKnown: suspendedKnown,
-		missedCount: missedCount, missedTrunc: missedTrunc, missedEligible: missedEligible, missedReason: missedReason,
-		nextRun: resources.NextRunLabel(spec, m.now),
-	}, true
+	return jobactions.ResumeEntryFor(row.Namespace, row.Name, summary, m.now)
 }
 
 // beginCronJobResume stages §36c's resume preflight for one suspended
@@ -310,120 +146,29 @@ func (m *Model) beginCronJobResume(row resources.Row) {
 	if !ok {
 		return
 	}
-	m.pendingCronJobResume = &cronJobResumeTarget{entries: []cronJobResumeEntry{entry}}
+	m.pendingCronJobResume = &jobactions.Resume{Entries: []jobactions.ResumeEntry{entry}}
 }
 
 // updateCronJobResumeKey routes keys while pendingCronJobResume's preflight
 // is showing: esc cancels, enter commits (§36c: "Resume executes on ↵ with
 // no destructive escalation").
 func (m *Model) updateCronJobResumeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch m.pendingCronJobResume.Key(msg.String()) {
+	case jobactions.Cancel:
 		m.pendingCronJobResume = nil
-	case "enter":
+	case jobactions.Commit:
 		return m, m.commitCronJobResume()
 	}
 	return m, nil
 }
 
 // commitCronJobResume executes the staged resume(s) through
-// actions.Controller at TierNone — a single-target action.Begin for one
-// entry, or a BulkTargets action for a marked-set resume (0.8.0 plan §3
-// Phase 5 task 9: "Bulk resume uses one Enter preflight because it is the
-// reversible direction").
+// actions.Controller at TierNone — single-target or a BulkTargets action
+// for a marked set (jobactions.Resume.Action).
 func (m *Model) commitCronJobResume() tea.Cmd {
 	t := m.pendingCronJobResume
 	m.pendingCronJobResume = nil
-	if len(t.entries) == 1 {
-		e := t.entries[0]
-		return m.actions.Begin(actions.Request{Verb: verbs.CronJobSuspend, Prod: m.isProd()}, tui.TaskAction{
-			ID:    "cronjob-resume-" + e.namespace + "/" + e.name,
-			Label: "Resume " + e.name,
-			Scope: tui.TaskScope{
-				ResourceKind: string(kube.KindCronJob), ResourceName: e.name,
-				Namespace: e.namespace, Verb: "cronjob-resume", IsMutating: true,
-				CronJobResourceVersion: e.resourceVersion,
-				CronJobGeneration:      e.generation,
-				StagedAt:               m.now,
-			},
-		})
-	}
-	targets := make([]tui.BulkTarget, len(t.entries))
-	for i, e := range t.entries {
-		targets[i] = tui.BulkTarget{Namespace: e.namespace, ResourceName: e.name, ResourceVersion: e.resourceVersion, Generation: e.generation}
-	}
-	return m.actions.Begin(actions.Request{Verb: verbs.CronJobSuspend, Prod: m.isProd()}, tui.TaskAction{
-		ID:    "cronjob-bulk-resume",
-		Label: fmt.Sprintf("Resume %d cronjobs", len(targets)),
-		Scope: tui.TaskScope{
-			ResourceKind: string(kube.KindCronJob), Verb: "cronjob-resume", IsMutating: true,
-			StagedAt:    m.now,
-			BulkTargets: targets,
-		},
-	})
-}
-
-// missedRunsCopy renders §3.3's truthful missed-schedule sentence:
-//
-//	"N schedules were missed · Kubernetes may start one immediately on resume"
-//
-// — explicit about starting-deadline ineligibility, an unset/unknown
-// timezone, or an unknown suspension start (reason non-empty), and silent
-// (a plain "no schedules missed" statement) when count is genuinely 0.
-func missedRunsCopy(count int, truncated, eligible bool, reason string) string {
-	if reason != "" {
-		return reason
-	}
-	if count == 0 {
-		return "no schedules missed while suspended"
-	}
-	label := strconv.Itoa(count)
-	if truncated {
-		label = "100+"
-	}
-	plural := pluralSuffix(count)
-	if eligible {
-		return fmt.Sprintf("%s schedule%s missed while suspended · Kubernetes may start one immediately on resume", label, plural)
-	}
-	return fmt.Sprintf("%s schedule%s missed while suspended · none eligible to backfill (starting deadline elapsed)", label, plural)
-}
-
-// cronJobResumeSummaryLine renders one entry's full preview text — the
-// keybar RightNote for a single-target resume.
-func cronJobResumeSummaryLine(e cronJobResumeEntry) string {
-	suspended := "suspended · start unknown"
-	if e.suspendedKnown {
-		suspended = "suspended " + e.suspendedLabel
-	}
-	return fmt.Sprintf("%s · %s · next %s", suspended,
-		missedRunsCopy(e.missedCount, e.missedTrunc, e.missedEligible, e.missedReason), e.nextRun)
-}
-
-// cronJobResumeKeybar is Keybar()'s rendering while pendingCronJobResume is
-// showing — single-target gets the full suspended-duration/missed-run/next
-// preview (docs/design README.md §36c); a marked-set bulk resume gets a
-// quieter aggregate line naming the targets, since a per-target breakdown
-// doesn't fit one keybar row.
-func (m Model) cronJobResumeKeybar() tui.Keybar {
-	t := *m.pendingCronJobResume
-	kb := tui.Keybar{
-		Pill: tui.ModeBrowse, PillText: "RESUME",
-		Groups: [][]tui.KeyHint{{
-			verbs.Open.HintAs("resume"),
-			verbs.Back.HintAs("cancel"),
-		}},
-	}
-	if len(t.entries) == 1 {
-		e := t.entries[0]
-		kb.RightNote = fmt.Sprintf("resume %s? %s", e.name, cronJobResumeSummaryLine(e))
-		return kb
-	}
-	names := make([]string, len(t.entries))
-	for i, e := range t.entries {
-		names[i] = e.name
-	}
-	kb.RightNote = fmt.Sprintf("resume %d cronjobs? %s", len(t.entries), strings.Join(names, ", "))
-	return kb
+	return m.actions.Begin(t.Action(m.isProd(), m.now))
 }
 
 // ---------------------------------------------------------------------
@@ -463,7 +208,7 @@ func (m *Model) beginCronJobResumeBulk(marked []resources.Row) {
 	if m.mutator == nil || m.state != tui.TaskStateReady {
 		return
 	}
-	var entries []cronJobResumeEntry
+	var entries []jobactions.ResumeEntry
 	for _, row := range marked {
 		if !row.Suspended {
 			continue
@@ -475,7 +220,7 @@ func (m *Model) beginCronJobResumeBulk(marked []resources.Row) {
 	if len(entries) == 0 {
 		return
 	}
-	m.pendingCronJobResume = &cronJobResumeTarget{entries: entries}
+	m.pendingCronJobResume = &jobactions.Resume{Entries: entries}
 }
 
 // beginCronJobSuspendBulk stages a marked-set suspend through

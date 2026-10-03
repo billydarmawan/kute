@@ -5,6 +5,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/metapanel"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
@@ -13,10 +14,10 @@ import (
 // registry invariant — 36e's pill is DETAIL (docs/design README.md §36e).
 func (m Model) Keybar() tui.Keybar {
 	if m.pendingRun != nil {
-		return m.runKeybar()
+		return m.pendingRun.Keybar()
 	}
 	if m.pendingResume != nil {
-		return m.resumeKeybar()
+		return m.pendingResume.Keybar()
 	}
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierModal {
@@ -31,9 +32,9 @@ func (m Model) Keybar() tui.Keybar {
 				// suspendConfirmModal). cronjob-resume never appears here,
 				// fixed TierNone (staged, reversible, immediate) the same way
 				// cronjob-run-now is.
-				note = cronJobSuspendWillRunLine(pending.Scope)
+				note = jobactions.SuspendWillRunLine(pending.Scope)
 				if m.summary.Object != nil {
-					note += "   " + cronJobSuspendDangerNote(m.summary, m.now)
+					note += "   " + jobactions.SuspendDangerNote(m.summary, m.now)
 				}
 			case "set-meta":
 				// 26a: the panel stays open under this confirm and already

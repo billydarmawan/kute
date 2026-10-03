@@ -431,12 +431,12 @@ type Model struct {
 	// before ever calling actions.Begin on a TierNone verb: the staging step is
 	// itself the confirmation (0.8.0 plan §36b/Phase 5), so there's no
 	// TierInline/TierModal for actions.Controller to render.
-	pendingCronJobRun *cronJobRunTarget
+	pendingCronJobRun *jobactions.RunNow
 	// pendingCronJobResume is non-nil while §36c's resume preflight is
 	// showing (cronjob_actions.go) — same "stage first, TierNone commit"
 	// shape as pendingCronJobRun, covering both a single selected row and a
 	// marked set (targets has one entry or many).
-	pendingCronJobResume *cronJobResumeTarget
+	pendingCronJobResume *jobactions.Resume
 	// pendingJobRerun is non-nil while §37c's 'R' create-vs-replace
 	// choice is showing (job_actions.go) — a bespoke gate like
 	// pendingCronJobRun, since the choice list stages its own preview

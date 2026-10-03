@@ -16,6 +16,7 @@ import (
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 )
 
 func (m Model) View() tea.View { return tea.NewView(m.Render()) }
@@ -461,9 +462,9 @@ func (m Model) suspendConfirmModal(width, height int) string {
 	if pending := m.actions.Pending(); pending != nil {
 		title = "✕ " + pending.Label
 		target = pending.Scope.ResourceName
-		detail = cronJobSuspendWillRunLine(pending.Scope)
+		detail = jobactions.SuspendWillRunLine(pending.Scope)
 		if m.summary.Object != nil {
-			detail += "   " + cronJobSuspendDangerNote(m.summary, m.now)
+			detail += "   " + jobactions.SuspendDangerNote(m.summary, m.now)
 		}
 	}
 	styles := components.TypeModalStyles{

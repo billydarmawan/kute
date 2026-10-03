@@ -34,10 +34,10 @@ func (m Model) Keybar() tui.Keybar {
 		}
 	}
 	if m.pendingCronJobRun != nil {
-		return m.cronJobRunKeybar()
+		return m.pendingCronJobRun.Keybar()
 	}
 	if m.pendingCronJobResume != nil {
-		return m.cronJobResumeKeybar()
+		return m.pendingCronJobResume.Keybar()
 	}
 	if m.pendingJobRerun != nil {
 		return m.pendingJobRerun.Keybar()
@@ -197,9 +197,9 @@ func (m Model) Keybar() tui.Keybar {
 						note = bulkCronJobSuspendWillRunLine(pending.Scope)
 						break
 					}
-					note = cronJobSuspendWillRunLine(pending.Scope)
+					note = jobactions.SuspendWillRunLine(pending.Scope)
 					if summary, ok := m.cronJobSummaryFor(pending.Scope.Namespace, pending.Scope.ResourceName); ok {
-						note += "   " + cronJobSuspendDangerNote(summary, m.now)
+						note += "   " + jobactions.SuspendDangerNote(summary, m.now)
 					}
 				case "set-meta":
 					// 26a: the panel itself stays open under this confirm

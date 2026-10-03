@@ -41,6 +41,7 @@ import (
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/metapanel"
 )
 
@@ -154,8 +155,8 @@ type Model struct {
 	// pendingCronJobRun/pendingCronJobResume follow (jobs.go/
 	// cronjob_actions.go's own doc comments). Single-target only: this
 	// screen has no marked-set bulk concept.
-	pendingRun    *cronJobRunTarget
-	pendingResume *cronJobResumeTarget
+	pendingRun    *jobactions.RunNow
+	pendingResume *jobactions.Resume
 
 	// meta is non-nil while 26a's labels/annotations panel is open on this
 	// CronJob (the shared internal/tui/metapanel editor) — mirrors
@@ -277,15 +278,7 @@ type IdentityReader interface {
 // kube.AnnotationTriggeredBy — mirrors browse's own cronJobTriggerCreator:
 // the reviewed username, read now, else the kubeconfig name, else "kute".
 func (m Model) cronJobTriggerCreator() string {
-	if m.identity != nil {
-		if id, ok := m.identity.ReviewedIdentity(); ok && id.Username != "" {
-			return id.Username
-		}
-	}
-	if m.currentUser != "" {
-		return m.currentUser
-	}
-	return "kute"
+	return jobactions.Creator(m.identity, m.currentUser)
 }
 
 // selectedJobSummary returns the Jobs table's currently selected

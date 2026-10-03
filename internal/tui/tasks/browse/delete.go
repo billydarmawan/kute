@@ -128,7 +128,7 @@ func (m Model) typeNameConfirmModal(width, height int) string {
 			// cronjob_bulk.go's own type-the-count modal instead (Body()'s
 			// dispatch, pendingBulkCronJobSuspend).
 			actionVerb = "suspend"
-			detail = cronJobSuspendWillRunLine(pending.Scope)
+			detail = jobactions.SuspendWillRunLine(pending.Scope)
 		case pending.Scope.Verb == "job-suspend":
 			// v0.9.0 §37a: PROD escalation only (verbs.Resolve's JobSuspend row never
 			// escalates job-resume) — the same asymmetric shape cronjob-suspend

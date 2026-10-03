@@ -15,6 +15,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 )
 
 func crashPod(ns, name string) *corev1.Pod {
@@ -479,12 +480,12 @@ func TestResourceChangedInAnotherNamespaceSkipsReload(t *testing.T) {
 // resume preflight owns the keybar, g/n/c/? must reach it, not the shell.
 func TestCapturingInputCoversCronJobPreflights(t *testing.T) {
 	m := New(Config{Session: newSession(), Lister: fakeLister{}})
-	m.pendingCronJobRun = &cronJobRunTarget{}
+	m.pendingCronJobRun = &jobactions.RunNow{}
 	if !m.CapturingInput() {
 		t.Fatal("run-now preflight should capture input")
 	}
 	m.pendingCronJobRun = nil
-	m.pendingCronJobResume = &cronJobResumeTarget{}
+	m.pendingCronJobResume = &jobactions.Resume{}
 	if !m.CapturingInput() {
 		t.Fatal("resume preflight should capture input")
 	}

@@ -17,8 +17,6 @@ package browse
 
 import (
 	"fmt"
-	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -26,6 +24,7 @@ import (
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
+	"github.com/kute-dev/kute/internal/tui/jobactions"
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
@@ -267,68 +266,17 @@ func (m Model) jobKeybarGroup() []tui.KeyHint {
 // exists, closing out the TODO this function used to carry.
 func (m *Model) beginCronJobSuspend(row resources.Row) tea.Cmd {
 	summary, _ := m.cronJobSummaryFor(row.Namespace, row.Name)
-	var resourceVersion string
-	var generation int64
-	if summary.Object != nil {
-		resourceVersion = summary.Object.ResourceVersion
-		generation = summary.Object.Generation
-	}
-	return m.actions.Begin(actions.Request{Verb: verbs.CronJobSuspend, Prod: m.isProd()}, tui.TaskAction{
-		ID:    "cronjob-suspend-" + row.Namespace + "/" + row.Name,
-		Label: fmt.Sprintf("Suspend %s?", row.Name),
-		Scope: tui.TaskScope{
-			ResourceKind: string(kube.KindCronJob), ResourceName: row.Name,
-			Namespace: row.Namespace, Verb: "cronjob-suspend", IsMutating: true,
-			CronJobResourceVersion: resourceVersion,
-			CronJobGeneration:      generation,
-			StagedAt:               m.now,
-		},
-	})
+	return m.actions.Begin(jobactions.SuspendAction(row.Namespace, row.Name, summary, m.isProd(), m.now))
 }
 
-// cronJobSuspendWillRunLine is beginCronJobSuspend's confirm "will run: ..."
-// line — same idiom as jobSuspendWillRunLine.
-func cronJobSuspendWillRunLine(scope tui.TaskScope) string {
-	return "will run: " + kube.CronJobSuspendCommandString(scope.Namespace, scope.ResourceName, scope.Verb == "cronjob-suspend")
-}
-
-// cronJobSuspendDangerNote supplements beginCronJobSuspend's confirm (docs/
-// design README.md §36c: "the card names any currently-active Jobs and
-// states plainly that they are unaffected: suspend only stops *future*
-// scheduling"). "" when summary is unavailable (falls back to the plain
-// will-run line with no supplement). now drives the same NextRunLabel
-// computation §36a's own NEXT column uses, so the "stops happening" claim
-// names the actual next occurrence rather than a vague "future runs".
-func cronJobSuspendDangerNote(summary resources.CronJobSummary, now time.Time) string {
-	if summary.Object == nil {
-		return ""
-	}
-	next := resources.NextRunLabel(summary.Object.Spec, now)
-	consequence := "future scheduled runs stop"
-	if next != "—" && next != "controller local" {
-		consequence = fmt.Sprintf("the next scheduled run (%s) stops happening", next)
-	}
-	if len(summary.ActiveRuns) == 0 {
-		return "no active jobs right now · " + consequence
-	}
-	names := make([]string, len(summary.ActiveRuns))
-	for i, r := range summary.ActiveRuns {
-		names[i] = r.Name
-	}
-	return "running jobs unaffected · " + strings.Join(names, ", ") + " · " + consequence
-}
-
-// cronJobKeybarGroup mirrors jobKeybarGroup/fluxKeybarGroup: copies the
-// registry Verb, flips CronJobSuspend's label to "resume" when the selected
-// row is already suspended.
+// cronJobKeybarGroup mirrors jobKeybarGroup/fluxKeybarGroup: 's' is
+// labelled "resume" when the selected row is already suspended
+// (jobactions.SuspendHint).
 func (m Model) cronJobKeybarGroup() []tui.KeyHint {
-	suspend := verbs.CronJobSuspend
-	if row, ok := m.selectedRow(); ok && row.Suspended {
-		suspend.Label = "resume"
-	}
+	row, ok := m.selectedRow()
 	hints := []tui.KeyHint{
 		{Key: verbs.CronJobRunNow.Key, Label: verbs.CronJobRunNow.Label},
-		{Key: suspend.Key, Label: suspend.Label},
+		jobactions.SuspendHint(ok && row.Suspended),
 		{Key: verbs.CronJobSetSchedule.Key, Label: verbs.CronJobSetSchedule.Label},
 		verbs.SetImage.Hint(),
 	}

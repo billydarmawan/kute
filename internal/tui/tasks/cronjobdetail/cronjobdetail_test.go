@@ -580,7 +580,7 @@ func TestRunNowOverlapWarningNamesActiveJobsUnderForbid(t *testing.T) {
 	if !m.beginRunNow() {
 		t.Fatalf("beginRunNow returned false, want true")
 	}
-	note, warn := cronJobOverlapNote(*m.pendingRun)
+	note, warn := m.pendingRun.OverlapNote()
 	if !warn {
 		t.Fatalf("warn = false, want true under Forbid with an active run")
 	}
@@ -596,7 +596,7 @@ func TestRunNowNoWarningWithoutOverlap(t *testing.T) {
 	if !m.beginRunNow() {
 		t.Fatalf("beginRunNow returned false, want true")
 	}
-	note, warn := cronJobOverlapNote(*m.pendingRun)
+	note, warn := m.pendingRun.OverlapNote()
 	if note != "" || warn {
 		t.Fatalf("note=%q warn=%v, want no chrome at all with no active run", note, warn)
 	}
@@ -607,7 +607,7 @@ func TestRunNowCommitCreatesJobAndSurvivesReload(t *testing.T) {
 	c, _ := newFakeCronJob("default", "nightly")
 	m := newModel(t, c, "default", "nightly")
 	m.beginRunNow()
-	newName := m.pendingRun.newName
+	newName := m.pendingRun.NewName
 
 	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.pendingRun != nil {
