@@ -146,7 +146,7 @@ func TestEnsureDynamicKindForRegistersSubstitutedKindAgainstRealGVR(t *testing.T
 	}
 	defer close(c.stopCh)
 
-	if !c.ensureDynamicKindFor(testSubKind, "") {
+	if _, ok := c.ensureDynamicKindFor(testSubKind, ""); !ok {
 		t.Fatal("ensureDynamicKindFor did not register the substituted kind")
 	}
 	info, ok := c.getDynKind(testSubKind, "")

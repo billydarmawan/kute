@@ -1306,9 +1306,7 @@ func (c *Cluster) ListRaw(_ context.Context, kind ResourceKind, namespace string
 		}
 		return tk.list(f, namespace, labels.Everything())
 	}
-	c.ensureDynamicKindFor(kind, namespace)
-	scope := c.cacheScope(kind, namespace)
-	if info, ok := c.getDynKind(kind, scope); ok {
+	if info, ok := c.ensureDynamicKindFor(kind, namespace); ok {
 		// Reading a custom kind is the moment its columns become worth
 		// fetching. Fire-and-forget: this is on the update loop's path.
 		c.ensurePrinterColumns(kind)
@@ -1342,8 +1340,7 @@ func (c *Cluster) DiscoveredKinds() []DiscoveredKind {
 // cluster-wide (namespace ""), regardless of scoped/cluster-wide mode — the
 // CRDs list itself is a cluster-wide screen.
 func (c *Cluster) CountInstances(kind ResourceKind) (int, bool) {
-	c.ensureDynamicKindFor(kind, "")
-	info, ok := c.getDynKind(kind, "")
+	info, ok := c.ensureDynamicKindFor(kind, "")
 	if !ok {
 		return 0, false
 	}

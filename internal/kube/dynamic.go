@@ -36,17 +36,20 @@ func (c *Cluster) getDynKind(kind ResourceKind, scope string) (dynamicKindInfo, 
 // discovered custom kind (registered by ensureDynamicKindFor once its CRD is
 // seen to be Established+Served). Safe to call repeatedly — the target
 // factory's Start only starts informers that haven't already been started.
+// Returns the kind's registered cache at scope, if it has one — read in the
+// same critical section as the registration, so a caller about to list it
+// needn't resolve and look it up again.
 //
 // The whole body runs under c.mu, which does two things: it keeps the
 // dynFactory/stopCh reads from racing SwitchContext's wholesale replacement
 // of both, and it makes registration-then-Start atomic, so a concurrent
 // caller's Start can't run this informer before its handlers are attached.
-func (c *Cluster) ensureDynamicKind(kind ResourceKind, scope string, gvr schema.GroupVersionResource, namespaced bool) {
+func (c *Cluster) ensureDynamicKind(kind ResourceKind, scope string, gvr schema.GroupVersionResource, namespaced bool) (dynamicKindInfo, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	key := scopeKey{kind, scope}
-	if _, ok := c.dynKinds[key]; ok || c.stopCh == nil {
-		return
+	if info, ok := c.dynKinds[key]; ok || c.stopCh == nil {
+		return info, ok
 	}
 	f := c.dynFactoryForScopeLocked(scope)
 	informer := f.ForResource(gvr)
@@ -84,15 +87,17 @@ func (c *Cluster) ensureDynamicKind(kind ResourceKind, scope string, gvr schema.
 	if c.dynKinds == nil {
 		c.dynKinds = map[scopeKey]dynamicKindInfo{}
 	}
-	c.dynKinds[key] = dynamicKindInfo{
+	info := dynamicKindInfo{
 		gvr:        gvr,
 		namespaced: namespaced,
 		lister:     informer.Lister(),
 		informer:   informer.Informer(),
 	}
+	c.dynKinds[key] = info
 	c.noteInformerStartedLocked()
 	f.Start(c.stopCh)
 	c.health.noteListBurst()
+	return info, true
 }
 
 // refreshDiscovery builds the per-context list of custom kinds (docs/design
@@ -235,15 +240,16 @@ func dedupeDiscovered(in []DiscoveredKind) []DiscoveredKind {
 
 // ensureDynamicKindFor starts the instance informer for a discovered kind by
 // name, scoped to whatever namespace normalizes to under the current mode,
-// the dynamic counterpart of ensureKind. Reports whether kind is something
-// discovery knows about at all — a false answer is what lets ListRaw tell
-// "no such kind" apart from "not watched yet".
-func (c *Cluster) ensureDynamicKindFor(kind ResourceKind, namespace string) bool {
+// the dynamic counterpart of ensureKind. Returns the cache a read of kind at
+// namespace should list, resolving the scope once: ok is false when there is
+// none — discovery doesn't know kind (or it isn't Established/served yet), or
+// the cluster has been stopped.
+func (c *Cluster) ensureDynamicKindFor(kind ResourceKind, namespace string) (dynamicKindInfo, bool) {
 	c.mu.Lock()
 	scope := c.cacheScopeLocked(kind, namespace)
-	if _, ok := c.dynKinds[scopeKey{kind, scope}]; ok {
+	if info, ok := c.dynKinds[scopeKey{kind, scope}]; ok {
 		c.mu.Unlock()
-		return true
+		return info, true
 	}
 	if kind == KindCustomResourceDefinition {
 		// 14b's own list, the one screen that wants whole CRD objects —
@@ -251,8 +257,7 @@ func (c *Cluster) ensureDynamicKindFor(kind ResourceKind, namespace string) bool
 		// this informer starts only when that screen is opened, not at
 		// connect.
 		c.mu.Unlock()
-		c.ensureDynamicKind(KindCustomResourceDefinition, "", crdGVR, false)
-		return true
+		return c.ensureDynamicKind(KindCustomResourceDefinition, "", crdGVR, false)
 	}
 	var match DiscoveredKind
 	var found bool
@@ -264,10 +269,9 @@ func (c *Cluster) ensureDynamicKindFor(kind ResourceKind, namespace string) bool
 	}
 	c.mu.Unlock()
 	if !found {
-		return false
+		return dynamicKindInfo{}, false
 	}
-	c.ensureDynamicKind(kind, scope, match.GVR, !match.ClusterScoped)
-	return true
+	return c.ensureDynamicKind(kind, scope, match.GVR, !match.ClusterScoped)
 }
 
 // listDynamic lists a dynamically registered kind's cache, scoped by
