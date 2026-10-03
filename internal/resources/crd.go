@@ -40,6 +40,7 @@ func CustomDescriptor(dk kube.DiscoveredKind) Descriptor {
 		Kind:          dk.RegistryKind(),
 		Group:         GroupCustomResources,
 		Display:       discoveredDisplay(dk),
+		Short:         shortPill(dk),
 		Icon:          "◆",
 		Columns:       columns,
 		Describe:      "custom resource · " + dk.Group,
@@ -62,6 +63,39 @@ func capitalizePlural(plural string) string {
 	r := []rune(plural)
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
+}
+
+// shortPill is §14a's keybar pill for a discovered kind: its longest
+// declared short name, uppercased — the plural where a CRD declares both
+// (cert-manager's cert/certs → CERTS). "" when it declares none, which
+// leaves the pill on the uppercase Display.
+func shortPill(dk kube.DiscoveredKind) string {
+	best := ""
+	for _, s := range dk.ShortNames {
+		if len(s) > len(best) {
+			best = s
+		}
+	}
+	return strings.ToUpper(best)
+}
+
+// SingularDisplay names one object of d's kind for a confirm or note
+// ("Delete Ingress web?"): a discovered kind's own singular API Kind, else
+// Display singularised — ies→y, sses→ss, else one trailing s — so
+// "Ingresses", "NetworkPolicies" and "GatewayClasses" don't lose the wrong
+// letters to a bare TrimSuffix("s").
+func SingularDisplay(d Descriptor) string {
+	if d.Custom {
+		return d.Kind.APIKind()
+	}
+	switch p := d.Display; {
+	case strings.HasSuffix(p, "ies"):
+		return strings.TrimSuffix(p, "ies") + "y"
+	case strings.HasSuffix(p, "sses"):
+		return strings.TrimSuffix(p, "es")
+	default:
+		return strings.TrimSuffix(p, "s")
+	}
 }
 
 // discoveredDisplay names a generic discovered kind for the breadcrumb, the
@@ -168,6 +202,7 @@ func httpRouteDescriptor(dk kube.DiscoveredKind) Descriptor {
 		Kind:          dk.RegistryKind(),
 		Group:         GroupCustomResources,
 		Display:       capitalizePlural(dk.Plural),
+		Short:         shortPill(dk),
 		Icon:          "◆",
 		Columns:       columns,
 		Describe:      "custom resource · " + dk.Group,

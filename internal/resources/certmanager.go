@@ -45,6 +45,7 @@ func certificateDescriptor(dk kube.DiscoveredKind) Descriptor {
 		Kind:            dk.RegistryKind(),
 		Group:           GroupCustomResources,
 		Display:         capitalizePlural(dk.Plural),
+		Short:           shortPill(dk),
 		Icon:            "◆",
 		Columns:         certificateColumns,
 		Describe:        "custom resource · " + dk.Group,

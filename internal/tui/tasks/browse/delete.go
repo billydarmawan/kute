@@ -78,7 +78,7 @@ func (m *Model) beginDelete(row resources.Row) tea.Cmd {
 	}
 	return m.actions.Begin(actions.Request{Verb: verbs.Delete, Prod: m.isProd()}, tui.TaskAction{
 		ID:                 "delete-" + string(m.kind) + "-" + row.Namespace + "/" + row.Name,
-		Label:              fmt.Sprintf("Delete %s %s?", singularDisplay(m.desc.Display), row.Name),
+		Label:              fmt.Sprintf("Delete %s %s?", resources.SingularDisplay(m.desc), row.Name),
 		Owner:              owner,
 		GracePeriodSeconds: gracePeriod,
 		Scope: tui.TaskScope{

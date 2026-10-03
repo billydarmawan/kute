@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 )
 
@@ -43,7 +44,7 @@ func (m *Model) resolveFollow() (tea.Model, tea.Cmd, bool) {
 			return nil, nil, false
 		}
 	}
-	m.followNote = fmt.Sprintf("%s %s isn't in %s", singularDisplay(m.desc.Display), name, m.namespace)
+	m.followNote = fmt.Sprintf("%s %s isn't in %s", resources.SingularDisplay(m.desc), name, m.namespace)
 	return nil, nil, false
 }
 

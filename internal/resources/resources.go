@@ -228,6 +228,10 @@ type Descriptor struct {
 	// table width. Empty defaults to "Name" (every built-in kind but
 	// Forwards, whose widest/variable cell is Target instead).
 	FlexColumn string
+	// Short is the keybar pill's short kind name (§14a: "Keybar pill = short
+	// kind name (CERTS)"), set for a discovered kind that declares short
+	// names. Empty means the pill is the uppercase Display.
+	Short string
 	// Project converts a raw API object into a display Row. It must tolerate an
 	// unexpected type by returning a best-effort Row (see metaRow).
 	Project func(obj runtime.Object) Row

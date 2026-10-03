@@ -38,6 +38,9 @@ type DiscoveredKind struct {
 	GVR    schema.GroupVersionResource // the display version's group/version + plural resource
 	Kind   string                      // singular Kind, e.g. "Certificate"
 	Plural string
+	// ShortNames are the resource's declared short names from API discovery
+	// (cert-manager's Certificate: cert, certs) — 14a's keybar pill.
+	ShortNames []string
 	Group  string
 	// Versions is every version declared on the CRD (spec.versions),
 	// served or not — the 14b VERSIONS column renders all of them,

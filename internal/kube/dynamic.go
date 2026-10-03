@@ -201,6 +201,7 @@ func customKindsFrom(lists []*metav1.APIResourceList, crdNames map[string]bool) 
 				GVR:           schema.GroupVersionResource{Group: gv.Group, Version: gv.Version, Resource: r.Name},
 				Kind:          r.Kind,
 				Plural:        r.Name,
+				ShortNames:    r.ShortNames,
 				Group:         gv.Group,
 				ClusterScoped: !r.Namespaced,
 				Established:   true,

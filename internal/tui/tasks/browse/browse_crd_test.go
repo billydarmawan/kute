@@ -147,7 +147,7 @@ func widgetInstanceNoCondition(name, ns string) *unstructured.Unstructured {
 
 func discoveredCertificateDK() kube.DiscoveredKind {
 	return kube.DiscoveredKind{
-		Kind: "Certificate", Plural: "certificates", Group: "cert-manager.io",
+		Kind: "Certificate", Plural: "certificates", Group: "cert-manager.io", ShortNames: []string{"cert", "certs"},
 		GVR:           schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
 		Versions:      []kube.CRDVersion{{Name: "v1", Served: true, Storage: true}},
 		ClusterScoped: false, Established: true,

@@ -233,6 +233,11 @@ func (m Model) Keybar() tui.Keybar {
 	}
 
 	pillText := strings.ToUpper(m.desc.Display)
+	if m.desc.Short != "" {
+		// §14a: a discovered kind's pill is its short kind name (CERTS),
+		// not the full uppercase plural.
+		pillText = m.desc.Short
+	}
 	switch m.kind {
 	case kube.KindHelmRelease:
 		// docs/design README.md §18a: "Keybar pill HELM" — the short form,
@@ -477,14 +482,6 @@ func (m Model) Keybar() tui.Keybar {
 
 func lowerDisplay(display string) string {
 	return strings.ToLower(display)
-}
-
-// singularDisplay strips a trailing "s" off a Descriptor.Display plural
-// (e.g. "Pods" -> "Pod") for a single-row delete confirm's title — same
-// rule as objectdetail's own singularDisplay, kept package-local since
-// browse doesn't import objectdetail.
-func singularDisplay(plural string) string {
-	return strings.TrimSuffix(plural, "s")
 }
 
 // CapturingInput reports whether the filter box is open, so the root shell

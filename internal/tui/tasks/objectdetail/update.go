@@ -1,7 +1,6 @@
 package objectdetail
 
 import (
-	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -366,7 +365,7 @@ func (m *Model) beginDelete() tea.Cmd {
 	}
 	return m.actions.Begin(actions.Request{Verb: verbs.Delete, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "delete-" + string(m.kind) + "-" + m.namespace + "/" + m.name,
-		Label: "Delete " + singularDisplay(m.desc.Display) + " " + m.name + "?",
+		Label: "Delete " + resources.SingularDisplay(m.desc) + " " + m.name + "?",
 		Owner: firstOwnerRef(m.obj),
 		Scope: tui.TaskScope{
 			ResourceKind: string(m.kind),
@@ -376,14 +375,6 @@ func (m *Model) beginDelete() tea.Cmd {
 			IsMutating:   true,
 		},
 	})
-}
-
-// singularDisplay strips a trailing "s" off a Descriptor.Display plural
-// (e.g. "certificates" -> "certificate") for the delete confirm's label —
-// good enough for the regular CRD plurals kute never guesses columns for
-// either; an irregular plural just reads slightly off, not wrong.
-func singularDisplay(plural string) string {
-	return strings.TrimSuffix(plural, "s")
 }
 
 // openOwner jumps to the loaded object's first ownerReference through the

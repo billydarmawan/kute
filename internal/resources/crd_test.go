@@ -419,3 +419,35 @@ func TestIngressListResolvesBackendsOncePerNamespace(t *testing.T) {
 		t.Fatalf("%d reads did not carry List's ctx", lister.strayCtxs)
 	}
 }
+
+func TestSingularDisplay(t *testing.T) {
+	cert := CustomDescriptor(kube.DiscoveredKind{Kind: "Certificate", Plural: "certificates", Group: "cert-manager.io"})
+	cases := []struct {
+		d    Descriptor
+		want string
+	}{
+		{Descriptor{Display: "Pods"}, "Pod"},
+		{Descriptor{Display: "Ingresses"}, "Ingress"},
+		{Descriptor{Display: "NetworkPolicies"}, "NetworkPolicy"},
+		{Descriptor{Display: "GatewayClasses"}, "GatewayClass"},
+		{Descriptor{Display: "Helm Releases"}, "Helm Release"},
+		{cert, "Certificate"},
+	}
+	for _, tc := range cases {
+		if got := SingularDisplay(tc.d); got != tc.want {
+			t.Errorf("SingularDisplay(%q) = %q, want %q", tc.d.Display, got, tc.want)
+		}
+	}
+}
+
+// TestDiscoveredKindPillIsShortName: §14a's pill is the short kind name
+// (CERTS), the longest declared short name; none declared leaves it empty.
+func TestDiscoveredKindPillIsShortName(t *testing.T) {
+	d := CustomDescriptor(kube.DiscoveredKind{Kind: "Certificate", Plural: "certificates", Group: "cert-manager.io", ShortNames: []string{"cert", "certs"}})
+	if d.Short != "CERTS" {
+		t.Fatalf("Short = %q, want CERTS", d.Short)
+	}
+	if d := CustomDescriptor(kube.DiscoveredKind{Kind: "Widget", Plural: "widgets", Group: "example.com"}); d.Short != "" {
+		t.Fatalf("Short = %q, want empty for a kind with no short names", d.Short)
+	}
+}

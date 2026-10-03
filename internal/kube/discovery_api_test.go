@@ -214,6 +214,20 @@ func TestCustomKindsFromSkipsUnparseableGroups(t *testing.T) {
 	}
 }
 
+// TestCustomKindsFromKeepsShortNames: §14a's pill reads the resource's
+// declared short names, which discovery already serves.
+func TestCustomKindsFromKeepsShortNames(t *testing.T) {
+	t.Parallel()
+	lists := []*metav1.APIResourceList{{
+		GroupVersion: "cert-manager.io/v1",
+		APIResources: []metav1.APIResource{{Name: "certificates", Kind: "Certificate", Namespaced: true, ShortNames: []string{"cert", "certs"}}},
+	}}
+	got := customKindsFrom(lists, map[string]bool{"certificates.cert-manager.io": true})
+	if len(got) != 1 || len(got[0].ShortNames) != 2 || got[0].ShortNames[1] != "certs" {
+		t.Fatalf("short names dropped: %+v", got)
+	}
+}
+
 // TestRefreshDiscoveryWithNoCRDsDiscoversNothing: a cluster with no CRDs has
 // no custom kinds, and must not fall through to registering built-ins.
 func TestRefreshDiscoveryWithNoCRDsDiscoversNothing(t *testing.T) {

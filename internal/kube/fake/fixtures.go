@@ -603,7 +603,9 @@ func demoCertManagerFixtures(c *Cluster, age, future func(time.Duration) metav1.
 		demoCRD("challenges.acme.cert-manager.io", "acme.cert-manager.io", "Challenge", "challenges", "Namespaced", "v1", true, challengeCols, crdAge),
 	)
 
-	c.SeedDiscovered(demoDiscoveredKind("Certificate", "certificates", "cert-manager.io", "v1", "certificates.cert-manager.io", false, certCols))
+	certKind := demoDiscoveredKind("Certificate", "certificates", "cert-manager.io", "v1", "certificates.cert-manager.io", false, certCols)
+	certKind.ShortNames = []string{"cert", "certs"} // as cert-manager declares them — §14a's CERTS pill
+	c.SeedDiscovered(certKind)
 	c.SeedDiscovered(demoDiscoveredKind("CertificateRequest", "certificaterequests", "cert-manager.io", "v1", "certificaterequests.cert-manager.io", false, certReqCols))
 	c.SeedDiscovered(demoDiscoveredKind("ClusterIssuer", "clusterissuers", "cert-manager.io", "v1", "clusterissuers.cert-manager.io", true, issuerCols))
 	c.SeedDiscovered(demoDiscoveredKind("Order", "orders", "acme.cert-manager.io", "v1", "orders.acme.cert-manager.io", false, orderCols))
