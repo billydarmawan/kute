@@ -290,7 +290,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if verbs.Exec.HiddenWhileOffline(m.conn.Offline()) {
 				return m, nil
 			}
-			return m, execCmd(m.session.CommandTarget(), m.namespace, m.name, eph.Name, m.demo)
+			return m, execCmd(m.session.CommandTarget(), m.namespace, m.name, eph.Name, "", m.demo)
 		}
 	case verbs.YAML.Key:
 		if task, cmd, ok := m.openSelectedYAML(); ok {
@@ -650,7 +650,7 @@ func (m Model) openSelectedExec() (tea.Model, tea.Cmd, bool) {
 		return nil, nil, false
 	}
 	if len(m.pod.ContainerInfos) == 1 {
-		return nil, execCmd(m.session.CommandTarget(), m.namespace, m.name, m.pod.ContainerInfos[0].Name, m.demo), true
+		return nil, execCmd(m.session.CommandTarget(), m.namespace, m.name, m.pod.ContainerInfos[0].Name, "", m.demo), true
 	}
 	if m.openExec == nil {
 		return nil, nil, false
@@ -664,11 +664,11 @@ func (m Model) openSelectedExec() (tea.Model, tea.Cmd, bool) {
 // execCmd and tasks/execpicker's execSelected, duplicated per the repo's
 // package-local-seam convention. demo short-circuits before building a real
 // kubectl command (kube.ErrDemoUnavailable's own doc comment).
-func execCmd(target kube.CommandTarget, namespace, pod, container string, demo bool) tea.Cmd {
+func execCmd(target kube.CommandTarget, namespace, pod, container, shell string, demo bool) tea.Cmd {
 	if demo {
 		return func() tea.Msg { return execResultMsg{err: kube.ErrDemoUnavailable} }
 	}
-	spec := kube.ExecSpec(target, namespace, pod, container, "")
+	spec := kube.ExecSpec(target, namespace, pod, container, shell)
 	return tea.ExecProcess(spec, func(err error) tea.Msg {
 		return execResultMsg{err: err}
 	})

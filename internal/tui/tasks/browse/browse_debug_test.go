@@ -364,3 +364,18 @@ func TestRepeatXWhileProbingIsIgnored(t *testing.T) {
 		t.Fatal("x after the probe finished should probe again")
 	}
 }
+
+// TestSingleContainerExecRunsDetectedShell pins L3: the single-container
+// fast path runs the shell the probe found, so an image with bash but no sh
+// still execs, and falls back to ExecSpec's bash-then-sh wrapper only when
+// the probe couldn't run.
+func TestSingleContainerExecRunsDetectedShell(t *testing.T) {
+	found := podShellsProbedMsg{results: []podShellDetection{{container: "app", shells: []string{"bash"}}}}
+	if got := found.firstShell(); got != "bash" {
+		t.Fatalf("firstShell = %q, want bash", got)
+	}
+	failed := podShellsProbedMsg{results: []podShellDetection{{container: "app", err: context.DeadlineExceeded}}}
+	if got := failed.firstShell(); got != "" {
+		t.Fatalf("firstShell after a failed probe = %q, want the fallback", got)
+	}
+}

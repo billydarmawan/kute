@@ -150,7 +150,7 @@ func (m *Model) routePodShellsProbed(msg podShellsProbedMsg) (tea.Model, tea.Cmd
 		return m.openPodDebug(msg.namespace, msg.podName, msg.containers, podPhase, waiting)
 	}
 	if len(msg.containers) == 1 {
-		return m, execCmd(m.session.CommandTarget(), msg.namespace, msg.podName, msg.containers[0].Name, m.demo)
+		return m, execCmd(m.session.CommandTarget(), msg.namespace, msg.podName, msg.containers[0].Name, msg.firstShell(), m.demo)
 	}
 	if m.openExec == nil {
 		return m, nil
@@ -223,4 +223,15 @@ func (msg podShellsProbedMsg) probed() map[string][]string {
 		}
 	}
 	return out
+}
+
+// firstShell is the shell the single-container fast path runs: the first one
+// the probe found (kube.ShellCandidates order), so an image with bash but no
+// sh still execs. Empty when the probe couldn't run, which keeps
+// kube.ExecSpec on its in-container bash-then-sh fallback.
+func (msg podShellsProbedMsg) firstShell() string {
+	if len(msg.results) == 0 || msg.results[0].err != nil || len(msg.results[0].shells) == 0 {
+		return ""
+	}
+	return msg.results[0].shells[0]
 }
