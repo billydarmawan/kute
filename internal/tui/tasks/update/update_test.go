@@ -137,6 +137,22 @@ func TestInitNoopWhenInfoAlreadyResolved(t *testing.T) {
 	}
 }
 
+// TestInitNoopWhileAmbientCheckInFlight: opening 28b before the first-of-
+// day ambient check returns waits for that check rather than firing a
+// second, concurrent one (14 L11b).
+func TestInitNoopWhileAmbientCheckInFlight(t *testing.T) {
+	calls := 0
+	m := loadingModel()
+	m.session.UpdateChecking = true
+	m.recheck = func() tea.Cmd { calls++; return nil }
+	if cmd := m.Init(); cmd != nil || calls != 0 {
+		t.Fatalf("expected Init to wait for the in-flight check, calls=%d", calls)
+	}
+	if m.state() != tui.TaskStateLoading {
+		t.Fatalf("state() = %v, want loading while the ambient check is in flight", m.state())
+	}
+}
+
 // TestInitNoopWhenCheckAlreadyFailed guards against a refetch loop: once a
 // check has resolved with an error this session, Init must leave it to 'r'
 // rather than silently retrying every time the panel is reopened.

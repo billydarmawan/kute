@@ -53,7 +53,8 @@ func buildChecker(Config) update.Checker {
 // README.md §28a), or (force=false only) the 24h cache is still fresh.
 // Network/parse failures return a tui.UpdateCheckedMsg with Err set, which
 // the root shell (and tasks/update) both treat as "do nothing" — no chip,
-// no error banner, no retry storm.
+// no error banner, no retry storm. A non-nil Cmd marks the session's
+// UpdateChecking until its UpdateCheckedMsg lands.
 func updateCheckCmd(sess *tui.Session, checker update.Checker, force bool) tea.Cmd {
 	if sess == nil || !sess.Config.UpdateCheckEnabled() {
 		return nil
@@ -63,6 +64,7 @@ func updateCheckCmd(sess *tui.Session, checker update.Checker, force bool) tea.C
 		return nil
 	}
 	parent := sess.Context() // the process context: a release check outlives any one kube-context
+	sess.UpdateChecking = true
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, updateCheckTimeout)
 		defer cancel()

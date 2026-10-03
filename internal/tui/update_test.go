@@ -256,8 +256,13 @@ func TestUpdateCheckedMsgErrIsIgnored(t *testing.T) {
 	t.Parallel()
 
 	sess := testSession()
+	sess.UpdateChecking = true
 	model := tui.NewWithSession(&screenTask{name: "browse"}, sess)
 	model.Update(tui.UpdateCheckedMsg{Err: errBoom})
+
+	if sess.UpdateChecking {
+		t.Fatal("UpdateChecking still set after the check resolved")
+	}
 
 	if sess.Update != nil {
 		t.Fatalf("Session.Update = %+v, want nil after a failed check", sess.Update)

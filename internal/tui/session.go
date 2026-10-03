@@ -125,6 +125,12 @@ type Session struct {
 	// design, but the manually-opened panel still needs a way out). Cleared
 	// back to nil by a later successful check.
 	UpdateCheckErr error
+	// UpdateChecking is true while a release-feed check is in flight — set
+	// when updateCheckCmd hands one out, cleared by the root shell on the
+	// next UpdateCheckedMsg. 28b's Init reads it so opening the panel
+	// before the first-of-day ambient check returns waits for that check
+	// instead of firing a second one.
+	UpdateChecking bool
 	// HelpScope, HelpList, HelpResource, and HelpMisc are the 7b help
 	// overlay's four fixed groups, pre-built at the composition root
 	// (internal/app.BuildSession) from the verbs registry: tui itself can't

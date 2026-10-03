@@ -106,6 +106,11 @@ func (m Model) Init() tea.Cmd {
 	if m.checkErr() != nil || m.checkDisabled() || m.recheck == nil {
 		return nil
 	}
+	if m.session != nil && m.session.UpdateChecking {
+		// The ambient check is still in flight: its UpdateCheckedMsg
+		// reaches this panel too, so a second GET would only race it.
+		return nil
+	}
 	return m.recheck()
 }
 

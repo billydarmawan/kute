@@ -976,6 +976,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// (28b) needs it too, to clear its own "checking…" state after 'r'
 		// — same reasoning as kube.ConnStateMsg's forward, just below.
 		if m.session != nil {
+			m.session.UpdateChecking = false
 			m.session.UpdateCheckErr = msg.Err
 			if msg.Err == nil {
 				info := msg.Info

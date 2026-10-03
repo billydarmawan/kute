@@ -123,6 +123,16 @@ func TestUpdateCheckCmdRunsWhenNeverChecked(t *testing.T) {
 	}
 }
 
+// TestUpdateCheckCmdMarksTheCheckInFlight: a handed-out check marks the
+// session so 28b's Init doesn't fire a second one alongside it (14 L11b).
+func TestUpdateCheckCmdMarksTheCheckInFlight(t *testing.T) {
+	t.Parallel()
+	sess := testAppSession()
+	if updateCheckCmd(sess, &fakeChecker{}, false) == nil || !sess.UpdateChecking {
+		t.Fatalf("UpdateChecking = %t after handing out a check, want true", sess.UpdateChecking)
+	}
+}
+
 func TestUpdateCheckCmdErrYieldsErrMsg(t *testing.T) {
 	t.Parallel()
 	sess := testAppSession()
