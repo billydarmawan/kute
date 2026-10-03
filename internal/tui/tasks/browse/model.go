@@ -953,11 +953,7 @@ func (m Model) grouped() bool {
 // opts into neither (fakes, test doubles), so this only changes behavior for
 // *kube.Cluster.
 func (m Model) listerSynced() bool {
-	if kc, ok := m.lister.(KindSyncChecker); ok {
-		return kc.KindSynced(m.kind, m.countNamespace())
-	}
-	sc, ok := m.lister.(CacheSyncChecker)
-	return !ok || sc.Synced()
+	return tui.KindsSynced(m.lister, m.countNamespace(), m.kind)
 }
 
 // namespaceScopedHint names --namespace-scoped=<ns> as a recovery option on

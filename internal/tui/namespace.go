@@ -114,35 +114,6 @@ func namespaceCount(sess *Session) int {
 // informer-cache-backed read. openPalette shows this fast list immediately
 // and kicks off fetchNamespaceCPUSharesCmd separately so the CPU column
 // fills in once it lands instead of blocking the open.
-// cacheSyncChecker mirrors browse.CacheSyncChecker structurally (*kube.
-// Cluster's informers still filling their initial sync, right after launch
-// or mid SwitchContext) — duplicated here rather than imported since tui
-// doesn't depend on browse.
-type cacheSyncChecker interface {
-	Synced() bool
-}
-
-// kindSyncChecker mirrors browse.KindSyncChecker, the per-kind refinement.
-type kindSyncChecker interface {
-	KindSynced(kind kube.ResourceKind, namespace string) bool
-}
-
-// kindSynced reports whether the cache backing kind at namespace is done
-// with its initial fill — true for any lister that opts into neither
-// checker (fakes, test doubles, or no session yet), so this only changes
-// behavior for a live *kube.Cluster. namespace should be whatever the
-// caller's own read of kind used — see tui.KindSyncChecker's doc comment.
-func kindSynced(sess *Session, kind kube.ResourceKind, namespace string) bool {
-	if sess == nil {
-		return true
-	}
-	if kc, ok := sess.Lister.(kindSyncChecker); ok {
-		return kc.KindSynced(kind, namespace)
-	}
-	sc, ok := sess.Lister.(cacheSyncChecker)
-	return !ok || sc.Synced()
-}
-
 // namespaceSyncRetryInterval is how often the namespace palette re-checks
 // the informer cache while it's still filling (mirrors browse's
 // reloadDebounce).
@@ -208,7 +179,7 @@ func (m *Model) loadNamespacePalette(gen int) tea.Cmd {
 	}
 	m.palette.Denied = false
 	items, rows := namespaceItems(m.session)
-	if len(rows) == 0 && !kindSynced(m.session, kube.KindNamespace, "") {
+	if len(rows) == 0 && m.session != nil && !KindsSynced(m.session.Lister, "", kube.KindNamespace) {
 		m.palette.Loading = true
 		m.palette.Items = nil
 		return scheduleNamespaceSyncRetry(gen)
@@ -621,3 +592,4 @@ func namespacePaletteSelection(sess *Session, items []palette.Item, query string
 	}
 	return namespaceBrowseSelection(items, contextRecentNamespaces(sess), sess.Location.Namespace)
 }
+

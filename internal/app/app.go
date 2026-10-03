@@ -149,7 +149,7 @@ func (l helmAwareLister) ChartIndexStatus() helmrepo.Status {
 // forwardAwareLister.Synced (embedding an interface field only promotes the
 // interface's own methods).
 func (l helmAwareLister) Synced() bool {
-	if sc, ok := l.RawLister.(cacheSyncChecker); ok {
+	if sc, ok := l.RawLister.(tui.CacheSyncChecker); ok {
 		return sc.Synced()
 	}
 	return true
@@ -174,7 +174,7 @@ func (l helmAwareLister) Scoped() bool {
 // list asks about a kind nothing backs, hears "nothing to wait for", and
 // flashes "no releases" while the real cache is still filling.
 func (l helmAwareLister) KindSynced(kind kube.ResourceKind, namespace string) bool {
-	kc, ok := l.RawLister.(kindSyncChecker)
+	kc, ok := l.RawLister.(tui.KindSyncChecker)
 	if !ok {
 		return true
 	}
@@ -233,7 +233,7 @@ func (l helmAwareLister) KindForbidden(kind kube.ResourceKind, namespace string)
 // the Secrets that back it. See forwardAwareLister.CountLive for why this
 // forward matters rather than being a formality.
 func (l helmAwareLister) CountLive(ctx context.Context, kind kube.ResourceKind, namespace string) (int, error) {
-	lc, ok := l.RawLister.(liveCounter)
+	lc, ok := l.RawLister.(tui.LiveCounter)
 	if !ok {
 		return 0, fmt.Errorf("no live counter for %s", kind)
 	}
@@ -286,20 +286,6 @@ func (l helmAwareLister) helmSecrets(ctx context.Context, namespace string) ([]r
 	return l.RawLister.ListRaw(ctx, kube.KindSecret, namespace)
 }
 
-// cacheSyncChecker and kindSyncChecker mirror browse.CacheSyncChecker and
-// browse.KindSyncChecker structurally so this package doesn't need to import
-// browse just for the type assertions below.
-type cacheSyncChecker interface{ Synced() bool }
-
-type kindSyncChecker interface {
-	KindSynced(kind kube.ResourceKind, namespace string) bool
-}
-
-// liveCounter mirrors tui.LiveCounter structurally, for the same reason.
-type liveCounter interface {
-	CountLive(ctx context.Context, kind kube.ResourceKind, namespace string) (int, error)
-}
-
 // Synced forwards to the wrapped lister's own Synced, if it has one.
 // Embedding resources.RawLister as an interface field only promotes methods
 // that interface declares (ListRaw), so *kube.Cluster's Synced silently
@@ -308,7 +294,7 @@ type liveCounter interface {
 // missed, so a load reply landing before the informer cache's initial sync
 // read as a genuinely empty result (10c) instead of "still loading" (15a).
 func (l forwardAwareLister) Synced() bool {
-	if sc, ok := l.RawLister.(cacheSyncChecker); ok {
+	if sc, ok := l.RawLister.(tui.CacheSyncChecker); ok {
 		return sc.Synced()
 	}
 	return true
@@ -330,7 +316,7 @@ func (l forwardAwareLister) KindSynced(kind kube.ResourceKind, namespace string)
 	if kind == kube.KindForward {
 		return true
 	}
-	if kc, ok := l.RawLister.(kindSyncChecker); ok {
+	if kc, ok := l.RawLister.(tui.KindSyncChecker); ok {
 		return kc.KindSynced(tlsCacheKind(l.RawLister, kind), namespace)
 	}
 	return true
@@ -394,7 +380,7 @@ func (l forwardAwareLister) CountLive(ctx context.Context, kind kube.ResourceKin
 	if kind == kube.KindForward {
 		return len(l.forwards.ListRaw()), nil
 	}
-	if lc, ok := l.RawLister.(liveCounter); ok {
+	if lc, ok := l.RawLister.(tui.LiveCounter); ok {
 		return lc.CountLive(ctx, kind, namespace)
 	}
 	return 0, fmt.Errorf("no live counter for %s", kind)
