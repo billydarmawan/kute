@@ -230,3 +230,20 @@ func TestEventKeepsInvolvedObjectAPIVersion(t *testing.T) {
 		t.Fatal("APIGroupOf")
 	}
 }
+
+func TestForObjectUIDDropsAPredecessorsEvents(t *testing.T) {
+	t.Parallel()
+	ev := &corev1.Event{InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "db-0", UID: "old"}}
+	projected := eventFromObject(ev)
+	if projected.ObjectUID != "old" {
+		t.Fatalf("ObjectUID = %q, want involvedObject.uid", projected.ObjectUID)
+	}
+	events := []Event{projected, {Reason: "current", ObjectUID: "new"}, {Reason: "no-uid"}}
+	got := ForObjectUID(events, "new")
+	if len(got) != 2 || got[0].Reason != "current" || got[1].Reason != "no-uid" {
+		t.Fatalf("ForObjectUID = %+v, want the current pod's and the uid-less event", got)
+	}
+	if len(ForObjectUID(events, "")) != 3 {
+		t.Fatal("an unknown uid must keep every event")
+	}
+}

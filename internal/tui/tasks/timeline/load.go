@@ -106,7 +106,7 @@ func eventsForScope(ctx context.Context, src EventsReader, lister resources.RawL
 	out := append([]kube.Event(nil), primary...)
 	for _, e := range all {
 		kind, name := splitObject(e.Object)
-		if kind == kube.KindPod && podNames[name] {
+		if kind == kube.KindPod && podNames[kube.PodKey(e.Namespace, name)] {
 			out = append(out, e)
 		}
 	}
@@ -152,7 +152,7 @@ func restartsForScope(ctx context.Context, lister resources.RawLister, namespace
 				continue
 			}
 		case kube.KindDeployment, kube.KindStatefulSet, kube.KindDaemonSet:
-			if !scopedNames[pod.Name] {
+			if !scopedNames[kube.PodKey(pod.Namespace, pod.Name)] {
 				continue
 			}
 		default:
@@ -163,7 +163,9 @@ func restartsForScope(ctx context.Context, lister resources.RawLister, namespace
 	return kube.TimelineFromRestarts(pods)
 }
 
-// podsOwnedByScope resolves the pod names "owned" by objectKind/objectName
+// podsOwnedByScope resolves the pods "owned" by objectKind/objectName, keyed
+// by kube.PodKey — a Node's pods span namespaces, so a bare name would let
+// a same-named pod elsewhere leak into the node's feed —
 // for scopes where that concept applies: scheduled there (Node), or owned
 // directly (StatefulSet/DaemonSet) or via an intermediate ReplicaSet
 // (Deployment). nil for every other kind, including Pod itself — a Pod's
@@ -196,15 +198,15 @@ func podsOwnedByScope(ctx context.Context, lister resources.RawLister, namespace
 		switch objectKind {
 		case kube.KindNode:
 			if pod.Spec.NodeName == objectName {
-				names[pod.Name] = true
+				names[kube.PodKey(pod.Namespace, pod.Name)] = true
 			}
 		case kube.KindStatefulSet, kube.KindDaemonSet:
 			if ownerKind, ownerName, ok := splitOwner(ownerRef(pod.OwnerReferences)); ok && ownerKind == objectKind && ownerName == objectName {
-				names[pod.Name] = true
+				names[kube.PodKey(pod.Namespace, pod.Name)] = true
 			}
 		case kube.KindDeployment:
 			if ownerKind, ownerName, ok := splitOwner(ownerRef(pod.OwnerReferences)); ok && ownerKind == kube.KindReplicaSet && rsToDeployment[ownerName] == objectName {
-				names[pod.Name] = true
+				names[kube.PodKey(pod.Namespace, pod.Name)] = true
 			}
 		}
 	}

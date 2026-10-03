@@ -53,6 +53,7 @@ func (m Model) load() tea.Cmd {
 		var eventsErr error
 		if events != nil {
 			eventRows, eventsErr = events.ObjectEvents(ctx, namespace, kube.KindPod, name)
+			eventRows = kube.ForObjectUID(eventRows, string(obj.UID))
 		}
 
 		controller := resolveControllerDisplay(ctx, lister, namespace, pod.Owner)

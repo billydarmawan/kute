@@ -19,10 +19,13 @@ type Event struct {
 	// bare Kind resolvable to a registry kind (ObjectKind): "HelmRelease"
 	// alone names §18a's Helm kind, not the Flux object that emitted it.
 	ObjectAPIVersion string
-	Namespace        string
-	Count            int32
-	FirstSeen        time.Time
-	LastSeen         time.Time
+	// ObjectUID is involvedObject.uid: what tells a StatefulSet pod apart
+	// from the same-named predecessor it replaced (see ForObjectUID).
+	ObjectUID string
+	Namespace string
+	Count     int32
+	FirstSeen time.Time
+	LastSeen  time.Time
 	// Annotations is the Event object's own metadata.annotations. Flux's
 	// controllers put the reconciled revision there
 	// (kustomize.toolkit.fluxcd.io/revision), which is the exact,
@@ -77,6 +80,20 @@ func (c *Cluster) NamespaceEvents(ctx context.Context, namespace string) ([]Even
 	}
 	sortEventsNewestFirst(out)
 	return out, nil
+}
+
+// ForObjectUID drops the events recorded against a different incarnation of
+// an object than uid — ObjectEvents matches on kind and name, so a
+// StatefulSet pod recreated under the same name would otherwise inherit its
+// predecessor's events. An event with no involvedObject.uid is kept, and an
+// empty uid (the caller doesn't know it) keeps everything.
+func ForObjectUID(events []Event, uid string) []Event {
+	if uid == "" {
+		return events
+	}
+	return slices.DeleteFunc(slices.Clone(events), func(e Event) bool {
+		return e.ObjectUID != "" && e.ObjectUID != uid
+	})
 }
 
 // filterEventsByInvolvedObject projects and filters raw Events by
@@ -155,6 +172,7 @@ func eventFromObject(ev *corev1.Event) Event {
 		Message:          ev.Message,
 		Object:           ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
 		ObjectAPIVersion: ev.InvolvedObject.APIVersion,
+		ObjectUID:        string(ev.InvolvedObject.UID),
 		Namespace:        ev.Namespace,
 		Count:            count,
 		FirstSeen:        first,

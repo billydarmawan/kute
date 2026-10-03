@@ -373,6 +373,29 @@ func TestObjectScopedNodeFiltersRestartsByNodeName(t *testing.T) {
 	}
 }
 
+func TestNodeScopeJoinsPodEventsByNamespaceAndName(t *testing.T) {
+	onNode := testPod("web-0", "node-a", 0)
+	onNode.Namespace = "team-a"
+	elsewhere := testPod("web-0", "node-b", 0)
+	elsewhere.Namespace = "team-b"
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindPod: {onNode, elsewhere}}}
+	events := []kube.Event{
+		{Type: "Warning", Reason: "OnNodeReason", Object: "Pod/web-0", Namespace: "team-a", Count: 1, LastSeen: time.Now()},
+		{Type: "Warning", Reason: "ElsewhereReason", Object: "Pod/web-0", Namespace: "team-b", Count: 1, LastSeen: time.Now()},
+	}
+	m := New(Config{
+		Session: newSession(), Events: fakeEvents{events: events}, Lister: lister,
+		Namespace: "", ObjectKind: kube.KindNode, ObjectName: "node-a",
+	})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	view := plain(m.Render())
+	if !strings.Contains(view, "OnNodeReason") || strings.Contains(view, "ElsewhereReason") {
+		t.Fatalf("node-a's feed must hold team-a/web-0's event only, not a same-named pod's on another node:\n%s", view)
+	}
+}
+
 func TestEmptyStateWhenNothingChanged(t *testing.T) {
 	m := New(Config{Session: newSession(), Events: fakeEvents{}, Namespace: "default"})
 	m.SetSize(120, 36)
@@ -1279,8 +1302,8 @@ func TestDeploymentScopedTimelineIncludesPodEvents(t *testing.T) {
 		kube.KindReplicaSet: {rs},
 	}}
 	events := []kube.Event{
-		{Type: "Warning", Reason: "CreateContainerError", Object: "Pod/checkout-api-7d9f6c8b95-k2m9x", Message: "container create failed", Count: 1, LastSeen: time.Now()},
-		{Type: "Warning", Reason: "BackOff", Object: "Pod/other-app-abcde", Message: "unrelated pod's own event", Count: 1, LastSeen: time.Now()},
+		{Type: "Warning", Reason: "CreateContainerError", Object: "Pod/checkout-api-7d9f6c8b95-k2m9x", Namespace: "default", Message: "container create failed", Count: 1, LastSeen: time.Now()},
+		{Type: "Warning", Reason: "BackOff", Object: "Pod/other-app-abcde", Namespace: "default", Message: "unrelated pod's own event", Count: 1, LastSeen: time.Now()},
 	}
 	m := New(Config{
 		Session: newSession(), Events: fakeEvents{events: events}, Lister: lister,

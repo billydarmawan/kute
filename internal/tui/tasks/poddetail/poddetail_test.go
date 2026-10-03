@@ -553,6 +553,26 @@ func TestTerminationAgeIsHumanized(t *testing.T) {
 	}
 }
 
+// A StatefulSet pod recreated under the same name must not inherit its
+// predecessor's events: ObjectEvents matches kind+name, the UID tells them
+// apart.
+func TestEventsOfASameNamedPredecessorPodAreDropped(t *testing.T) {
+	pod := runningPod("db-0", "default", "node-a")
+	pod.UID = "new-uid"
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindPod: {pod}}}
+	events := fakeEvents{events: []kube.Event{
+		{Type: "Warning", Reason: "PredecessorReason", Object: "Pod/db-0", ObjectUID: "old-uid", Namespace: "default", Count: 1, LastSeen: time.Now()},
+		{Type: "Normal", Reason: "CurrentReason", Object: "Pod/db-0", ObjectUID: "new-uid", Namespace: "default", Count: 1, LastSeen: time.Now()},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Events: events, Namespace: "default", Name: "db-0"})
+	m.SetSize(120, 40)
+	m = step(t, m, m.Init()())
+
+	if len(m.eventRows) != 1 || m.eventRows[0].Reason != "CurrentReason" {
+		t.Fatalf("eventRows = %+v, want only the current pod's event", m.eventRows)
+	}
+}
+
 func TestNoEventsRendersEmptyNotBlank(t *testing.T) {
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindPod: {runningPod("api-0", "default", "node-a")},
