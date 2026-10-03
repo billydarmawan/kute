@@ -281,7 +281,7 @@ func (h *health) onWatchError(err error, synced, reached bool, now time.Time) {
 		// nothing to reconnect to, and the reflector will be refused again
 		// on every retry for as long as the process lives.
 		//
-		// The denial is not dropped. Cluster.noteWatchError, called
+		// The denial is not dropped. Cluster.noteWatchErrorLocked, called
 		// immediately before this at every one of the three call sites,
 		// latches it per-kind for KindForbidden, so the screen that reads
 		// that kind shows 4b's card while the rest of the app carries on.

@@ -103,7 +103,7 @@ type Cluster struct {
 	// callback whose captured generation no longer matches c.generation
 	// belongs to a context that's already been replaced and must not write
 	// into the new context's kindFailed/kindStalled maps — see
-	// generationCurrent, and noteWatchError/markKindFailed/notify for why the
+	// generationCurrent, and noteWatchErrorLocked/markKindFailedLocked/notify for why the
 	// actual writes re-check gen themselves rather than trusting a caller's
 	// earlier generationCurrent call.
 	generation int
@@ -858,7 +858,7 @@ func (c *Cluster) KindError(kind ResourceKind, namespace string) error {
 	return c.kindStalled[key]
 }
 
-// noteWatchError records err against (kind, namespace) — already the
+// noteWatchErrorLocked records err against (kind, namespace) — already the
 // resolved scope, not a raw request namespace, since every caller passes
 // through cacheScopeLocked (or, for Helm, its own namespace) before calling
 // this — from the reflector's own goroutine. A watch dropping after the
@@ -873,26 +873,15 @@ func (c *Cluster) KindError(kind ResourceKind, namespace string) error {
 // a message that corrects itself while the alternative is silence for as long
 // as the user is willing to wait.
 //
-// gen is the caller's own registration-time generation, re-checked against
+// The caller re-checks its own registration-time generation against
 // c.generation inside the same critical section as the write: SwitchContext
 // bumps c.generation and clears kindStalled/kindFailed under this same c.mu
 // (see its own doc comment), so either this write happens entirely before
 // that critical section, or it sees the bumped generation and no-ops — there
 // is no window in between for it to land in the new context's freshly-
-// cleared maps under an old context's error. Kept as a thin wrapper around
-// noteWatchErrorLocked so recordWatchError can fold this write and the
-// connection-health update that follows it into one lock acquisition.
-func (c *Cluster) noteWatchError(gen int, kind ResourceKind, namespace string, err error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.generation != gen {
-		return
-	}
-	c.noteWatchErrorLocked(kind, namespace, err)
-}
-
-// noteWatchErrorLocked is noteWatchError's write, for a caller that already
-// holds c.mu and has already checked the generation. c.mu must be held.
+// cleared maps under an old context's error. recordWatchError is the caller:
+// it folds that check, this write, and the connection-health update that
+// follows it into one lock acquisition. c.mu must be held.
 func (c *Cluster) noteWatchErrorLocked(kind ResourceKind, namespace string, err error) {
 	if IsPermissionError(err) {
 		c.markKindFailedLocked(kind, namespace, err)
@@ -920,7 +909,7 @@ func (c *Cluster) noteWatchErrorLocked(kind ResourceKind, namespace string, err 
 // whole function runs to completion before SwitchContext's critical section
 // starts, or it sees the bumped generation at the top and no-ops before
 // touching health at all. The previous shape re-checked the generation
-// atomically with the *state write* (noteWatchError/markKindFailed already
+// atomically with the *state write* (noteWatchErrorLocked/markKindFailedLocked already
 // did that) but called health.onWatchError afterward, unlocked relative to
 // c.mu — exactly the gap a SwitchContext could land in between the write and
 // the health call, flipping a freshly-reset context's health back to
@@ -1009,29 +998,21 @@ func (c *Cluster) recordAuthenticationFailure(gate *authenticationGate, err erro
 	c.mu.Unlock()
 }
 
-// allStartedKindsSynced reports whether every informer started so far has
-// finished its initial LIST and no observed watch failure is still awaiting
-// a recovered event. This is what the health loop keys off, rather than
+// allStartedKindsReadyLocked reports whether every informer started so far
+// has finished its initial LIST and no observed watch failure is still
+// awaiting a recovered event. This is what the health loop keys off, rather than
 // Synced: with informers starting on demand,
 // the burst of LIST traffic that starves the /livez ping no longer happens
 // only at connect time — opening the Secrets list on a constrained link
 // produces exactly the same contention mid-session. Asking "is anything
 // currently listing" covers both, where "have we connected yet" covers only
-// the first.
-func (c *Cluster) allStartedKindsSynced() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.allStartedKindsReadyLocked()
-}
-
-// allStartedKindsReadyLocked requires both an initial cache population and
-// recovery from every watch error observed since it. c.mu must be held.
+// the first. c.mu must be held.
 func (c *Cluster) allStartedKindsReadyLocked() bool {
 	return c.allStartedKindsSyncedLocked() && len(c.watchUnhealthy) == 0
 }
 
-// allStartedKindsSyncedLocked is allStartedKindsSynced's body for a caller
-// that already holds c.mu — recordWatchError, so its health.onWatchError
+// allStartedKindsSyncedLocked is the initial-population half of
+// allStartedKindsReadyLocked, for a caller that already holds c.mu — recordWatchError, so its health.onWatchError
 // call reads sync state from inside the same critical section as its
 // generation check rather than re-acquiring the lock. c.mu must be held.
 //
@@ -1114,24 +1095,14 @@ func (c *Cluster) noteReachedIfAnyCacheSyncedLocked() {
 	}
 }
 
-// markKindFailed records that (kind, namespace)'s watch reported an error the
-// cache will never recover from on its own — today only "you may not list
-// this", which is a permanent answer for the session, not a transient
-// outage. namespace is already the resolved scope, same as noteWatchError.
-// gen is checked against c.generation under the same lock as the write —
-// see noteWatchError's doc comment for why the caller's own up-front
-// generationCurrent check isn't enough on its own.
-func (c *Cluster) markKindFailed(gen int, kind ResourceKind, namespace string, err error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.generation != gen {
-		return
-	}
-	c.markKindFailedLocked(kind, namespace, err)
-}
-
-// markKindFailedLocked is markKindFailed's write, for a caller that already
-// holds c.mu and has already checked the generation. c.mu must be held.
+// markKindFailedLocked records that (kind, namespace)'s watch reported an
+// error the cache will never recover from on its own — today only "you may
+// not list this", which is a permanent answer for the session, not a
+// transient outage. namespace is already the resolved scope, same as
+// noteWatchErrorLocked. The caller must have checked its generation against
+// c.generation under the same lock as the write — see noteWatchErrorLocked's
+// doc comment for why an up-front generationCurrent check isn't enough on
+// its own. c.mu must be held.
 func (c *Cluster) markKindFailedLocked(kind ResourceKind, namespace string, err error) {
 	if c.kindFailed == nil {
 		c.kindFailed = map[scopeKey]error{}
@@ -1227,8 +1198,8 @@ func (c *Cluster) SwitchContext(ctx context.Context, contextName, namespace stri
 	c.mu.Lock()
 	// Bump generation before touching anything else: a late watch-error/
 	// notify callback from the context being replaced re-checks its captured
-	// gen against c.generation under this same c.mu (noteWatchError/
-	// markKindFailed/notify's own doc comments), so this has to be current
+	// gen against c.generation under this same c.mu (noteWatchErrorLocked/
+	// markKindFailedLocked/notify's own doc comments), so this has to be current
 	// before kindFailed/kindStalled are cleared below, not after — Start
 	// bumps it again once informers are re-registered, which is redundant
 	// but harmless (nothing depends on the exact delta, only equality

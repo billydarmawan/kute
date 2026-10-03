@@ -6,8 +6,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
-	"maps"
-	"slices"
 )
 
 // typedKind is one built-in kind's entry in the typedKinds table: how to
@@ -257,24 +255,14 @@ var typedKinds = map[ResourceKind]typedKind{
 	},
 }
 
-// registerWatches is registerWatchesLocked for callers that don't already
-// hold c.mu. Anything that needs registration and factory.Start to be atomic
-// (Start, ensureKind) must take the lock itself and call the locked form.
-func (c *Cluster) registerWatches(kinds ...ResourceKind) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.registerWatchesLocked(kinds...)
-}
-
 // registerWatchesLocked registers each of kinds against the cluster-wide
 // factory at scope "" — the shape every caller outside Start's own
 // scope-aware Pod registration wants (Namespace/Node are always cluster-wide
 // regardless of mode; every test-only caller predates scoped mode entirely).
-// Passing no kinds registers every kind in typedKinds. c.mu must be held.
+// There is deliberately no "every kind" form: registering the whole table is
+// the breadth-first start the lazy data layer exists to avoid. c.mu must be
+// held.
 func (c *Cluster) registerWatchesLocked(kinds ...ResourceKind) {
-	if len(kinds) == 0 {
-		kinds = slices.Collect(maps.Keys(typedKinds))
-	}
 	for _, kind := range kinds {
 		if _, ok := typedKinds[kind]; !ok {
 			continue
@@ -332,7 +320,7 @@ func (c *Cluster) registerTypedWatchLocked(kind ResourceKind, scope string, f in
 // notify from an informer a since-completed SwitchContext has already torn
 // down is dropped rather than prompting a reload against the new context's
 // cache for a kind change that happened in the old one. Lower-stakes than
-// noteWatchError's atomicity (worst case here is one wasted reload reading
+// noteWatchErrorLocked's atomicity (worst case here is one wasted reload reading
 // the new context's own, correct data), so a plain locked read is enough.
 func (c *Cluster) notify(gen int, kind ResourceKind) {
 	c.notifyScope(gen, kind, "")

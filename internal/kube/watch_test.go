@@ -1,6 +1,8 @@
 package kube
 
 import (
+	"maps"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -80,7 +82,7 @@ func TestListRawReadsThroughTheTable(t *testing.T) {
 	}
 	defer close(c.stopCh)
 
-	c.registerWatches()
+	c.registerWatches(slices.Collect(maps.Keys(typedKinds))...)
 	c.factory.Start(c.stopCh)
 	c.factory.WaitForCacheSync(c.stopCh)
 
