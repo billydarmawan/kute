@@ -405,3 +405,44 @@ func TestRootModelContextCtrlPRefusesToOverwriteBrokenConfig(t *testing.T) {
 		t.Fatalf("ctrl+p rewrote a config.yaml that failed to parse:\n%s", got)
 	}
 }
+
+// TestRootModelContextCtrlPReportsWriteFailure: a ctrl+p whose write fails
+// (here ~/.config/kute is a regular file, so nothing can be created under
+// it) must leave the row's tag untouched and say why in the palette footer,
+// rather than failing in silence (14 L1).
+func TestRootModelContextCtrlPReportsWriteFailure(t *testing.T) {
+	writeContextTestKubeconfig(t)
+	testenv.SetHome(t, t.TempDir())
+	dir := filepath.Dir(config.Path())
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &tui.Session{
+		Theme:    tui.Dark(),
+		Location: tui.Location{Context: "dev"},
+		State:    state.State{PerContext: map[string]state.PerContext{}},
+	}
+	model := tui.NewWithSession(&screenTask{name: "browse"}, sess)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "c"})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	m := updated.(tui.Model)
+
+	view := m.View().Content
+	if !strings.Contains(view, "couldn't save config.yaml") {
+		t.Fatalf("expected the write failure in the palette footer:\n%s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "prod-eks") && strings.Contains(line, "PROD") {
+			t.Fatalf("a failed write must not show a PROD tag:\n%s", view)
+		}
+	}
+	if sess.Config.IsProd("prod-eks") {
+		t.Fatalf("a failed write must leave the in-memory config untouched")
+	}
+}

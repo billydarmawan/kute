@@ -260,10 +260,11 @@ func contextRecentFooter(target string) []palette.FooterSpan {
 }
 
 // toggleSelectedContextProd flips the selected row's PROD status (7a's
-// ctrl+p key) via config.Config.SetProd, best-effort (a write failure — e.g.
-// an unwritable ~/.config — leaves the in-memory tag exactly where SetProd
-// left it, which is untouched on error). A config.yaml that failed to load
-// is refused outright, with the reason in the palette footer. Unlike startContextProbe/
+// ctrl+p key) via config.Config.SetProd. A write failure — e.g. an
+// unwritable ~/.config — leaves the in-memory tag untouched (SetProd only
+// commits after a successful write) and says so in the palette footer, so
+// the row never shows a tag that isn't on disk. A config.yaml that failed to
+// load is refused outright, with the reason in the footer. Unlike startContextProbe/
 // refreshContextPalette (which reset Sel to the alt-tab target on every
 // call), this keeps the toggled row selected — the whole point of the key
 // is to see its own tag change, so jumping the selection away would defeat
@@ -279,6 +280,9 @@ func (m *Model) toggleSelectedContextProd() {
 		// SetProd refused to write it over the user's file — say so where
 		// they pressed the key rather than toggling nothing in silence.
 		m.palette.Footer = contextMarkProdRefusedFooter()
+		return
+	} else if err != nil {
+		m.palette.Footer = contextMarkProdFailedFooter(err)
 		return
 	}
 
@@ -298,6 +302,15 @@ func contextMarkProdRefusedFooter() []palette.FooterSpan {
 	return []palette.FooterSpan{
 		{Text: "config.yaml has errors", Tone: palette.FooterEm},
 		{Text: " — fix it by hand before changing PROD; kute won't overwrite it", Tone: palette.FooterDim},
+	}
+}
+
+// contextMarkProdFailedFooter is ctrl+p's answer when config.yaml couldn't
+// be written: the tag is left where it was, since it isn't on disk.
+func contextMarkProdFailedFooter(err error) []palette.FooterSpan {
+	return []palette.FooterSpan{
+		{Text: "couldn't save config.yaml", Tone: palette.FooterEm},
+		{Text: " — PROD unchanged: " + err.Error(), Tone: palette.FooterDim},
 	}
 }
 
