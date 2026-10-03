@@ -65,10 +65,11 @@ type SetWhoCanResourceMsg struct {
 }
 
 // SwitchContextMsg is the result of an async kube.Cluster.SwitchContext
-// rebuild (7a's context palette Enter, mvp-plan.md Phase 3). Err set means
-// the switch failed (e.g. an unreachable context) — the root shell and
-// browse both leave Session.Location/their own state untouched rather than
-// acting on a partial result. Filter is the target context's remembered
+// rebuild (7a's context palette Enter, mvp-plan.md Phase 3). Context names
+// the target either way. Err set means the switch failed (e.g. an
+// unreachable context) — the root shell and browse both leave
+// Session.Location/their own state untouched rather than acting on a
+// partial result, and the root shows Err on the keybar. Filter is the target context's remembered
 // filter query (state.PerContext, computed by context.go's
 // switchContextCmd), restored by browse alongside Namespace/Kind.
 type SwitchContextMsg struct {

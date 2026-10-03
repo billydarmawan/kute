@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -420,7 +421,15 @@ type Model struct {
 	// rollback): forwarding them reloaded the old kind and namespace against
 	// half-filled caches under the old header, which could read as a false
 	// empty state. SwitchContextMsg clears it, and both its outcomes reload.
-	switching   bool
+	switching bool
+	// switchSpinner animates the header's "switching…" badge while
+	// switching is set (switchingBadge); built on the first switch.
+	switchSpinner spinner.Model
+	// rootResult is a root-level outcome line for the keybar — a failed
+	// or refused 7a switch, which no task's actions.Controller owns. It
+	// renders exactly like a task's ActionResult (Frame's ResultLine path)
+	// and is dismissed by the next key press, as a task's is.
+	rootResult  ResultLine
 	buildSetup  func(kube.ConnState) Task
 	buildBrowse func() Task
 
@@ -816,6 +825,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case SwitchContextMsg:
 		m.switching = false
+		m.rootResult = switchFailureResult(msg)
 		if m.session != nil && msg.Err != nil && msg.RolledBack {
 			// The original context was rebuilt in place: same Location, but
 			// fresh caches and a fresh discovery.
@@ -979,7 +989,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, rewatch // no buffer to paste into; swallow
 		}
 		// Otherwise it belongs to the active task, reached below.
+	case spinner.TickMsg:
+		if cmd, ok := m.tickSwitchSpinner(msg); ok {
+			return m, cmd
+		}
 	case tea.KeyPressMsg:
+		// A root-level outcome line lasts until the user's next key, the
+		// same contract as a task's DismissResult.
+		m.rootResult = ResultLine{}
 		var keycastCmd tea.Cmd
 		if m.keycastEnabled {
 			keycastCmd = m.keycast.record(msg, time.Now())
@@ -1156,7 +1173,9 @@ func (m Model) handlePaletteKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 			cmd = namespaceDispatch(m.session, item)
 		case palette.ScopeContext:
 			cmd = contextDispatch(m.session, item)
-			m.switching = cmd != nil
+			if cmd != nil {
+				cmd = tea.Batch(cmd, m.beginSwitchFeedback())
+			}
 		case palette.ScopeVerb:
 			cmd = whoCanVerbDispatch(item)
 		case palette.ScopeResource:
@@ -1653,6 +1672,7 @@ func (m Model) View() tea.View {
 	if height <= 0 {
 		height = DefaultHeight
 	}
+	view.Content = m.spliceSwitchFeedback(view.Content, width)
 
 	if m.session != nil && (m.palette != nil || m.helpOpen || m.quitConfirm) {
 		theme := m.session.Theme
