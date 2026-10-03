@@ -97,6 +97,9 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.revisions = msg.revisions
 	m.state = tui.TaskStateReady
+	// The rail's UPDATED ages read m.now, never the clock in Render. Once
+	// ready, the conn-state ping (every couple of seconds) keeps it moving.
+	m.now = time.Now()
 	if len(m.revisions) == 0 {
 		// The release Secrets live in a cache that starts on first read, so
 		// an empty first answer means "not loaded yet" far more often than

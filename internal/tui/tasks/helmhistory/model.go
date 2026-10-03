@@ -69,8 +69,9 @@ type Model struct {
 	feedback string
 	spinner  spinner.Model
 
-	// now is wall-clock as of the last spinner tick / conn-state message.
-	// The loading header's "· 0.4s" counter is computed from this rather
+	// now is wall-clock as of the last spinner tick / conn-state message /
+	// load. The loading header's "· 0.4s" counter and the rail's UPDATED
+	// ages are computed from this rather
 	// than read from the clock in Render, which has to stay pure —
 	// f(model, theme, size), no I/O and no clock reads.
 	now time.Time

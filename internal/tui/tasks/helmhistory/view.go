@@ -345,7 +345,7 @@ func (m Model) railBody(theme tui.Theme, width, height int) string {
 		}
 		updated := "–"
 		if !rev.Updated.IsZero() {
-			updated = shortAge(time.Since(rev.Updated)) + " ago"
+			updated = shortAge(m.now.Sub(rev.Updated)) + " ago"
 		}
 		rows = append(rows, components.Row{Cells: []components.Cell{
 			{Text: glyph, Style: glyphStyle},

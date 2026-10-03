@@ -251,6 +251,25 @@ func TestLoadSortsRevisionsNewestFirst(t *testing.T) {
 	}
 }
 
+// TestRailAgesReadModelNowNotTheClock: Render is f(model, theme, size), so
+// the UPDATED column measures against m.now — pinning it makes the age exact.
+func TestRailAgesReadModelNowNotTheClock(t *testing.T) {
+	updated := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindSecret: {kube.EncodeHelmReleaseSecret(kube.HelmRelease{
+			Namespace: "production", Name: "postgresql", Chart: "postgresql", ChartVersion: "12.1.9",
+			Revision: 1, Status: "deployed", Updated: updated,
+		})},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Namespace: "production", Name: "postgresql"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	m.now = updated.Add(5 * time.Hour)
+	if body := plain(m.railBody(m.Theme(), 120, 20)); !strings.Contains(body, "5h ago") {
+		t.Fatalf("expected the age measured from m.now (5h ago), got:\n%s", body)
+	}
+}
+
 func TestRollbackToSelectedRevisionConfirmsAndExecutes(t *testing.T) {
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindSecret: {
