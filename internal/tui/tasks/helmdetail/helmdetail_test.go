@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	batchv1 "k8s.io/api/batch/v1"
@@ -300,5 +301,49 @@ metadata:
 	}
 	if row := secretRow(m); row.unchecked || !row.live || row.liveState != "present" {
 		t.Fatalf("warm Secret row = %+v, want present", row)
+	}
+}
+
+// TestReloadIntoLoadingRestartsTheSpinner: a reload that finds a cache
+// unsynced flips a ready screen back to loading, whose spinner chain stopped
+// when the screen became ready — it must be restarted, or the spinner
+// freezes. A load that lands while already loading must not start a second
+// chain.
+func TestReloadIntoLoadingRestartsTheSpinner(t *testing.T) {
+	release := pendingRelease()
+	m := New(Config{Session: diagnosticSession(), Lister: &recordingLister{}, Events: fakeEvents{}, Release: release})
+	hasTick := func(cmd tea.Cmd) bool {
+		if cmd == nil {
+			return false
+		}
+		batch, ok := cmd().(tea.BatchMsg)
+		if !ok {
+			return false
+		}
+		for _, c := range batch {
+			if c == nil {
+				continue
+			}
+			if _, ok := c().(spinner.TickMsg); ok {
+				return true
+			}
+		}
+		return false
+	}
+
+	_, cmd := m.Update(loadedMsg{epoch: m.reloadEpoch, release: release, pending: true})
+	if hasTick(cmd) {
+		t.Fatal("a pending load while already loading started a second spinner chain")
+	}
+	updated, _ := m.Update(loadedMsg{epoch: m.reloadEpoch, release: release})
+	m = *updated.(*Model)
+	if m.state != tui.TaskStateReady {
+		t.Fatalf("state = %s, want ready", m.state)
+	}
+	updated, cmd = m.Update(loadedMsg{epoch: m.reloadEpoch, release: release, pending: true})
+	m = *updated.(*Model)
+	// A tea.Tick cmd can only be run once, so ask hasTick exactly once.
+	if restarted := hasTick(cmd); m.state != tui.TaskStateLoading || !restarted {
+		t.Fatalf("state = %s, spinner restarted = %v; want loading with the tick chain restarted", m.state, restarted)
 	}
 }

@@ -461,8 +461,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.release, m.rows, m.relevant, m.diagnosis, m.now = msg.release, msg.rows, msg.relevant, msg.diagnosis, msg.now
 		if msg.pending {
+			retry := tui.ScheduleCacheSyncRetry(m.reloadEpoch)
+			if m.state == tui.TaskStateLoading {
+				return m, retry
+			}
+			// Re-entering loading from ready (or error): the spinner case
+			// below stopped the tick chain when the screen left loading, so
+			// restart it — only here, or two chains would double the spin.
 			m.state = tui.TaskStateLoading
-			return m, tui.ScheduleCacheSyncRetry(m.reloadEpoch)
+			return m, tea.Batch(retry, m.spinner.Tick)
 		}
 		m.state, m.feedback = tui.TaskStateReady, ""
 		if m.selected >= len(m.rows) {
