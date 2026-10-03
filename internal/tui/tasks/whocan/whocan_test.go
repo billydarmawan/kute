@@ -279,6 +279,36 @@ func TestEnterOpensSelectedBindingYAML(t *testing.T) {
 	}
 }
 
+func TestEnterOnGrantedPinnedRowOpensTheBindingItsViaNames(t *testing.T) {
+	rbac := &fakeRBAC{result: kube.WhoCanResult{
+		CurrentUser:             "dev",
+		CurrentUserGranted:      true,
+		CurrentUserVia:          "clusterrole/view ← clusterrolebinding/viewers · via group devs",
+		CurrentUserBindingKind:  kube.KindClusterRoleBinding,
+		CurrentUserBindingName:  "viewers",
+		CurrentUserClusterScope: true,
+	}}
+	var openedKind kube.ResourceKind
+	var openedName string
+	m := New(Config{
+		Session: newSession(), RBAC: rbac, Verb: "list", Resource: "secrets", Namespace: "default",
+		OpenYAML: func(kind kube.ResourceKind, ns, name string, w, h int) (tea.Model, tea.Cmd) {
+			openedKind, openedName = kind, name
+			return &fakeTask{}, nil
+		},
+	})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	updated, _ := m.Update(tea.KeyPressMsg{Text: "enter"})
+	if _, ok := updated.(*fakeTask); !ok {
+		t.Fatalf("expected Enter on the granted (you) row to push the YAML task, got %T", updated)
+	}
+	if openedKind != kube.KindClusterRoleBinding || openedName != "viewers" {
+		t.Fatalf("openYAML called with (%s, %s), want (ClusterRoleBinding, viewers)", openedKind, openedName)
+	}
+}
+
 // TestRendersInBothThemes is the CLAUDE.md "both themes always" smoke check
 // every screen owes, independent of golden_test.go's own dark/light
 // truecolor fixtures — just a render that doesn't panic and produces real

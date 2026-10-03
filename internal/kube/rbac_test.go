@@ -153,6 +153,20 @@ func TestResolveWhoCan_CurrentUserGrantedViaGroup(t *testing.T) {
 
 // TestResolveWhoCan_UnknownGroupStillMisses ensures a Group subject that
 // isn't among the caller's own groups doesn't spuriously grant access.
+func TestResolveWhoCan_GrantedCurrentUserCarriesItsBinding(t *testing.T) {
+	crs := []*rbacv1.ClusterRole{
+		clusterRole("view", rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"list"}}),
+	}
+	rbs := []*rbacv1.RoleBinding{
+		roleBinding("readers", "team-a", "ClusterRole", "view", rbacv1.Subject{Kind: rbacv1.GroupKind, Name: "devs"}),
+	}
+	result := ResolveWhoCan(WhoCanQuery{Verb: "list", Resource: "secrets", Namespace: "team-a"}, "dev", []string{"devs"}, crs, nil, nil, rbs)
+	if !result.CurrentUserGranted || result.CurrentUserBindingKind != KindRoleBinding ||
+		result.CurrentUserBindingNamespace != "team-a" || result.CurrentUserBindingName != "readers" {
+		t.Fatalf("granted current user binding = %s %s/%s, want RoleBinding team-a/readers", result.CurrentUserBindingKind, result.CurrentUserBindingNamespace, result.CurrentUserBindingName)
+	}
+}
+
 func TestResolveWhoCan_UnknownGroupStillMisses(t *testing.T) {
 	crs := []*rbacv1.ClusterRole{
 		clusterRole("cluster-admin", rbacv1.PolicyRule{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"*"}}),

@@ -121,6 +121,12 @@ type WhoCanResult struct {
 	CurrentUserClusterScope bool
 	// CurrentUserOnlyNames mirrors WhoCanSubject.OnlyNames for that grant.
 	CurrentUserOnlyNames []string
+	// CurrentUserBindingKind/Namespace/Name identify the binding behind a
+	// granted CurrentUserVia, so the pinned row's ↵ opens it like any
+	// other row's. Empty when not granted.
+	CurrentUserBindingKind      ResourceKind
+	CurrentUserBindingNamespace string
+	CurrentUserBindingName      string
 	// CurrentUserUnknown is set when CurrentUser is only a kubeconfig
 	// AuthInfo entry name (Context.UserFromAuthInfo) and no grant was
 	// found: the real identity is unknown locally, so the pinned row is a
@@ -348,6 +354,9 @@ func ResolveWhoCan(
 		result.CurrentUserVia = bestVia
 		result.CurrentUserClusterScope = best.ClusterScope
 		result.CurrentUserOnlyNames = best.OnlyNames
+		result.CurrentUserBindingKind = best.BindingKind
+		result.CurrentUserBindingNamespace = best.BindingNamespace
+		result.CurrentUserBindingName = best.BindingName
 		return result
 	}
 	result.CurrentUserVia = closestMiss(currentUser, currentUserGroups, query, crByName, rByName, clusterRoleBindings, roleBindings)

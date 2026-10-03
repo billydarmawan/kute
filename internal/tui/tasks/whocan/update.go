@@ -215,6 +215,10 @@ func buildRows(result kube.WhoCanResult) []whoCanRow {
 				Via:          result.CurrentUserVia,
 				ClusterScope: result.CurrentUserClusterScope,
 				OnlyNames:    result.CurrentUserOnlyNames,
+				// Empty on a miss: there's no binding to open.
+				BindingKind:      result.CurrentUserBindingKind,
+				BindingNamespace: result.CurrentUserBindingNamespace,
+				BindingName:      result.CurrentUserBindingName,
 			},
 		})
 	}
@@ -276,7 +280,8 @@ func (m *Model) clampOffset() {
 // openSelectedBinding is 22a's "↵ opens the binding's YAML" — pushes 8a for
 // the resolved subject row's backing RoleBinding/ClusterRoleBinding. A
 // no-op for the pinned miss row (BindingName is empty: there's no real
-// binding to open when the current user has no matching grant at all).
+// binding to open when the current user has no matching grant at all); a
+// granted pinned row opens the binding its VIA names.
 func (m Model) openSelectedBinding() (tea.Model, tea.Cmd, bool) {
 	row, ok := m.selectedRow()
 	if !ok || m.openYAML == nil || row.subject.BindingName == "" {
