@@ -27,11 +27,14 @@ type UpdateInfo struct {
 // whether it should render at all — sourced from the persisted
 // State.UpdateCheck trio, not Update, so the chip works even in a session
 // that never re-checks itself (see UpdateInfo's doc comment). False when no
-// update is cached, the cached version isn't actually newer, or the user
+// update is cached, the cached version isn't actually newer, the user
 // has already dismissed it (opened 28b for it, or hit 'x' there — docs/
-// design README.md §28a: "never re-nags for a version already seen").
+// design README.md §28a: "never re-nags for a version already seen"), or
+// update checks are off (update.check: false or --no-update-check), where
+// the cache is inert and a stale chip would advertise a key whose screen
+// only says checks are disabled.
 func (s *Session) UpdateChip() (version string, ok bool) {
-	if s == nil {
+	if s == nil || !s.Config.UpdateCheckEnabled() {
 		return "", false
 	}
 	latest := s.State.UpdateCheck.LatestVersion

@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/kute-dev/kute/internal/config"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/update"
 )
@@ -41,6 +42,29 @@ func TestSessionUpdateChipAvailable(t *testing.T) {
 	v, ok := sess.UpdateChip()
 	if !ok || v != "0.2.1" {
 		t.Fatalf("UpdateChip() = (%q, %v), want (0.2.1, true)", v, ok)
+	}
+}
+
+// TestSessionUpdateChipHiddenWhenChecksAreOff: with update.check: false or
+// --no-update-check the persisted cache is inert, so a stale "↑ x.y.z"
+// from an earlier session must not show (14 L10).
+func TestSessionUpdateChipHiddenWhenChecksAreOff(t *testing.T) {
+	t.Parallel()
+	off := false
+	for name, cfg := range map[string]config.Config{
+		"update.check: false": {Update: config.UpdateConfig{Check: &off}},
+		"--no-update-check":   func() config.Config { var c config.Config; c.DisableUpdateCheck(); return c }(),
+	} {
+		sess := testSession()
+		sess.Version = "0.2.0"
+		sess.Config = cfg
+		sess.State.UpdateCheck.LatestVersion = "0.2.1"
+		if v, ok := sess.UpdateChip(); ok {
+			t.Errorf("%s: UpdateChip() = (%q, true), want no chip", name, v)
+		}
+		if hints := tui.UpdateRightHints(sess); hints != nil {
+			t.Errorf("%s: UpdateRightHints() = %v, want nil", name, hints)
+		}
 	}
 }
 
