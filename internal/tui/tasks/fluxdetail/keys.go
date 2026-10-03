@@ -13,7 +13,7 @@ func (m Model) Keybar() tui.Keybar {
 	}
 	groups := [][]tui.KeyHint{}
 	if len(m.inventory) > 0 {
-		groups = append(groups, []tui.KeyHint{{Key: "↵", Label: "open object"}})
+		groups = append(groups, []tui.KeyHint{verbs.Open.HintAs("open object")})
 	}
 
 	if m.mutator != nil && !m.offline() {
@@ -34,7 +34,7 @@ func (m Model) Keybar() tui.Keybar {
 	groups = append(groups, nav)
 
 	if m.foldedCount() > 0 || m.invExpanded {
-		groups = append(groups, []tui.KeyHint{{Key: "tab", Label: "expand/collapse ready"}})
+		groups = append(groups, []tui.KeyHint{verbs.ToggleGroup.HintAs("expand/collapse ready")})
 	}
 	return tui.Keybar{
 		Pill:       tui.ModeBrowse,

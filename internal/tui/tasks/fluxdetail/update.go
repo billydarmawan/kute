@@ -161,7 +161,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.moveHalfPage(1)
 	case "ctrl+u":
 		m.moveHalfPage(-1)
-	case "tab":
+	case verbs.ToggleGroup.Key:
 		m.invExpanded = !m.invExpanded
 		m.clampOffset(m.inventoryViewportRows())
 	case "enter":

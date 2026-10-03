@@ -5,10 +5,7 @@ import (
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
-// Keybar composes the bottom band from verb references where one already
-// exists (Help is a shared cross-screen verb); `↹ next panel` is screen-local,
-// the same "no cross-screen verb to register" precedent
-// tasks/whocan's own v/k keys already establish. Timeline/Events (t/e) are
+// Keybar composes the bottom band from verb references only. Timeline/Events (t/e) are
 // global grammar as of v.0.3.0.dc.html §29a, so they no longer render here —
 // they're taught once in the ? overlay's GLOBAL column.
 func (m Model) Keybar() tui.Keybar {
@@ -17,7 +14,7 @@ func (m Model) Keybar() tui.Keybar {
 	}
 
 	groups := [][]tui.KeyHint{
-		{{Key: tui.GlyphTab, Label: "next panel"}},
+		{verbs.NextPanel.Hint()},
 	}
 
 	return tui.Keybar{

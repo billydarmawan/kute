@@ -186,13 +186,15 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if verbs.NextPanel.Matches(msg.String()) {
+		m.nextPanel()
+		return m, nil
+	}
 	switch msg.String() {
 	case "ctrl+q", "ctrl+c":
 		return m, tea.Quit
 	case "esc", "backspace":
 		return m, func() tea.Msg { return tui.BackMsg{} }
-	case "tab":
-		m.nextPanel()
 	case "up", "k":
 		m.moveSelection(-1)
 	case "down", "j":
