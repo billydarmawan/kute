@@ -14,6 +14,9 @@ type ProbeResult struct {
 	Name    string
 	Latency time.Duration
 	Err     error
+	// Skipped marks a context deliberately left unprobed (7a's
+	// credential-plugin contexts until ctrl+r) — neither reachable nor not.
+	Skipped bool
 }
 
 // probeTimeout bounds one context's reachability check. Generous rather than

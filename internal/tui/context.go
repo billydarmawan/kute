@@ -147,9 +147,12 @@ func contextItems(sess *Session, probes map[string]kube.ProbeResult) []palette.I
 
 // probeStatus renders one context row's reachability glyph+text: "◌
 // probing…" before a result has arrived, "● 12ms" on success, "✕
-// unreachable" on error (docs/design README.md §7a).
+// unreachable" on error, and "○ not probed" for a credential-plugin context
+// left alone until ctrl+r (docs/design README.md §7a).
 func probeStatus(res kube.ProbeResult) string {
 	switch {
+	case res.Skipped:
+		return GlyphCompleted + " not probed"
 	case res.Name == "" && res.Err == nil && res.Latency == 0:
 		return GlyphProbing + " probing…"
 	case res.Err != nil:
@@ -165,6 +168,8 @@ func probeStatus(res kube.ProbeResult) string {
 // the reachability-at-a-glance cue the palette mockup relies on.
 func probeTone(res kube.ProbeResult) palette.Tone {
 	switch {
+	case res.Skipped:
+		return palette.ToneFaint
 	case res.Name == "" && res.Err == nil && res.Latency == 0:
 		return palette.ToneWarn
 	case res.Err != nil:

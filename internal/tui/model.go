@@ -1218,7 +1218,7 @@ func (m Model) handlePaletteKey(msg tea.KeyPressMsg) (bool, Model, tea.Cmd) {
 		// every "arn:…" context contain — typing "prod" filtered on "pod"
 		// and re-probed every context instead.
 		if m.palette.Scope == palette.ScopeContext {
-			return true, m, m.startContextProbe()
+			return true, m, m.startContextProbe(true)
 		}
 	case palette.KeyContextMarkProd:
 		// Ctrl-chorded rather than a bare letter: "P"/"p" can lead a
@@ -1404,18 +1404,44 @@ func (m *Model) pasteQuery(msg tea.Msg) (tea.Cmd, bool) {
 }
 
 // startContextProbe (re)opens the 7a context palette's data: reset probe
-// results, populate items immediately (every row starts "probing…"), and
-// kick off a fresh kube.ProbeContexts run — used both by openPalette and by
-// the palette's own ctrl+r re-probe key.
-func (m *Model) startContextProbe() tea.Cmd {
+// results, populate items immediately (every probed row starts
+// "probing…"), and kick off a fresh kube.ProbeContexts run — used both by
+// openPalette and by the palette's own ctrl+r re-probe key.
+//
+// all is false on open: a context whose user mints credentials through an
+// exec or auth-provider plugin is left "not probed" (unless it's the active
+// one, already connected), since probing it runs that plugin — a browser
+// login per OIDC context, an SSO prompt per AWS profile — for a context the
+// user only scrolled past. ctrl+r is the explicit ask, and probes all of
+// them (docs/design README.md §7a).
+func (m *Model) startContextProbe(all bool) tea.Cmd {
 	m.palette.Hint = contextHint()
 	m.probes = map[string]kube.ProbeResult{}
+	names := contextNames()
+	if !all {
+		names = m.skipCredentialPluginProbes(names)
+	}
 	m.probeGen++
 	m.refreshContextPalette()
 	m.stopContextProbe()
 	ctx, cancel := context.WithCancel(m.session.Context())
 	m.probeCancel = cancel
-	return probeContextsCmd(ctx, m.probeGen, contextNames())
+	return probeContextsCmd(ctx, m.probeGen, names)
+}
+
+// skipCredentialPluginProbes marks every credential-plugin context in names
+// but the active one as not probed, and returns the rest.
+func (m *Model) skipCredentialPluginProbes(names []string) []string {
+	plugin := kube.CredentialPluginContexts()
+	probe := make([]string, 0, len(names))
+	for _, name := range names {
+		if plugin[name] && name != m.session.Location.Context {
+			m.probes[name] = kube.ProbeResult{Name: name, Skipped: true}
+			continue
+		}
+		probe = append(probe, name)
+	}
+	return probe
 }
 
 // stopContextProbe cancels the in-flight context probe run, if any — called
@@ -1627,7 +1653,7 @@ func (m *Model) openPalette(scope palette.Scope, prompt, hint string) tea.Cmd {
 		m.palette.ColumnHeaders = contextColumnHeaders()
 		m.palette.NameColumnLabel = "CONTEXT"
 		m.palette.RecentHint = recentPickHint()
-		return m.startContextProbe()
+		return m.startContextProbe(false)
 	}
 	return nil
 }

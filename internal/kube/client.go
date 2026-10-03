@@ -430,3 +430,26 @@ func AvailableContexts() (names []string, current string, err error) {
 	names = slices.Sorted(maps.Keys(raw.Contexts))
 	return names, raw.CurrentContext, nil
 }
+
+// CredentialPluginContexts names the kubeconfig contexts whose user mints
+// its credential through an exec or auth-provider plugin (aws, gcloud,
+// kubelogin, …) — the contexts where building a client and making one
+// request can run that plugin, which may open a browser login or an SSO
+// prompt. 7a's palette leaves these unprobed until asked (docs/design
+// README.md §7a). Empty when the kubeconfig can't be read.
+func CredentialPluginContexts() map[string]bool {
+	raw, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(kubeconfigLoadingRules(), &clientcmd.ConfigOverrides{}).RawConfig()
+	if err != nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for name, ctx := range raw.Contexts {
+		if ctx == nil {
+			continue
+		}
+		if user := raw.AuthInfos[ctx.AuthInfo]; user != nil && (user.Exec != nil || user.AuthProvider != nil) {
+			out[name] = true
+		}
+	}
+	return out
+}
