@@ -37,7 +37,7 @@ func TestRenderHelpDoesNotTruncateColumns(t *testing.T) {
 	misc := []KeyHint{{Key: "?", Label: "help"}, {Key: "ctrl+q", Label: "quit"}}
 
 	for _, width := range []int{80, 100, 120, 160, 220} {
-		panel := renderHelp(Dark(), view, scope, list, resource, misc, width)
+		panel := renderHelp(Dark(), view, scope, list, resource, misc, width, 100)
 		plain := ansi.Strip(panel)
 		if strings.Contains(plain, "…") {
 			t.Errorf("width %d: rendered help panel truncated a column with '…':\n%s", width, plain)
@@ -67,5 +67,34 @@ func TestHelpColumnWidthsShrinksEvenly(t *testing.T) {
 	}
 	if widths[2] <= floor+4 {
 		t.Errorf("the widest column was starved to %d cells (widths %v)", widths[2], widths)
+	}
+}
+
+// On a short terminal the help panel must fit the palette's height cap and
+// keep its footer (MISC, esc close): the columns give up their bottom rows to
+// a "+N more" marker instead of Compose clipping the panel's bottom edge.
+func TestRenderHelpFitsShortTerminal(t *testing.T) {
+	var hints []KeyHint
+	for i := range 20 {
+		hints = append(hints, KeyHint{Key: string(rune('a' + i)), Label: "verb"})
+	}
+	view := fakeHelpScreen{kb: Keybar{PillText: "POD", Groups: [][]KeyHint{hints}}}
+	scope := []KeyHint{{Key: "g", Label: "goto"}}
+	misc := []KeyHint{{Key: "?", Label: "help"}, {Key: "ctrl+q", Label: "quit"}}
+
+	const maxHeight = 14
+	plain := ansi.Strip(renderHelp(Dark(), view, scope, nil, nil, misc, 120, maxHeight))
+	lines := strings.Split(plain, "\n")
+	if len(lines) > maxHeight {
+		t.Fatalf("help panel is %d rows, want <= %d:\n%s", len(lines), maxHeight, plain)
+	}
+	for _, want := range []string{"MISC", "esc close", "more", "goto"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("expected %q in the capped panel:\n%s", want, plain)
+		}
+	}
+	// A roomy terminal shows every hint, no marker.
+	if roomy := ansi.Strip(renderHelp(Dark(), view, scope, nil, nil, misc, 120, 100)); strings.Contains(roomy, "more") {
+		t.Errorf("expected no marker when everything fits:\n%s", roomy)
 	}
 }

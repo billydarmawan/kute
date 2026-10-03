@@ -1761,7 +1761,7 @@ func (m Model) View() tea.View {
 			if !ok {
 				return view
 			}
-			panel = renderHelp(theme, screen, m.session.HelpScope, m.session.HelpList, m.session.HelpResource, m.session.HelpMisc, width)
+			panel = renderHelp(theme, screen, m.session.HelpScope, m.session.HelpList, m.session.HelpResource, m.session.HelpMisc, width, palettePanelMaxHeight(height))
 		}
 		view.Content = components.Compose(view.Content, panel, width, height, paletteTop, dim)
 

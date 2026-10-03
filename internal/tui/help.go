@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kute-dev/kute/internal/tui/components"
 )
@@ -39,8 +40,11 @@ func flattenHints(groups [][]KeyHint) []KeyHint {
 // resource are Session.HelpScope/HelpList/HelpResource (built at the
 // composition root from the verbs registry — see session.go's doc comment
 // on those fields); misc is Session.HelpMisc, rendered as a horizontal
-// footer row rather than a fifth column.
-func renderHelp(theme Theme, view Screen, scope, list, resource, misc []KeyHint, screenWidth int) string {
+// footer row rather than a fifth column. maxHeight caps the panel's outer
+// height (the palette's own cap): on a short terminal the columns lose their
+// bottom rows to a "+N more" marker so the MISC row and "esc close" stay on
+// screen, instead of Compose clipping the panel's bottom edge.
+func renderHelp(theme Theme, view Screen, scope, list, resource, misc []KeyHint, screenWidth, maxHeight int) string {
 	width := helpWidth(screenWidth)
 	frameWidth := max(width-2, 20)
 
@@ -103,13 +107,33 @@ func renderHelp(theme Theme, view Screen, scope, list, resource, misc []KeyHint,
 		cols[i] = c
 	}
 
+	miscLines := helpMiscLines(misc, headStyle, keyStyle, labelStyle, fill, innerWidth)
+	// title + rule, rule, MISC, rule, close, and the two border rows.
+	if budget := max(maxHeight-7-len(miscLines), 1); rows > budget {
+		for i, c := range cols {
+			// Every non-blank row from the last kept one down, which the
+			// marker replaces — a column whose hints all fit keeps them.
+			hidden := 0
+			for _, l := range c[budget-1:] {
+				if strings.TrimSpace(ansi.Strip(l)) != "" {
+					hidden++
+				}
+			}
+			if budget > 1 && hidden > 1 {
+				c[budget-1] = helpPad(faint.Render(fmt.Sprintf("+%d more", hidden)), widths[i], fill)
+			}
+			cols[i] = c[:budget]
+		}
+		rows = budget
+	}
+
 	gap := helpFill(fill, colGap)
 	lines := []string{helpInset(title, frameWidth, fill), rule}
 	for r := range rows {
 		lines = append(lines, helpInset(cols[0][r]+gap+cols[1][r]+gap+cols[2][r]+gap+cols[3][r], frameWidth, fill))
 	}
 	lines = append(lines, rule)
-	for _, l := range helpMiscLines(misc, headStyle, keyStyle, labelStyle, fill, innerWidth) {
+	for _, l := range miscLines {
 		lines = append(lines, helpInset(l, frameWidth, fill))
 	}
 	lines = append(lines, rule)
