@@ -7,7 +7,7 @@
   SOURCE           RESOURCE                                  HELM STATE    LIVE EVIDENCE                                
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ▎ pre-install,     Job/timesheet-backend-migrate             Running ·     Completed event · object no longer present   
-  pre-upgrade                                                since 10:54                                                
+  pre-upgrade                                                for 1h                                                     
   object           Service/timesheet-backend                 declared      not created                                  
   object           Deployment/timesheet-backend              declared      not created                                  
                                                                                                                         

@@ -94,7 +94,7 @@ func (m Model) Body(width, height int) string {
 	widths := table.ColumnWidths(width)
 	wrapped := make([][]string, len(m.rows))
 	for i, row := range m.rows {
-		wrapped[i] = renderDiagnosticRow(row, i == m.selected, widths, width, theme)
+		wrapped[i] = renderDiagnosticRow(row, i == m.selected, widths, width, theme, m.now)
 	}
 
 	// Scroll in logical rows, but budget in physical lines so a wrapped row
@@ -125,7 +125,7 @@ func (m Model) Body(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderDiagnosticRow(row diagnosticRow, selected bool, widths []int, width int, theme tui.Theme) []string {
+func renderDiagnosticRow(row diagnosticRow, selected bool, widths []int, width int, theme tui.Theme, now time.Time) []string {
 	typeStyle := lipgloss.NewStyle().Foreground(theme.Accent)
 	if row.kindType == rowHook {
 		typeStyle = lipgloss.NewStyle().Foreground(theme.Warn)
@@ -153,7 +153,7 @@ func renderDiagnosticRow(row diagnosticRow, selected bool, widths []int, width i
 	values := [][]string{
 		wrapDiagnosticText(row.typeLabel, widths[0]),
 		{components.Truncate(row.ref.Kind+"/"+row.ref.Name, widths[1])},
-		wrapDiagnosticText(row.helmState, widths[2]),
+		wrapDiagnosticText(row.helmStateText(now), widths[2]),
 		wrapDiagnosticText(row.liveState, widths[3]),
 	}
 	height := 1

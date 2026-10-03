@@ -8,7 +8,7 @@
   SOURCE           RESOURCE              HELM STATE    LIVE EVIDENCE            
 ────────────────────────────────────────────────────────────────────────────────
 ▎ pre-install,     Job/timesheet-backe…  Running ·     Completed event ·        
-  pre-upgrade                            since 10:54   object no longer         
+  pre-upgrade                            for 1h        object no longer         
                                                        present                  
   object           Service/timesheet-b…  declared      not created              
   object           Deployment/timeshee…  declared      not created              

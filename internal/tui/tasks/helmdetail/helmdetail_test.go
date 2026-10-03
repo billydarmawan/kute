@@ -33,7 +33,16 @@ func (l *recordingLister) ListRaw(_ context.Context, kind kube.ResourceKind, _ s
 
 type fakeEvents []kube.Event
 
-func (e fakeEvents) NamespaceEvents(context.Context, string) ([]kube.Event, error) { return e, nil }
+// NamespaceEvents answers like the real read: only namespace's own Events.
+func (e fakeEvents) NamespaceEvents(_ context.Context, namespace string) ([]kube.Event, error) {
+	var out []kube.Event
+	for _, ev := range e {
+		if namespace == "" || ev.Namespace == namespace {
+			out = append(out, ev)
+		}
+	}
+	return out, nil
+}
 
 func diagnosticSession() *tui.Session {
 	return &tui.Session{
@@ -99,8 +108,9 @@ func TestPendingInstallExplainsCompletedMissingHookAndUncreatedObjects(t *testin
 	if m.rows[1].liveState != "not created" || m.rows[2].liveState != "not created" {
 		t.Fatalf("object evidence = %+v", m.rows[1:])
 	}
+	m.now = release.Hooks[0].LastRun.StartedAt.Add(90 * time.Minute) // hook ages read the screen's clock
 	view := ansi.Strip(m.Render())
-	for _, want := range []string{"pending-install", "Initial install underway", "Helm transaction was not finalized", "pre-upgrade", "Job/timesheet-backend-migrate", "since 10:54", "object no longer present", "Deployment/timesheet-backend", "not created"} {
+	for _, want := range []string{"pending-install", "Initial install underway", "Helm transaction was not finalized", "pre-upgrade", "Job/timesheet-backend-migrate", "for 1h", "object no longer present", "Deployment/timesheet-backend", "not created"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("render missing %q:\n%s", want, view)
 		}
@@ -345,5 +355,29 @@ func TestReloadIntoLoadingRestartsTheSpinner(t *testing.T) {
 	// A tea.Tick cmd can only be run once, so ask hasTick exactly once.
 	if restarted := hasTick(cmd); m.state != tui.TaskStateLoading || !restarted {
 		t.Fatalf("state = %s, spinner restarted = %v; want loading with the tick chain restarted", m.state, restarted)
+	}
+}
+
+// TestHookEvidenceReadsTheHooksOwnNamespace: a hook a chart renders into
+// another namespace has its Events there, so its evidence must come from
+// that namespace — not read "not present" off the release's.
+func TestHookEvidenceReadsTheHooksOwnNamespace(t *testing.T) {
+	release := pendingRelease()
+	release.Hooks[0].Manifest = `apiVersion: batch/v1
+kind: Job
+metadata:
+  name: timesheet-backend-migrate
+  namespace: migrations
+`
+	events := fakeEvents{{
+		Type: "Normal", Reason: "Completed", Message: "Job completed",
+		Object: "Job/timesheet-backend-migrate", Namespace: "migrations",
+		LastSeen: release.Hooks[0].LastRun.StartedAt.Add(time.Minute),
+	}}
+	m := New(Config{Session: diagnosticSession(), Lister: &recordingLister{}, Events: events, Release: release})
+	updated, _ := m.Update(m.load()())
+	m = *updated.(*Model)
+	if got := m.rows[0].liveState; got != "Completed event · object no longer present" {
+		t.Fatalf("hook evidence = %q, want the Completed event from its own namespace", got)
 	}
 }

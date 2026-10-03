@@ -75,6 +75,9 @@ type diagnosticRow struct {
 	ref       kube.HelmObjectRef
 	kind      kube.ResourceKind
 	helmState string
+	// hookRun is a hook row's last run, timed against the screen's own now
+	// at render (helmStateText) rather than baked in when the row is built.
+	hookRun   *kube.HelmHookRun
 	liveState string
 	note      string
 	live      bool
@@ -239,16 +242,34 @@ func (m Model) load() tea.Cmd {
 				errs[s] = tui.KindsError(lister, s.namespace, s.kind)
 			}
 		}
-		var eventList []kube.Event
-		var eventErr error
+		// Events live in their object's namespace, so a hook or object a
+		// chart renders into another namespace has its evidence there. A
+		// cluster-scoped ref ("") reads the release's own namespace, as before.
+		eventNamespaces := map[string]bool{release.Namespace: true}
+		for s := range scopes {
+			if s.namespace != "" {
+				eventNamespaces[s.namespace] = true
+			}
+		}
+		eventLists := map[string][]kube.Event{}
+		eventErrs := map[string]error{}
 		if events != nil {
-			eventList, eventErr = events.NamespaceEvents(ctx, release.Namespace)
-			if !tui.KindsSynced(lister, release.Namespace, kube.KindEvent) {
-				pending = true
+			for ns := range eventNamespaces {
+				eventLists[ns], eventErrs[ns] = events.NamespaceEvents(ctx, ns)
+				if !tui.KindsSynced(lister, ns, kube.KindEvent) {
+					pending = true
+				}
+				if eventErrs[ns] == nil {
+					eventErrs[ns] = tui.KindsError(lister, ns, kube.KindEvent)
+				}
 			}
-			if eventErr == nil {
-				eventErr = tui.KindsError(lister, release.Namespace, kube.KindEvent)
+		}
+		eventsFor := func(ref kube.HelmObjectRef) ([]kube.Event, error) {
+			ns := ref.Namespace
+			if ns == "" {
+				ns = release.Namespace
 			}
+			return eventLists[ns], eventErrs[ns]
 		}
 
 		rows := make([]diagnosticRow, 0, len(release.Hooks)+len(refs))
@@ -259,6 +280,7 @@ func (m Model) load() tea.Cmd {
 			s := scope{kind, ref.Namespace}
 			live := kind != "" && containsObject(objects[s], ref.Name)
 			unchecked := kind != "" && skipped[s]
+			eventList, eventErr := eventsFor(ref)
 			liveState := evidenceFor(ref, live, errs[s], eventList, eventErr)
 			if unchecked && strings.HasPrefix(liveState, "not present") {
 				liveState = notChecked(kind)
@@ -267,12 +289,12 @@ func (m Model) load() tea.Cmd {
 			if event == "" {
 				event = "hook"
 			}
-			phase := hookState(hook)
+			run := hook.LastRun
 			note := ""
 			if len(hook.DeletePolicies) > 0 {
 				note = "cleanup: " + strings.Join(hook.DeletePolicies, ", ")
 			}
-			rows = append(rows, diagnosticRow{typeLabel: event, ref: ref, kind: kind, helmState: phase, liveState: liveState, note: note, live: live, unchecked: unchecked, kindType: rowHook})
+			rows = append(rows, diagnosticRow{typeLabel: event, ref: ref, kind: kind, hookRun: &run, liveState: liveState, note: note, live: live, unchecked: unchecked, kindType: rowHook})
 			if diagnosis == "" && !unchecked && strings.HasPrefix(release.Status, "pending-") && strings.EqualFold(hook.LastRun.Phase, "running") && !live && completedEvent(ref, eventList, hook.LastRun.StartedAt) {
 				diagnosis = fmt.Sprintf("Helm still records %s/%s as Running, but Kubernetes reports it Completed and the object is gone · the Helm transaction was not finalized", ref.Kind, ref.Name)
 			}
@@ -409,16 +431,29 @@ func completedEvent(ref kube.HelmObjectRef, events []kube.Event, started time.Ti
 	return false
 }
 
-func hookState(hook kube.HelmHook) string {
-	phase := hook.LastRun.Phase
+// hookState is Helm's own record of a hook's last run, timed relative to
+// now (the screen's own clock, the same one the header's "updated" age
+// reads) —
+// a bare HH:MM can't tell a hook stuck since this morning from one stuck
+// for three days.
+// helmStateText is a row's HELM STATE cell as of now.
+func (r diagnosticRow) helmStateText(now time.Time) string {
+	if r.hookRun != nil {
+		return hookState(*r.hookRun, now)
+	}
+	return r.helmState
+}
+
+func hookState(run kube.HelmHookRun, now time.Time) string {
+	phase := run.Phase
 	if phase == "" {
 		return "not run"
 	}
-	if !hook.LastRun.CompletedAt.IsZero() {
-		return phase + " · " + hook.LastRun.CompletedAt.Format("15:04")
+	if !run.CompletedAt.IsZero() {
+		return phase + " · " + age(now, run.CompletedAt)
 	}
-	if !hook.LastRun.StartedAt.IsZero() {
-		return phase + " · since " + hook.LastRun.StartedAt.Format("15:04")
+	if !run.StartedAt.IsZero() {
+		return phase + " · for " + strings.TrimSuffix(strings.Replace(age(now, run.StartedAt), "just now", "<1m", 1), " ago")
 	}
 	return phase
 }
