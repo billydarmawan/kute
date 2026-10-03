@@ -448,7 +448,8 @@ func podTemplateSpec(kind kube.ResourceKind, obj any) (corev1.PodSpec, string, b
 // configMapRefKind reports whether spec references the named ConfigMap, and
 // how: "env" (envFrom.configMapRef, or an env var's
 // valueFrom.configMapKeyRef, checked on both containers and initContainers)
-// wins over "volume" (a configMap volume source) when both are present.
+// wins over "volume" (a configMap volume, or a configMap source inside a
+// projected volume) when both are present.
 func configMapRefKind(spec corev1.PodSpec, name string) (string, bool) {
 	hasEnv := false
 	for _, containers := range [][]corev1.Container{spec.Containers, spec.InitContainers} {
@@ -471,6 +472,13 @@ func configMapRefKind(spec corev1.PodSpec, name string) (string, bool) {
 	for _, v := range spec.Volumes {
 		if v.ConfigMap != nil && v.ConfigMap.Name == name {
 			return "volume", true
+		}
+		if v.Projected != nil {
+			for _, src := range v.Projected.Sources {
+				if src.ConfigMap != nil && src.ConfigMap.Name == name {
+					return "volume", true
+				}
+			}
 		}
 	}
 	return "", false

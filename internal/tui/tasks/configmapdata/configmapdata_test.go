@@ -278,6 +278,27 @@ func TestConsumerStripListsEnvAndVolumeReferences(t *testing.T) {
 	}
 }
 
+// A configMap source inside a projected volume is a volume consumer too.
+func TestConsumerStripListsProjectedVolumeReferences(t *testing.T) {
+	cm := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nva-agent", Namespace: "nva-stage"},
+		Spec: appsv1.DaemonSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Volumes: []corev1.Volume{{Name: "bundle", VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{
+				Sources: []corev1.VolumeProjection{
+					{Secret: &corev1.SecretProjection{LocalObjectReference: corev1.LocalObjectReference{Name: "other"}}},
+					{ConfigMap: &corev1.ConfigMapProjection{LocalObjectReference: corev1.LocalObjectReference{Name: "nva-config"}}},
+				},
+			}}}},
+		}}},
+	}
+	m := newModel(t, newSession(), cm, nil, map[kube.ResourceKind][]runtime.Object{kube.KindDaemonSet: {ds}})
+	strip := plain(strings.Join(m.Strips(120), "\n"))
+	if !strings.Contains(strip, "ds/nva-agent ↗ volume") {
+		t.Fatalf("expected the projected-volume DaemonSet consumer in the strip, got %q", strip)
+	}
+}
+
 func TestAddKeyNonProdAppliesImmediatelyAndRefreshes(t *testing.T) {
 	cm := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
 	mut := &fakeMutator{cm: cm}
