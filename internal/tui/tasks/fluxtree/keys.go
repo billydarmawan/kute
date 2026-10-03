@@ -50,7 +50,7 @@ func (m Model) Keybar() tui.Keybar {
 		groups = append(groups, hints)
 	}
 	if m.foldedSources > 0 || m.expanded {
-		groups = append(groups, []tui.KeyHint{{Key: tui.GlyphTab, Label: "expand/collapse ready"}})
+		groups = append(groups, []tui.KeyHint{verbs.ToggleGroup.HintAs("expand/collapse ready")})
 	}
 
 	return tui.Keybar{
