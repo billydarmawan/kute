@@ -72,6 +72,13 @@ type Row struct {
 	// counts it.
 	Suspended bool
 
+	// ArgoSources is a multi-source Argo Application's spec.sources count
+	// (§33a), 0 for a single-source one. Its REVISION cell reads "N
+	// sources" — no one ref names them all — and browse's S then sends a
+	// sync with no revision, so Argo syncs every source to its own
+	// targetRevision, rather than re-expanding that cell into a ref.
+	ArgoSources int
+
 	// Active marks a CronJob row with at least one currently-active
 	// associated Job (ProjectCronJob, §36a/§4.3) — the ACT column's own
 	// state, outside Cells for the same reason Suspended is: a consumer

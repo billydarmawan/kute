@@ -17,6 +17,7 @@
 package resources
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -114,6 +115,16 @@ func projectArgoResource(obj runtime.Object) Row {
 	glyph, class := argoStatus(sync, health)
 	targetRevision, _, _ := unstructured.NestedString(u.Object, "spec", "source", "targetRevision")
 	revision, _, _ := unstructured.NestedString(u.Object, "status", "sync", "revision")
+	revisionCell := argoRevisionCell(targetRevision, revision)
+	// A multi-source Application (spec.sources, status.sync.revisions) has
+	// no single ref. Non-empty spec.sources wins over spec.source, as Argo
+	// CD's own ApplicationSpec.HasMultipleSources decides it.
+	sources, _, _ := unstructured.NestedSlice(u.Object, "spec", "sources")
+	multi := 0
+	if len(sources) > 0 {
+		multi = len(sources)
+		revisionCell = fmt.Sprintf("%d sources", multi)
+	}
 
 	return Row{
 		Namespace: ns,
@@ -122,15 +133,16 @@ func projectArgoResource(obj runtime.Object) Row {
 			name,
 			argoCell(sync),
 			argoCell(health),
-			argoRevisionCell(targetRevision, revision),
+			revisionCell,
 			argoSyncedCell(u),
 			shortAge(age),
 		},
-		Status:     class,
-		Glyph:      glyph,
-		GlyphClass: class,
-		StatusText: argoStatusText(sync, health),
-		SubLine:    argoSubLine(u, health),
+		Status:      class,
+		Glyph:       glyph,
+		GlyphClass:  class,
+		StatusText:  argoStatusText(sync, health),
+		SubLine:     argoSubLine(u, health),
+		ArgoSources: multi,
 	}
 }
 

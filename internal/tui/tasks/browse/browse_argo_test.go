@@ -280,6 +280,32 @@ func TestArgoSyncRevisionFallsBackToHEAD(t *testing.T) {
 	}
 }
 
+// A multi-source Application has no single ref: REVISION says how many
+// sources it has, and S sends a sync with no revision so Argo syncs each
+// source to its own targetRevision instead of a singular "HEAD".
+func TestArgoSyncOfAMultiSourceAppSendsNoRevision(t *testing.T) {
+	mut := &fakeMutator{}
+	app := application("stack", "", "", "OutOfSync", "Healthy")
+	_ = unstructured.SetNestedSlice(app.Object, []any{
+		map[string]any{"repoURL": "https://charts.example.io", "targetRevision": "1.2.3"},
+		map[string]any{"repoURL": "https://git.example.io/values", "targetRevision": "main"},
+	}, "spec", "sources")
+	unstructured.RemoveNestedField(app.Object, "spec", "source")
+	m := argoModelWithMutator(t, mut, app)
+	if view := plain(m.Render()); !strings.Contains(view, "2 sources") {
+		t.Fatalf("expected the multi-source REVISION cell:\n%s", view)
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "S"})
+	if kb := m.Keybar(); strings.Contains(kb.RightNote, `"revision"`) {
+		t.Fatalf("a multi-source sync must not name a singular revision, got %q", kb.RightNote)
+	}
+	step(t, m, tea.KeyPressMsg{Text: "y"})
+	if len(mut.argoSyncs) != 1 || mut.argoSyncs[0] != "argocd/stack@" {
+		t.Fatalf("argoSyncs = %v, want [argocd/stack@] (no revision)", mut.argoSyncs)
+	}
+}
+
 // TestArgoDashboardURLCopiesTheConfiguredLink covers §33a's 'u'.
 func TestArgoDashboardURLCopiesTheConfiguredLink(t *testing.T) {
 	t.Setenv("KUTE_TEST_NO_CLIPBOARD", "1") // no-op; documents intent only

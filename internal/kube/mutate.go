@@ -878,14 +878,22 @@ func ArgoSyncInitiator(id ReviewedIdentity, reviewed bool) string {
 // ArgoSyncCommandString prints — one builder so the two can't drift. Its
 // initiatedBy matches Argo CD's OperationInitiator (username, automated):
 // a manual sync, attributed. An empty initiator is DefaultArgoSyncInitiator.
+//
+// An empty revision omits the field: Argo then syncs every source to its
+// own targetRevision — the only correct request for a multi-source
+// Application, where a singular revision names no source in particular.
 func ArgoSyncPatch(revision, initiator string) []byte {
 	if initiator == "" {
 		initiator = DefaultArgoSyncInitiator
 	}
+	sync := map[string]any{}
+	if revision != "" {
+		sync["revision"] = revision
+	}
 	patch, _ := json.Marshal(map[string]any{
 		"operation": map[string]any{
 			"initiatedBy": map[string]any{"username": initiator, "automated": false},
-			"sync":        map[string]any{"revision": revision},
+			"sync":        sync,
 		},
 	})
 	return patch

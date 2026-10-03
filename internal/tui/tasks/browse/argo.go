@@ -90,7 +90,13 @@ func (m *Model) beginArgoSync(row resources.Row) tea.Cmd {
 // e41b90c", or bare "HEAD" before the first sync) back into the target ref
 // argoRevisionCell built it from — the part before "@", or the whole cell
 // when there's no SHA yet.
+//
+// A multi-source Application has no one ref to re-expand: "" sends a sync
+// with no revision, and Argo syncs each source to its own targetRevision.
 func argoSyncRevisionFromRow(row resources.Row) string {
+	if row.ArgoSources > 0 {
+		return ""
+	}
 	if len(row.Cells) < 4 {
 		return "HEAD"
 	}
