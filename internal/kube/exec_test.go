@@ -153,3 +153,13 @@ func TestShellProbeScriptCoversEveryCandidate(t *testing.T) {
 		t.Errorf("probe script = %q, want it to iterate exactly %v", shellProbeScript, ShellCandidates)
 	}
 }
+
+func TestAttachSpecReattachesToTheContainer(t *testing.T) {
+	t.Parallel()
+	cmd := AttachSpec(CommandTarget{}, "default", "api-1", "debugger-x7k2p")
+	got := strings.Join(cmd.Args, " ")
+	want := "kubectl attach -it api-1 -n default -c debugger-x7k2p"
+	if got != want {
+		t.Fatalf("AttachSpec args = %q, want %q", got, want)
+	}
+}

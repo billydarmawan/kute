@@ -284,16 +284,21 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return task, cmd
 		}
 	case "enter":
-		// §41e: re-attach to an already-created ephemeral container — a
-		// real container in the pod once attached, exec'd into the same
-		// way any other container is (kube.ExecSpec), no new kube
-		// function needed. No-op anywhere else in this grid; enter has no
-		// other meaning on an ordinary CONTAINERS row.
+		// §41e: re-attach to an already-created ephemeral container —
+		// kubectl attach reconnects to the shell kubectl debug started
+		// there, rather than opening a second one. A Terminated one can't
+		// be attached to (or restarted), so say so instead of handing
+		// kubectl a doomed command. No-op anywhere else in this grid;
+		// enter has no other meaning on an ordinary CONTAINERS row.
 		if eph, ok := m.selectedEphemeralContainer(); ok {
 			if verbs.Exec.HiddenWhileOffline(m.conn.Offline()) {
 				return m, nil
 			}
-			return m, execCmd(m.session.CommandTarget(), m.namespace, m.name, eph.Name, "", m.demo)
+			if eph.State == "Terminated" {
+				m.execFeedback = eph.Name + " has exited — an ephemeral container can't be restarted"
+				return m, nil
+			}
+			return m, attachCmd(m.session.CommandTarget(), m.namespace, m.name, eph.Name, m.demo)
 		}
 	case verbs.YAML.Key:
 		if task, cmd, ok := m.openSelectedYAML(); ok {
@@ -660,6 +665,17 @@ func (m Model) openSelectedExec() (tea.Model, tea.Cmd, bool) {
 	}
 	task, cmd := m.openExec(m.namespace, m.name, m.pod.ContainerInfos, nil, m.width, m.height)
 	return task, cmd, task != nil
+}
+
+// attachCmd is execCmd's §41e twin: kubectl attach to an ephemeral
+// container's own process, reporting through the same execResultMsg.
+func attachCmd(target kube.CommandTarget, namespace, pod, container string, demo bool) tea.Cmd {
+	if demo {
+		return func() tea.Msg { return execResultMsg{err: kube.ErrDemoUnavailable} }
+	}
+	return tea.ExecProcess(kube.AttachSpec(target, namespace, pod, container), func(err error) tea.Msg {
+		return execResultMsg{err: err}
+	})
 }
 
 // execCmd suspends the program and hands the tty to kubectl for container

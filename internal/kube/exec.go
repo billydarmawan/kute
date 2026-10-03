@@ -175,6 +175,18 @@ func ExecSpec(target CommandTarget, namespace, pod, container, shell string) *ex
 	return kubectlCommand(target, execArgs(namespace, pod, container, shell)...)
 }
 
+// AttachSpec builds `kubectl attach -it` for §41e's ↵ on an ephemeral
+// container: it reconnects to the shell kubectl debug started there — a
+// dropped connection costs one key, not a second shell or a second
+// injected container. Only a Running container can be attached to.
+func AttachSpec(target CommandTarget, namespace, pod, container string) *exec.Cmd {
+	return kubectlCommand(target, attachArgs(namespace, pod, container)...)
+}
+
+func attachArgs(namespace, pod, container string) []string {
+	return []string{"attach", "-it", pod, "-n", namespace, "-c", container}
+}
+
 // ExecCommandString renders the exact kubectl invocation ExecSpec builds,
 // for 10a's "will run" line (docs/design README.md §10a: "no magic,
 // copyable documentation") — quoting any argument containing whitespace

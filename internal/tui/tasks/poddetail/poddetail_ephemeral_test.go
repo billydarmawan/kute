@@ -91,9 +91,8 @@ func TestContainerCursorExtendsIntoEphemeralGroup(t *testing.T) {
 	}
 }
 
-// TestEnterOnEphemeralRowReattaches confirms §41e's "↵ re-attach" — a real
-// container once created, exec'd into like any other (kube.ExecSpec), no
-// new kube function needed.
+// TestEnterOnEphemeralRowReattaches confirms §41e's "↵ re-attach" — a
+// kubectl attach (kube.AttachSpec) to the running ephemeral container.
 func TestEnterOnEphemeralRowReattaches(t *testing.T) {
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindPod: {podWithEphemeralContainer("api-0", "default", "node-a")},
@@ -109,6 +108,26 @@ func TestEnterOnEphemeralRowReattaches(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected a non-nil exec Cmd re-attaching to the ephemeral container")
+	}
+}
+
+// TestEnterOnExitedEphemeralRowSaysSo pins L12: a Terminated ephemeral
+// container can't be attached to, so ↵ explains that instead of handing
+// kubectl a command that can only fail.
+func TestEnterOnExitedEphemeralRowSaysSo(t *testing.T) {
+	pod := podWithEphemeralContainer("api-0", "default", "node-a")
+	pod.Status.EphemeralContainerStatuses[0].State = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed"}}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindPod: {pod}}}
+	m := New(Config{Session: newSession(), Lister: lister, Namespace: "default", Name: "api-0"})
+	m.SetSize(120, 40)
+	m = step(t, m, m.Init()())
+	m.moveContainerSelection(1)
+
+	if _, cmd := m.Update(tea.KeyPressMsg{Text: "enter"}); cmd != nil {
+		t.Fatal("expected no kubectl handoff for an exited ephemeral container")
+	}
+	if !strings.Contains(m.execFeedback, "debugger-7xk2 has exited") {
+		t.Fatalf("execFeedback = %q, want an exited note", m.execFeedback)
 	}
 }
 
