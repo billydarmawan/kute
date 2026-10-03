@@ -31,7 +31,9 @@
 // screen: adding a key, editing one (single- or multi-line), or removing one
 // all go through actions.Controller/kube.Mutator (non-PROD: add/edit apply
 // immediately; PROD: inline y/N first; removal: always inline y/N,
-// regardless of PROD), and the outcome re-fetches the ConfigMap (and its
+// regardless of PROD; ctrl-r's apply + restart: a single rollout restart's
+// friction — inline y/N, and in PROD the type-the-name modal against the
+// ConfigMap's name), and the outcome re-fetches the ConfigMap (and its
 // consumer list) fresh rather than trusting the locally-typed value —
 // "confirm → execute → refresh → show result → remain on screen."
 package configmapdata

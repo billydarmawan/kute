@@ -87,11 +87,14 @@ var policies = map[string]rule{
 	ForceDelete.ID: {tier: TierModal, prod: TierModal, typed: true},
 	// The rest of the "destroys or replaces something" family: inline y/N,
 	// type-the-name modal in PROD (§9a, §16b, §18a "Rollback inherits 8b
-	// friction", §37c).
-	RolloutRestart.ID: {tier: TierInline, prod: TierModal, typed: true},
-	RolloutUndo.ID:    {tier: TierInline, prod: TierModal, typed: true},
-	Rollback.ID:       {tier: TierInline, prod: TierModal, typed: true},
-	JobReplace.ID:     {tier: TierInline, prod: TierModal, typed: true},
+	// friction", §37c). 27a's ctrl-r restarts every consumer of a ConfigMap
+	// in one key, so it never gets less friction than restarting one
+	// (the typed name is the ConfigMap's).
+	RolloutRestart.ID:            {tier: TierInline, prod: TierModal, typed: true},
+	RestartConfigMapConsumers.ID: {tier: TierInline, prod: TierModal, typed: true},
+	RolloutUndo.ID:               {tier: TierInline, prod: TierModal, typed: true},
+	Rollback.ID:                  {tier: TierInline, prod: TierModal, typed: true},
+	JobReplace.ID:                {tier: TierInline, prod: TierModal, typed: true},
 	// Suspend tears down running work (§36c/§37a); resume restores the prior
 	// state exactly, so it stays reversible-and-immediate.
 	JobSuspend.ID:     {tier: TierInline, prod: TierModal, typed: true, hasReverse: true, reverse: TierNone},
@@ -129,14 +132,13 @@ var policies = map[string]rule{
 	// Immediate outside PROD, one y/N line in PROD — never the type-the-name
 	// modal (§24a, §25a, §27a, §27b, §41, and kubectl edit's tty handoff).
 	// An add over an existing Secret/ConfigMap key always asks first.
-	SetImage.ID:                  {prod: TierInline},
-	SetResources.ID:              {prod: TierInline},
-	AddSecretKey.ID:              {prod: TierInline, onOverwrite: TierInline},
-	AddConfigMapKey.ID:           {prod: TierInline, onOverwrite: TierInline},
-	RestartConfigMapConsumers.ID: {prod: TierInline, onOverwrite: TierInline},
-	Edit.ID:                      {prod: TierInline},
-	NodeDebug.ID:                 {prod: TierInline},
-	NodeDebugDetail.ID:           {prod: TierInline},
+	SetImage.ID:        {prod: TierInline},
+	SetResources.ID:    {prod: TierInline},
+	AddSecretKey.ID:    {prod: TierInline, onOverwrite: TierInline},
+	AddConfigMapKey.ID: {prod: TierInline, onOverwrite: TierInline},
+	Edit.ID:            {prod: TierInline},
+	NodeDebug.ID:       {prod: TierInline},
+	NodeDebugDetail.ID: {prod: TierInline},
 }
 
 // untiered are the Mutating verbs with no confirm policy at all: tty

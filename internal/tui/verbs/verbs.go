@@ -546,8 +546,11 @@ var (
 	}
 	// RestartConfigMapConsumers is 27a's ctrl-r — chains a value apply with
 	// `kubectl rollout restart` for every workload that consumes the
-	// ConfigMap. Same policy as AddConfigMapKey — the PROD gate the plain
-	// apply uses (it's the same patch, plus extra restarts). It is only ever
+	// ConfigMap. Same policy as RolloutRestart, not AddConfigMapKey: one key
+	// restarts every consumer, so it never gets less friction than
+	// restarting one (inline y/N; PROD: type the ConfigMap's name). With no
+	// consumers it is just the apply, and configmapdata begins it as
+	// AddConfigMapKey. It is only ever
 	// pressed while a value buffer has focus, so it must be a chord: as a
 	// bare 'R' (72af16b) every capital R typed into a value ("Release",
 	// "REDIS_URL") applied and restarted every consumer. A control chord

@@ -430,6 +430,7 @@ func TestCtrlRChainsRolloutRestartOfEveryConsumer(t *testing.T) {
 		m = step(t, m, tea.KeyPressMsg{Text: string(r)})
 	}
 	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
 
 	if cm.Data["LOG_LEVEL"] != "debug" {
 		t.Fatalf("expected the edit applied, cm.Data = %+v", cm.Data)
@@ -465,6 +466,7 @@ func TestCtrlRPartialRestartFailureReportsWhatLanded(t *testing.T) {
 	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
 	m = step(t, m, tea.KeyPressMsg{Text: "x"})
 	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
 
 	if cm.Data["LOG_LEVEL"] != "infox" {
 		t.Fatalf("expected the edit applied, cm.Data = %+v", cm.Data)
@@ -826,6 +828,7 @@ func TestConcurrentEditConflictsKeepsBufferAndReloads(t *testing.T) {
 	m = step(t, m, kube.ResourceChangedMsg{Kind: kube.KindConfigMap})
 
 	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
 
 	if got := mut.dataResourceVersions; len(got) != 1 || got[0] != "1" {
 		t.Fatalf("patch preconditions = %v, want [1] (the version the buffer opened on)", got)
@@ -851,6 +854,7 @@ func TestConcurrentEditConflictsKeepsBufferAndReloads(t *testing.T) {
 
 	// Retrying applies over the version the user has now been told about.
 	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
 	if cm.Data["LOG_LEVEL"] != "debug" {
 		t.Fatalf("expected the retry applied, cm.Data = %+v (preconditions %v, lastError %q)", cm.Data, mut.dataResourceVersions, m.lastError)
 	}
@@ -875,5 +879,147 @@ func TestRemoveKeyCarriesObservedResourceVersion(t *testing.T) {
 	}
 	if _, ok := cm.Data["LOG_LEVEL"]; ok {
 		t.Fatalf("expected LOG_LEVEL removed, cm.Data = %+v", cm.Data)
+	}
+}
+
+func twoConsumers() map[kube.ResourceKind][]runtime.Object {
+	return map[kube.ResourceKind][]runtime.Object{
+		kube.KindDeployment:  {deploymentEnvFrom("nva-stage", "nva-worker", "nva-config")},
+		kube.KindStatefulSet: {statefulSetVolume("nva-stage", "nva-db", "nva-config")},
+	}
+}
+
+// TestCtrlRAsksYNBeforeRestartingOutsideProd: ctrl-r restarts every consumer
+// in one key, so outside PROD it gets the inline y/N a single rollout
+// restart gets — never an immediate apply. The y/N names the restarts, the
+// will-run strip lists every command, esc walks back to the buffer with
+// the typed value intact, and y applies + restarts and stays on screen.
+func TestCtrlRAsksYNBeforeRestartingOutsideProd(t *testing.T) {
+	cm := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
+	mut := &fakeMutator{cm: cm}
+	m := newModel(t, newSession(), cm, mut, twoConsumers())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	m = typeOver(t, m, "info", "debug")
+	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+
+	if !m.actions.Active() || m.actions.Tier() != actions.TierInline {
+		t.Fatalf("expected ctrl-r to stop at an inline y/N outside PROD, active=%v tier=%v", m.actions.Active(), m.actions.Tier())
+	}
+	if cm.Data["LOG_LEVEL"] != "info" || len(mut.rolloutRestarts) != 0 {
+		t.Fatalf("nothing may run before y: cm.Data = %+v, restarts = %v", cm.Data, mut.rolloutRestarts)
+	}
+	view := plain(m.View().Content)
+	for _, want := range []string{
+		"confirm to update + restart 2 consumers · y/N",
+		`kubectl patch cm/nva-config --type merge -p '{"data":{"LOG_LEVEL":"debug"}}' -n nva-stage`,
+		"kubectl rollout restart deploy/nva-worker -n nva-stage",
+		"kubectl rollout restart sts/nva-db -n nva-stage",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected %q in the y/N view:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "to confirm") {
+		t.Fatalf("outside PROD ctrl-r is a y/N, not the type-the-name modal:\n%s", view)
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "esc"})
+	if m.actions.Active() || m.editing == nil || m.editing.valueInput.Value() != "debug" {
+		t.Fatalf("expected esc to reopen the edit with the typed value, editing = %+v", m.editing)
+	}
+	if cm.Data["LOG_LEVEL"] != "info" || len(mut.rolloutRestarts) != 0 {
+		t.Fatalf("a cancelled ctrl-r must not run: cm.Data = %+v, restarts = %v", cm.Data, mut.rolloutRestarts)
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if cm.Data["LOG_LEVEL"] != "debug" || len(mut.rolloutRestarts) != 2 {
+		t.Fatalf("expected y to apply and restart both: cm.Data = %+v, restarts = %v", cm.Data, mut.rolloutRestarts)
+	}
+	if m.message != "updated LOG_LEVEL · restarted 2 consumers" {
+		t.Fatalf("message = %q", m.message)
+	}
+}
+
+// TestCtrlRInProdRequiresTypingTheConfigMapName: in PROD ctrl-r gets the
+// type-the-name modal a single rollout restart gets there, against the
+// ConfigMap's name. A bare y types into the buffer rather than confirming,
+// the modal lists the consumers and every command, a paste reaches the
+// buffer through tui.RoutePaste, and only the matching name + enter runs.
+func TestCtrlRInProdRequiresTypingTheConfigMapName(t *testing.T) {
+	cm := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
+	mut := &fakeMutator{cm: cm}
+	m := newModel(t, prodSession(), cm, mut, twoConsumers())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	m = typeOver(t, m, "info", "debug")
+	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+
+	if !m.actions.TypeToConfirm() {
+		t.Fatal("expected ctrl-r in PROD to open the type-the-name modal")
+	}
+	view := plain(m.View().Content)
+	for _, want := range []string{
+		`type "nva-config" to confirm`,
+		"PROD CONTEXT",
+		"Update key LOG_LEVEL on nva-config and restart 2 consumers?",
+		"restarts deploy/nva-worker · sts/nva-db",
+		`kubectl patch cm/nva-config --type merge -p '{"data":{"LOG_LEVEL":"debug"}}' -n nva-stage`,
+		"kubectl rollout restart deploy/nva-worker -n nva-stage",
+		"kubectl rollout restart sts/nva-db -n nva-stage",
+		"apply + restart (when name matches)",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected %q in the PROD modal:\n%s", want, view)
+		}
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if cm.Data["LOG_LEVEL"] != "info" || len(mut.rolloutRestarts) != 0 {
+		t.Fatalf("y + enter must not run in PROD: cm.Data = %+v, restarts = %v", cm.Data, mut.rolloutRestarts)
+	}
+	if m.actions.TypedName() != "y" {
+		t.Fatalf("expected y typed into the modal's buffer, got %q", m.actions.TypedName())
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "esc"})
+	if m.actions.Active() || m.editing == nil || m.editing.valueInput.Value() != "debug" {
+		t.Fatalf("expected esc to reopen the edit with the typed value, editing = %+v", m.editing)
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	for _, r := range "nva-" {
+		m = step(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	m = step(t, m, tea.PasteMsg{Content: "config"})
+	if m.editing != nil {
+		t.Fatal("the paste must reach the modal, not a buffer behind it")
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if cm.Data["LOG_LEVEL"] != "debug" || len(mut.rolloutRestarts) != 2 {
+		t.Fatalf("expected the matching name to apply and restart both: cm.Data = %+v, restarts = %v", cm.Data, mut.rolloutRestarts)
+	}
+	if m.message != "updated LOG_LEVEL · restarted 2 consumers" {
+		t.Fatalf("message = %q", m.message)
+	}
+	if m.state != tui.TaskStateReady || !strings.Contains(plain(m.View().Content), "updated LOG_LEVEL · restarted 2 consumers") {
+		t.Fatalf("expected the screen to remain with the inline result:\n%s", plain(m.View().Content))
+	}
+}
+
+// TestCtrlRWithNoConsumersIsThePlainApply: with nothing to restart, ctrl-r
+// is just the apply, and gets the apply's friction.
+func TestCtrlRWithNoConsumersIsThePlainApply(t *testing.T) {
+	cm := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
+	mut := &fakeMutator{cm: cm}
+	m := newModel(t, newSession(), cm, mut, nil)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	m = typeOver(t, m, "info", "debug")
+	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	if m.actions.Active() || cm.Data["LOG_LEVEL"] != "debug" {
+		t.Fatalf("expected ctrl-r with no consumers to apply immediately outside PROD, cm.Data = %+v", cm.Data)
 	}
 }

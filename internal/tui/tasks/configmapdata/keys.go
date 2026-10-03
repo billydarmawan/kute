@@ -12,6 +12,11 @@ import (
 // edit is showing, BUFFER EDITOR while the multi-line buffer editor is
 // showing, CONFIRM while any of the three's y/N is deciding.
 func (m Model) Keybar() tui.Keybar {
+	if m.actions.TypeToConfirm() {
+		// ctrl-r's PROD type-the-name modal carries its own keys and
+		// will-run lines.
+		return tui.Keybar{Pill: tui.ModeConfirm, PillText: "CONFIRM"}
+	}
 	if m.actions.Active() {
 		note := ""
 		if removing, key := m.pendingRemove(); removing {

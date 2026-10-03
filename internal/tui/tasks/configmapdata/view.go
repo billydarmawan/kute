@@ -130,6 +130,9 @@ func (m Model) Body(width, height int) string {
 		style := lipgloss.NewStyle().Foreground(m.Theme().Accent)
 		return components.LoadingBody(m.spinner, style, m.feedback, width, height)
 	case tui.TaskStateReady:
+		if m.actions.TypeToConfirm() {
+			return m.restartConfirmModal(width, height)
+		}
 		if m.multiline != nil {
 			return m.multilineBody(m.Theme(), width, height)
 		}
@@ -202,7 +205,7 @@ func (m Model) configMapRowLine(theme tui.Theme, idx int, width int) string {
 		_, valueWidth, _ := configMapColumnWidths(width)
 		value = m.editValueCell(theme, fill, valueWidth)
 	case isPendingEdit:
-		value = valueStyle.Render(components.Truncate(oneLine(r.value), 24)) + fill.Render("  ") + fill.Foreground(theme.Warn).Render("confirm to update · y/N")
+		value = valueStyle.Render(components.Truncate(oneLine(r.value), 24)) + fill.Render("  ") + fill.Foreground(theme.Warn).Render(m.confirmNote("update"))
 	case isPendingRemove:
 		value = valueStyle.Render(components.Truncate(oneLine(r.value), 24)) + fill.Render("  ") + fill.Foreground(theme.Bad).Render("remove · y/N")
 	case r.multiline():
@@ -290,8 +293,59 @@ func (m Model) pendingAddRowLine(theme tui.Theme, width int, pc *configMapPendin
 	dim := fill.Foreground(theme.TextDim)
 
 	marker := good.Render("+") + fill.Render(" ")
-	value := bold.Render(components.Truncate(oneLine(pc.value), 24)) + fill.Render("  ") + warn.Render("confirm to add · y/N")
+	value := bold.Render(components.Truncate(oneLine(pc.value), 24)) + fill.Render("  ") + warn.Render(m.confirmNote("add"))
 	return configMapRowColumns(marker, bold.Render(pc.key), value, dim.Render("new"), width, fill)
+}
+
+// confirmNote is the in-flight row's inline y/N note — naming the restarts
+// too when the pending commit is ctrl-r's apply + restart.
+func (m Model) confirmNote(verb string) string {
+	if pc := m.pendingCommit; pc != nil && pc.restartConsumers && len(pc.consumers) > 0 {
+		return "confirm to " + verb + " + restart " + consumerCount(len(pc.consumers)) + " · y/N"
+	}
+	return "confirm to " + verb + " · y/N"
+}
+
+// restartConfirmModal is ctrl-r's PROD confirm: the same type-the-name modal
+// (and the same red border, reserved for destructive confirms) a single
+// rollout restart gets, against the ConfigMap's own name. The consumers it
+// restarts are listed, and the will-run lines are every command it runs —
+// the patch, then one rollout restart per consumer.
+func (m Model) restartConfirmModal(width, height int) string {
+	theme := m.Theme()
+	title, target, ownerLine := "Confirm", m.name, ""
+	var detail []string
+	if pending := m.actions.Pending(); pending != nil {
+		title = "✕ " + pending.Label
+		target = pending.Scope.ResourceName
+	}
+	if pc := m.pendingCommit; pc != nil {
+		names := make([]string, len(pc.consumers))
+		for i, c := range pc.consumers {
+			names[i] = shortWorkloadArg(c.Kind) + "/" + c.Name
+		}
+		if len(names) > 0 {
+			ownerLine = "restarts " + strings.Join(names, " · ")
+		}
+		detail = append(detail, "will run: "+m.commandForKey(pc.key))
+		for _, c := range pc.consumers {
+			detail = append(detail, "          "+kube.ConfigMapConsumerRestartCommandString(m.namespace, c.ConfigMapConsumerRef))
+		}
+	}
+	styles := components.TypeModalStyles{
+		Border:    lipgloss.NewStyle().BorderForeground(theme.ConfirmBorder).Background(theme.ConfirmHeaderBg),
+		Title:     lipgloss.NewStyle().Foreground(theme.Bad).Bold(true).Background(theme.ConfirmHeaderBg),
+		ProdTag:   lipgloss.NewStyle().Foreground(theme.ProdText).Bold(true).Background(theme.ConfirmHeaderBg),
+		Owner:     lipgloss.NewStyle().Foreground(theme.Good).Background(theme.ConfirmHeaderBg),
+		Detail:    lipgloss.NewStyle().Foreground(theme.TextSecondary).Background(theme.ConfirmHeaderBg),
+		Rule:      lipgloss.NewStyle().Foreground(theme.TextGhost).Background(theme.ConfirmHeaderBg),
+		Input:     lipgloss.NewStyle().Foreground(theme.Text).Background(theme.ConfirmHeaderBg),
+		Selection: lipgloss.NewStyle().Foreground(theme.Bg).Background(theme.Accent),
+		Progress:  lipgloss.NewStyle().Foreground(theme.TextFaint).Background(theme.ConfirmHeaderBg),
+		Key:       lipgloss.NewStyle().Foreground(theme.Bad).Background(theme.ConfirmHeaderBg),
+		Label:     lipgloss.NewStyle().Foreground(theme.TextDim).Background(theme.ConfirmHeaderBg),
+	}
+	return components.TypeNameModal(title, ownerLine, strings.Join(detail, "\n"), target, m.actions.TypedInput(), "apply + restart", m.isProd(), styles, width, height)
 }
 
 // multilineBody renders the buffer editor full-screen — the "simpler

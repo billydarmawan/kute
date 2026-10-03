@@ -33,6 +33,14 @@ func (a *addKeyState) focusedInput() *textfield.Model {
 // single-line field has to flatten them.
 func (m *Model) pasteTarget() tui.PasteTarget {
 	switch {
+	case m.actions.Active():
+		// A confirm owns every key while it's up (updateKey routes it
+		// first): ctrl-r's type-the-name modal takes the paste, a y/N has
+		// no buffer at all.
+		if m.actions.TypeToConfirm() {
+			return m.actions.PasteTarget()
+		}
+		return nil
 	case m.adding != nil:
 		return tui.PasteInto(m.adding.focusedInput())
 	case m.editing != nil:
@@ -257,14 +265,39 @@ func (m *Model) beginEditRow(row configMapKeyRow) {
 	m.editing = &editKeyState{key: row.key, original: row.value, valueInput: valueInput}
 }
 
+// updateConfirmKey routes keys while a commit's confirm is showing: ctrl-r's
+// PROD type-the-name modal (verbs.RestartConfigMapConsumers inherits
+// RolloutRestart's friction) takes typing and enter-when-the-name-matches;
+// every other confirm is the plain y/N. Cancelling walks back exactly one
+// level — to the buffer the commit came from, with the typed value intact.
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.actions.TypeToConfirm() {
+		switch msg.String() {
+		case "esc":
+			m.cancelCommit()
+		case "enter":
+			return m, m.actions.Confirm()
+		default:
+			return m, m.actions.HandleTypeKey(msg)
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "y":
 		return m, m.actions.Confirm()
 	case "n", "esc":
-		m.actions.Cancel()
+		m.cancelCommit()
 	}
 	return m, nil
+}
+
+// cancelCommit abandons the pending confirm and reopens the buffer it was
+// committed from (a removal has none — its row never moved).
+func (m *Model) cancelCommit() {
+	m.actions.Cancel()
+	pc := m.pendingCommit
+	m.pendingCommit = nil
+	m.restoreBuffer(pc)
 }
 
 // updateAddKey routes keys while 'a'/insert's line-insert add row is
@@ -370,24 +403,31 @@ func (m *Model) beginCommit(key, value string, isEdit bool, original string, res
 		restartConsumers: restart, consumers: m.consumers, resourceVersion: m.bufferRV,
 	}
 	m.message, m.lastError = "", ""
+	// ctrl-r with consumers to restart is RestartConfigMapConsumers — the
+	// same friction as a single rollout restart (inline y/N; PROD: type the
+	// ConfigMap's name). With none it restarts nothing, so it's the plain
+	// apply it amounts to.
 	verb := verbs.AddConfigMapKey
-	if restart {
+	if restart && len(m.consumers) > 0 {
 		verb = verbs.RestartConfigMapConsumers
 	}
-	label := fmt.Sprintf("Add key %s to %s?", key, m.name)
+	label := fmt.Sprintf("Add key %s to %s", key, m.name)
 	id := "add-configmap-key-" + m.namespace + "/" + m.name + "/" + key
 	if overwrite {
 		// 'a' with a key that's already there replaces its value — the
 		// merge patch can't tell an add from an overwrite, so ask first.
-		label = fmt.Sprintf("Overwrite existing key %s on %s?", key, m.name)
+		label = fmt.Sprintf("Overwrite existing key %s on %s", key, m.name)
 	}
 	if isEdit {
-		label = fmt.Sprintf("Update key %s on %s?", key, m.name)
+		label = fmt.Sprintf("Update key %s on %s", key, m.name)
 		id = "edit-configmap-key-" + m.namespace + "/" + m.name + "/" + key
+	}
+	if verb.ID == verbs.RestartConfigMapConsumers.ID {
+		label += " and restart " + consumerCount(len(m.consumers))
 	}
 	return m.actions.Begin(actions.Request{Verb: verb, Prod: m.isProd(), Overwrite: overwrite}, tui.TaskAction{
 		ID:    id,
-		Label: label,
+		Label: label + "?",
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindConfigMap), ResourceName: m.name, Namespace: m.namespace,
 			Verb: "configmap-data", IsMutating: true,
@@ -515,37 +555,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 			m.bufferRV = pc.resourceVersion
 		}
 		m.bufferRVFollows = conflict
-		switch {
-		case pc == nil || pc.remove:
-			// A failed removal has no buffer to restore — the row is still
-			// right there, unmoved.
-		case pc.isEdit:
-			if strings.Contains(pc.value, "\n") || strings.Contains(pc.original, "\n") {
-				m.multiline = newMultilineEditState(pc.key, pc.value, m.Theme())
-			} else {
-				valueInput := textfield.New()
-				valueInput.Prompt = ""
-				valueInput.SetStyles(configMapInputStyles(m.Theme()))
-				valueInput.SetValue(pc.value)
-				valueInput.CursorEnd()
-				valueInput.Focus()
-				m.editing = &editKeyState{key: pc.key, original: pc.original, valueInput: valueInput}
-			}
-		default:
-			theme := m.Theme()
-			keyInput := textfield.New()
-			keyInput.Prompt = ""
-			keyInput.SetStyles(configMapInputStyles(theme))
-			keyInput.SetValue(pc.key)
-			keyInput.CursorEnd()
-			valueInput := textfield.New()
-			valueInput.Prompt = ""
-			valueInput.SetStyles(configMapInputStyles(theme))
-			valueInput.SetValue(pc.value)
-			valueInput.CursorEnd()
-			valueInput.Focus()
-			m.adding = &addKeyState{keyInput: keyInput, valueInput: valueInput, onValue: true}
-		}
+		m.restoreBuffer(pc)
 		if conflict {
 			m.lastError = conflictMessage(m.name, pc, m.multiline != nil)
 			m.reloadEpoch++
@@ -559,14 +569,54 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	}
 	m.message = commitVerb(pc) + " " + pc.key
 	if pc.restartConsumers && len(pc.consumers) > 0 {
-		m.message += fmt.Sprintf(" · restarted %d consumer", len(pc.consumers))
-		if len(pc.consumers) != 1 {
-			m.message += "s"
-		}
+		m.message += " · restarted " + consumerCount(len(pc.consumers))
 	}
 	m.focusKey = pc.key
 	m.reloadEpoch++
 	return m.load()
+}
+
+// restoreBuffer reopens the editor a commit came from, holding the value it
+// tried to write — after a failed apply or a cancelled confirm. A removal
+// (or no commit at all) has no buffer: its row is still right there.
+func (m *Model) restoreBuffer(pc *configMapPendingCommit) {
+	switch {
+	case pc == nil || pc.remove:
+	case pc.isEdit:
+		if strings.Contains(pc.value, "\n") || strings.Contains(pc.original, "\n") {
+			m.multiline = newMultilineEditState(pc.key, pc.value, m.Theme())
+		} else {
+			valueInput := textfield.New()
+			valueInput.Prompt = ""
+			valueInput.SetStyles(configMapInputStyles(m.Theme()))
+			valueInput.SetValue(pc.value)
+			valueInput.CursorEnd()
+			valueInput.Focus()
+			m.editing = &editKeyState{key: pc.key, original: pc.original, valueInput: valueInput}
+		}
+	default:
+		theme := m.Theme()
+		keyInput := textfield.New()
+		keyInput.Prompt = ""
+		keyInput.SetStyles(configMapInputStyles(theme))
+		keyInput.SetValue(pc.key)
+		keyInput.CursorEnd()
+		valueInput := textfield.New()
+		valueInput.Prompt = ""
+		valueInput.SetStyles(configMapInputStyles(theme))
+		valueInput.SetValue(pc.value)
+		valueInput.CursorEnd()
+		valueInput.Focus()
+		m.adding = &addKeyState{keyInput: keyInput, valueInput: valueInput, onValue: true}
+	}
+}
+
+// consumerCount is "1 consumer" / "N consumers".
+func consumerCount(n int) string {
+	if n == 1 {
+		return "1 consumer"
+	}
+	return fmt.Sprintf("%d consumers", n)
 }
 
 // commitVerb is the result line's past-tense verb for pc.
