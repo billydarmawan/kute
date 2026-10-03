@@ -1,14 +1,14 @@
-  [1;38;2;20;20;28mkute[m[38;2;198;198;212m │ [m[38;2;138;138;158mmicrok8s-cluster[m[38;2;180;180;198m › [m[38;2;42;42;56mflux-system[m[38;2;180;180;198m › [m[38;2;138;138;158mKustomizations[m[38;2;180;180;198m › [m[1;38;2;20;20;28mnebula-workers[m                                  [38;2;20;138;78m● connected[m  
+  [1;38;2;20;20;28mkute[m[38;2;198;198;212m │ [m[38;2;138;138;158mmicrok8s-cluster[m[38;2;180;180;198m › [m[38;2;42;42;56mflux-system[m[38;2;180;180;198m › [m[38;2;138;138;158mKustomizations[m[38;2;180;180;198m › [m[1;38;2;20;20;28mnebula-workers[m                                  [38;2;17;120;68m● connected[m  
 [38;2;180;180;198m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
-[1;38;2;204;58;58mRECONCILE FAILED · HealthCheckFailed · 4m ago · retry in 3m 12s[m                                                         
-[38;2;176;104;104mhealth check failed after 2m0s: Deployment/nebula-stage/nebula-worker status: 'InProgress'[m                              
+[1;38;2;188;49;49mRECONCILE FAILED · HealthCheckFailed · 4m ago · retry in 3m 12s[m                                                         
+[38;2;157;82;82mhealth check failed after 2m0s: Deployment/nebula-stage/nebula-worker status: 'InProgress'[m                              
 [38;2;138;138;158m▸ opens Deployment/nebula-worker · 3/4 · CrashLoopBackOff — exit 137, OOMKilled[m                                         
                                                                                                                         
 [38;2;154;154;174msource            [m[38;2;86;86;104mgit/flux-system · ./clusters/stage/workers · interval 5m[m                                              
 [38;2;154;154;174msource revision   [m[38;2;86;86;104mmain@8f3c2a1[m                                                                                          
-[38;2;154;154;174mapplied revision  [m[38;2;86;86;104mmain@8f3c2a1[m[38;2;20;138;78m · in sync[m[38;2;86;86;104m — applied, failing health checks[m                                               
+[38;2;154;154;174mapplied revision  [m[38;2;86;86;104mmain@8f3c2a1[m[38;2;17;120;68m · in sync[m[38;2;86;86;104m — applied, failing health checks[m                                               
 [38;2;154;154;174mINVENTORY · 3 OBJECTS · 1 NOT READY[m                                                                                     
-[38;2;107;70;217m▎[m [38;2;204;58;58m✕[m [1;38;2;20;20;28mnebula-worker                   [m[38;2;138;138;158mDeployment        [m[38;2;204;58;58m3/4[m                                                               
+[38;2;107;70;217m▎[m [38;2;188;49;49m✕[m [1;38;2;20;20;28mnebula-worker                   [m[38;2;138;138;158mDeployment        [m[38;2;188;49;49m3/4[m                                                               
 [38;2;154;154;174m  + 2 no reading · ↹ expand[m                                                                                             
 [38;2;154;154;174m1–1 of 3[m                                                                                                                
                                                                                                                         

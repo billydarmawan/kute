@@ -1,10 +1,10 @@
-  [1;38;2;20;20;28mkute[m[38;2;198;198;212m │ [m[1;38;2;20;20;28mUpdate[m                                                       [38;2;138;138;158m[38;2;138;138;158myou run [m[38;2;42;42;56m0.2.0[m[38;2;138;138;158m · latest [m[38;2;168;123;10m0.2.1[m[38;2;138;138;158m · released 2d ago[m[m    
+  [1;38;2;20;20;28mkute[m[38;2;198;198;212m │ [m[1;38;2;20;20;28mUpdate[m                                                       [38;2;138;138;158m[38;2;138;138;158myou run [m[38;2;42;42;56m0.2.0[m[38;2;138;138;158m · latest [m[38;2;134;98;8m0.2.1[m[38;2;138;138;158m · released 2d ago[m[m    
 [38;2;180;180;198m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
   [38;2;154;154;174mCHANGELOG · 0.2.1[m                                                                                                     
-  [38;2;204;58;58mfix[m     [38;2;42;42;56mrollout watch could miss the final ready event on slow clusters[m                                               
-  [38;2;204;58;58mfix[m     [38;2;42;42;56msecret value zeroing on esc leaked one frame to the alt-screen buffer[m                                         
-  [38;2;20;138;78mnew[m     [38;2;42;42;56mresources editor accepts binary suffixes (Gi/Mi) case-insensitively[m                                           
-  [38;2;42;111;206mperf[m    [38;2;42;42;56mnamespace palette CPU-share column no longer refetches per keystroke[m                                          
+  [38;2;188;49;49mfix[m     [38;2;42;42;56mrollout watch could miss the final ready event on slow clusters[m                                               
+  [38;2;188;49;49mfix[m     [38;2;42;42;56msecret value zeroing on esc leaked one frame to the alt-screen buffer[m                                         
+  [38;2;17;120;68mnew[m     [38;2;42;42;56mresources editor accepts binary suffixes (Gi/Mi) case-insensitively[m                                           
+  [38;2;39;103;191mperf[m    [38;2;42;42;56mnamespace palette CPU-share column no longer refetches per keystroke[m                                          
                                                                                                                         
   [38;2;185;188;208m╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮[m  
   [38;2;185;188;208m│[m [38;2;154;154;174minstalled via[m [1;38;2;89;54;184;48;2;236;229;251m homebrew [m [38;2;138;138;158mdetected from the binary path[m                                 [38;2;154;154;174mkute never updates itself[m [38;2;185;188;208m│[m  

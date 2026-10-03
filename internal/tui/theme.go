@@ -153,9 +153,9 @@ func Dark() Theme {
 	}
 	t.Muted.Good = lipgloss.Color("#2a7a52")
 	t.Muted.Warn = lipgloss.Color("#8a742e")
-	t.Muted.Bad = lipgloss.Color("#8a4444")
+	t.Muted.Bad = lipgloss.Color("#9e4e4e")
 	t.Muted.Info = lipgloss.Color("#3f6a94")
-	t.Muted.Text = lipgloss.Color("#55556e")
+	t.Muted.Text = lipgloss.Color("#656582")
 	return t
 }
 
@@ -186,17 +186,17 @@ func Light() Theme {
 
 		Accent:      lipgloss.Color("#6b46d9"),
 		AccentHi:    lipgloss.Color("#5936b8"),
-		AccentMuted: lipgloss.Color("#a59cbf"),
+		AccentMuted: lipgloss.Color("#8a7fac"),
 		SelBg:       lipgloss.Color("#ece5fb"),
 		MarkBg:      lipgloss.Color("#f5f1fc"),
 
-		Good:     lipgloss.Color("#148a4e"),
-		Warn:     lipgloss.Color("#a87b0a"),
-		Bad:      lipgloss.Color("#cc3a3a"),
-		BadSoft:  lipgloss.Color("#d95c5c"),
+		Good:     lipgloss.Color("#117844"),
+		Warn:     lipgloss.Color("#866208"),
+		Bad:      lipgloss.Color("#bc3131"),
+		BadSoft:  lipgloss.Color("#c52e2e"),
 		BadText:  lipgloss.Color("#a02c2c"),
-		BadMuted: lipgloss.Color("#b06868"),
-		Info:     lipgloss.Color("#2a6fce"),
+		BadMuted: lipgloss.Color("#9d5252"),
+		Info:     lipgloss.Color("#2767bf"),
 
 		ErrBannerBg:     lipgloss.Color("#fbe9ea"),
 		ErrBannerBorder: lipgloss.Color("#e5b7bb"),
@@ -206,12 +206,12 @@ func Light() Theme {
 		WarnBannerBg:     lipgloss.Color("#fbf3e0"),
 		WarnBannerBorder: lipgloss.Color("#e8d29a"),
 		WarnBannerText:   lipgloss.Color("#7a5a12"),
-		WarnBannerMuted:  lipgloss.Color("#9a8248"),
+		WarnBannerMuted:  lipgloss.Color("#826d3d"),
 
 		BarTrack: lipgloss.Color("#e2e4ec"),
 
 		YamlKey:   lipgloss.Color("#8a3fb8"),
-		YamlStr:   lipgloss.Color("#4c7a1e"),
+		YamlStr:   lipgloss.Color("#48741c"),
 		YamlPunct: lipgloss.Color("#9a9aae"),
 		YamlFold:  lipgloss.Color("#b4b4c6"),
 
@@ -225,10 +225,10 @@ func Light() Theme {
 		ConfirmHeaderBg: lipgloss.Color(""), // modal renders on the terminal's own background
 		ConfirmPillBg:   lipgloss.Color("#f5dede"),
 	}
-	t.Muted.Good = lipgloss.Color("#5aa87e")
-	t.Muted.Warn = lipgloss.Color("#b39a56")
-	t.Muted.Bad = lipgloss.Color("#c98686")
-	t.Muted.Info = lipgloss.Color("#6f95c4")
-	t.Muted.Text = lipgloss.Color("#9a9aae")
+	t.Muted.Good = lipgloss.Color("#4d926d")
+	t.Muted.Warn = lipgloss.Color("#998245")
+	t.Muted.Bad = lipgloss.Color("#bf6f6f")
+	t.Muted.Info = lipgloss.Color("#5d88bd")
+	t.Muted.Text = lipgloss.Color("#83839c")
 	return t
 }

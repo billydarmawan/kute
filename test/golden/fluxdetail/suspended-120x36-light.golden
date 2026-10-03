@@ -1,11 +1,11 @@
-  [1;38;2;20;20;28mkute[m[38;2;198;198;212m │ [m[38;2;138;138;158mmicrok8s-cluster[m[38;2;180;180;198m › [m[38;2;42;42;56mflux-system[m[38;2;180;180;198m › [m[38;2;138;138;158mKustomizations[m[38;2;180;180;198m › [m[1;38;2;20;20;28mnebula-infra[m                                    [38;2;20;138;78m● connected[m  
+  [1;38;2;20;20;28mkute[m[38;2;198;198;212m │ [m[38;2;138;138;158mmicrok8s-cluster[m[38;2;180;180;198m › [m[38;2;42;42;56mflux-system[m[38;2;180;180;198m › [m[38;2;138;138;158mKustomizations[m[38;2;180;180;198m › [m[1;38;2;20;20;28mnebula-infra[m                                    [38;2;17;120;68m● connected[m  
 [38;2;180;180;198m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
-[1;38;2;168;123;10mSUSPENDED · reconciliation is paused[m                                                                                    
-[38;2;179;154;86msource ahead · git/flux-system is at main@8f3c2a1[m                                                                       
+[1;38;2;134;98;8mSUSPENDED · reconciliation is paused[m                                                                                    
+[38;2;153;130;69msource ahead · git/flux-system is at main@8f3c2a1[m                                                                       
                                                                                                                         
 [38;2;154;154;174msource            [m[38;2;86;86;104mgit/flux-system · ./clusters/stage/infra · interval 5m[m                                                
 [38;2;154;154;174msource revision   [m[38;2;86;86;104mmain@8f3c2a1[m                                                                                          
-[38;2;154;154;174mapplied revision  [m[38;2;86;86;104mmain@2b91f04[m[38;2;168;123;10m · source ahead[m                                                                           
+[38;2;154;154;174mapplied revision  [m[38;2;86;86;104mmain@2b91f04[m[38;2;134;98;8m · source ahead[m                                                                           
                                                                                                                         
                                                                                                                         
                                                                                                                         

@@ -22,7 +22,7 @@ The file in this bundle (`Kute Spec.dc.html`, plus its runtime `support.js`) is 
 
 ### 2a — Main table (resting state)
 - **Purpose:** the default screen; 100% of body pixels on live resource data.
-- **Header bar** (bg `#0e0e15`, bottom border `#26263a`): app wordmark `kute` in the plain bright text token `#f0f0fa` (`#14141c` light, bold) `│` (extra trailing space after the bar, unglueing the leading `c` from the wordmark) `c` context `microk8s-cluster` (`#9a9ab2`) `›` `n` namespace `nva-stage` (`#d8d8e8`, one step brighter than context) `›` `g` kind `Pods` (bold `#f0f0fa`) — the path steps up in brightness toward the current kind so depth reads at a glance. (Implementation deviation: the mockup's brand-green `❯` chevron prefix was dropped — `kute` renders on its own.) The `c`/`n`/`g` prefixes live on the breadcrumb segment each one changes, in their own muted purple `#7c6bb0` (`#a59cbf` light) — duller and unbolded next to the keybar's own brighter `#a78bfa`/`#6b46d9` key hints, so they read as wayfinding rather than actions and recede behind the path text — no separate hint text. Right-aligned: `sync 2s` (dim) and connection status `● connected · 12ms` (green `#34d17b`).
+- **Header bar** (bg `#0e0e15`, bottom border `#26263a`): app wordmark `kute` in the plain bright text token `#f0f0fa` (`#14141c` light, bold) `│` (extra trailing space after the bar, unglueing the leading `c` from the wordmark) `c` context `microk8s-cluster` (`#9a9ab2`) `›` `n` namespace `nva-stage` (`#d8d8e8`, one step brighter than context) `›` `g` kind `Pods` (bold `#f0f0fa`) — the path steps up in brightness toward the current kind so depth reads at a glance. (Implementation deviation: the mockup's brand-green `❯` chevron prefix was dropped — `kute` renders on its own.) The `c`/`n`/`g` prefixes live on the breadcrumb segment each one changes, in their own muted purple `#7c6bb0` (`#8a7fac` light) — duller and unbolded next to the keybar's own brighter `#a78bfa`/`#6b46d9` key hints, so they read as wayfinding rather than actions and recede behind the path text — no separate hint text. Right-aligned: `sync 2s` (dim) and connection status `● connected · 12ms` (green `#34d17b`).
 - **Health strip** (bg `#0c0c12`, border-bottom `#1c1c2c`): per-status counts — `● 32 running` (green dot), `▲ 2 pending` (yellow `#e8c74a`), `✕ 1 crashloop` (red `#ef6a6a`), `○ 1 completed` (blue `#6aa8ef`); numbers in `#d8d8e8`, labels dim. Right: `36 pods · 3 nodes`.
 - **Table columns:** status dot (2ch) · NAME (flex, ellipsize) · RDY (5ch) · STATUS (13ch) · ↺ restarts (4ch) · CPU (bar+pct) · MEM (bar+pct) · NODE (9ch) · AGE (right-aligned, 4ch). Column headers uppercase, `#55556e`, letterspaced; sort indicator `↑`/`↓` in purple next to sorted column.
 - **Manual sort (1-9):** digit keys pick a column by position (1 = first data column past the status dot) on every kind's own table — first press sorts ascending, pressing the same digit again flips to descending, a different digit switches columns at its own natural first direction. Metrics/counts/recency columns (Restarts, CPU, MEM, Age, and anything else rendered right-aligned as numeric — Data, Replicas, Completions, Active, Capacity, Traffic, Rev, Updated) default descending-first (busiest/most/most-recent first); everything else (Name, Status, Node, Ready, ...) defaults ascending-first. A CPU/MEM sort stays live across the 2s metrics poll. No-op in the all-namespaces grouped view (6b) — namespace partitioning owns row order there, and the arrow stays hidden the same way it already does for the built-in default. Resets back to the built-in default (unhealthy-first, CRD's group-then-name, etc.) whenever the kind or namespace changes.
@@ -634,17 +634,20 @@ Theme selection: default = terminal background detection (`lipgloss.HasDarkBackg
 | `TextGhost` | `#44445c` / `#33334a` | `#b4b4c6` / `#c6c6d4` |
 | `Accent` purple | `#a78bfa` | `#6b46d9` |
 | `AccentHi` | `#c4b5fd` | `#5936b8` |
+| `AccentMuted` breadcrumb key hints | `#7c6bb0` | `#8a7fac` |
 | `SelBg` selection row | `#1d1633` | `#ece5fb` |
-| `Good` green | `#34d17b` | `#148a4e` |
-| `Warn` yellow | `#e8c74a` | `#a87b0a` |
-| `Bad` red | `#ef6a6a` | `#cc3a3a` |
-| `BadSoft` / `BadText` / `BadMuted` | `#ef8a8a` / `#f0b7b7` / `#c98a8a` | `#d95c5c` / `#a02c2c` / `#b06868` |
-| `Info` blue | `#6aa8ef` | `#2a6fce` |
+| `Good` green | `#34d17b` | `#117844` |
+| `Warn` yellow | `#e8c74a` | `#866208` |
+| `Bad` red | `#ef6a6a` | `#bc3131` |
+| `BadSoft` / `BadText` / `BadMuted` | `#ef8a8a` / `#f0b7b7` / `#c98a8a` | `#c52e2e` / `#a02c2c` / `#9d5252` |
+| `Info` blue | `#6aa8ef` | `#2767bf` |
 | `ErrBannerBg` / `ErrBannerBorder` | `#2a1518` / `#4a2228` | `#fbe9ea` / `#e5b7bb` |
 | `ErrCardBg` / `ErrCardBorder` | `#16121a` / `#3a2a30` | `#f6f1f4` / `#dcc9cd` |
+| `WarnBannerBg` / `WarnBannerBorder` / `WarnBannerText` / `WarnBannerMuted` | `#16130b` / `#4a4224` / `#f0e0a8` / `#c9b578` | `#fbf3e0` / `#e8d29a` / `#7a5a12` / `#826d3d` |
+| `Muted.Good` / `.Warn` / `.Bad` / `.Info` / `.Text` (4a offline) | `#2a7a52` / `#8a742e` / `#9e4e4e` / `#3f6a94` / `#656582` | `#4d926d` / `#998245` / `#bf6f6f` / `#5d88bd` / `#83839c` |
 | `BarTrack` | `#1c1c2c` | `#e2e4ec` |
 | `YamlKey` | `#c98fde` | `#8a3fb8` |
-| `YamlStr` | `#b8d78f` | `#4c7a1e` |
+| `YamlStr` | `#b8d78f` | `#48741c` |
 | `YamlPunct` | `#55556e` | `#9a9aae` |
 | `YamlFold` | `#44445c` | `#b4b4c6` |
 | `ProdBorder` / `ProdText` | `#4a2a2a` / `#ef9a9a` | `#e3b9b9` / `#b03030` |
@@ -658,6 +661,7 @@ Rules that hold in both themes:
 - Mode pills by hue: purple = normal modes · blue = ALL NS · red = OFFLINE/CONFIRM · gray = SETUP. Pill bg = the theme's tinted surface, pill text = the hue's text token.
 - Selection cue = 1-cell accent bar + `SelBg` row background — verify it in both themes; the bar is the primary cue.
 - Text fields horizontally scroll to keep the caret visible. `shift+←/→`, `ctrl/alt+shift+←/→`, and `shift+home/end` select text; typing or paste replaces it, backspace/delete removes it, and `ctrl+shift+c` copies it when the terminal forwards that chord. In-field selection uses `Accent` behind `Bg` text so it stays distinct even inside a `SelBg` row. A masked Secret field never reveals the selected span's length.
+- Contrast floor (pinned by `internal/tui/theme_contrast_test.go`): status, error and body-text tokens reach WCAG 4.5:1 on every background they're drawn on, `SelBg`/`MarkBg` included; the deliberately muted 4a ramp and `AccentMuted` reach 3:1. `TextDim` and the decorative tokens (`TextFaint`, `TextGhost`, `YamlPunct`, `YamlFold`) are exempt.
 - 4a desaturation: each theme defines its own muted ramp (dark: dim the colors; light: wash toward gray) — don't compute it, declare it in the struct.
 - Test on a real light terminal and on 256-color fallback; hex values degrade via termenv.
 
