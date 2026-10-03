@@ -326,7 +326,11 @@ func switchContextCmd(sess *Session, name string) tea.Cmd {
 
 	sess.SyncLocationToPerContext()
 	sess.ClearPendingKind()
-	restoreNS, restoreKind, restoreFilter := "default", kube.KindPod, ""
+	// No remembered namespace leaves restoreNS empty: SwitchContext then
+	// keeps the target context's own kubeconfig namespace (scoping the eager
+	// Pod cache there too), and the Cmd reads it back once the switch lands —
+	// the same namespace a launch into that context would open on.
+	restoreNS, restoreKind, restoreFilter := "", kube.KindPod, ""
 	if pc, ok := sess.State.PerContext[name]; ok {
 		if pc.Namespace != "" {
 			restoreNS = pc.Namespace
@@ -384,6 +388,9 @@ func switchContextCmd(sess *Session, name string) tea.Cmd {
 				err = errors.Join(err, fmt.Errorf("restore context %s: %w", oldContext, rollbackErr))
 			}
 			return SwitchContextMsg{Context: name, Err: err, RolledBack: true, token: token}
+		}
+		if restoreNS == "" {
+			restoreNS = cluster.CurrentNamespace()
 		}
 		return SwitchContextMsg{Context: name, Namespace: restoreNS, Kind: restoreKind, Filter: restoreFilter, token: token}
 	}

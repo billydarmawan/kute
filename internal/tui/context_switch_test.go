@@ -2,6 +2,9 @@ package tui_test
 
 import (
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -366,5 +369,88 @@ users: []
 	_, _ = updated.(tui.Model).Update(cmd())
 	if sess.ClusterRebuildInFlight() {
 		t.Fatal("a failed rebuild's owned result didn't release the gate")
+	}
+}
+
+// emptyAPIServer serves the core Pod/Namespace/Node collections as empty —
+// a list, or a watch-list stream that is nothing but its initial-events-end
+// bookmark — and then parks the watch until the client goes away: just
+// enough of an API server for Cluster.Start's eager caches to sync.
+func emptyAPIServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	kinds := map[string]string{"pods": "Pod", "namespaces": "Namespace", "nodes": "Node"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		kind, ok := kinds[parts[len(parts)-1]]
+		if !ok || parts[0] != "api" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("watch") != "true" {
+			_, _ = fmt.Fprintf(w, `{"kind":"%sList","apiVersion":"v1","metadata":{"resourceVersion":"1"},"items":[]}`, kind)
+			return
+		}
+		if r.URL.Query().Get("sendInitialEvents") == "true" {
+			_, _ = fmt.Fprintf(w, `{"type":"BOOKMARK","object":{"kind":%q,"apiVersion":"v1","metadata":{"resourceVersion":"1","annotations":{"k8s.io/initial-events-end":"true"}}}}`+"\n", kind)
+		}
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A context with no remembered namespace opens on its own kubeconfig
+// namespace, as a launch into it would — not on "default", which for a
+// namespace-bound identity is a 403.
+func TestContextSwitchWithoutHistoryOpensKubeconfigNamespace(t *testing.T) {
+	srv := emptyAPIServer(t)
+	path := filepath.Join(t.TempDir(), "config")
+	kubeconfig := fmt.Sprintf(`
+apiVersion: v1
+kind: Config
+current-context: dev
+contexts:
+- name: dev
+  context: {cluster: c, namespace: default}
+- name: team
+  context: {cluster: c, namespace: team-a}
+clusters:
+- name: c
+  cluster: {server: %q}
+users: []
+`, srv.URL)
+	if err := os.WriteFile(path, []byte(kubeconfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBECONFIG", path)
+	cluster, err := kube.NewClusterForContext("dev")
+	if err != nil {
+		t.Fatalf("NewClusterForContext(dev): %v", err)
+	}
+	t.Cleanup(cluster.Stop)
+
+	sess := &tui.Session{
+		Theme:    tui.Dark(),
+		Location: tui.Location{Context: "dev", Namespace: "default"},
+		State:    state.State{PerContext: map[string]state.PerContext{}, RecentContexts: []string{"dev", "team"}},
+		Cluster:  cluster,
+	}
+	model := tui.NewWithSession(&screenTask{name: "browse"}, sess)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "c"})
+	_, cmd := updated.(tui.Model).Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a switch-context cmd for the preselected team context")
+	}
+	got, ok := switchResult(cmd).(tui.SwitchContextMsg)
+	if !ok || got.Err != nil {
+		t.Fatalf("switch = %#v, want a successful SwitchContextMsg", got)
+	}
+	if got.Namespace != "team-a" {
+		t.Fatalf("SwitchContextMsg.Namespace = %q, want team's kubeconfig namespace team-a", got.Namespace)
 	}
 }
