@@ -117,7 +117,7 @@ func TestEscClearsMarksBeforeWalkingBack(t *testing.T) {
 }
 
 // TestBulkDeleteNonProdShowsInlinePromptAndDeletesMarkedSet covers 20a's
-// non-prod path: ctrl-d with marks active deletes the whole marked set (not
+// non-prod path: D with marks active deletes the whole marked set (not
 // just the cursor row) after an inline y/N, and clears the marks afterward.
 func TestBulkDeleteNonProdShowsInlinePromptAndDeletesMarkedSet(t *testing.T) {
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
@@ -134,8 +134,8 @@ func TestBulkDeleteNonProdShowsInlinePromptAndDeletesMarkedSet(t *testing.T) {
 		t.Fatalf("marks = %d, want 2", len(m.marks))
 	}
 
-	// Before opening the confirm, the keybar's ctrl-d hint already names the
-	// marked count (20a: "ctrl-d delete 3 · y/N").
+	// Before opening the confirm, the keybar's D hint already names the
+	// marked count (20a: "D delete 3 · y/N").
 	deleteHintFound := false
 	for _, g := range m.Keybar().Groups {
 		for _, h := range g {
@@ -145,12 +145,12 @@ func TestBulkDeleteNonProdShowsInlinePromptAndDeletesMarkedSet(t *testing.T) {
 		}
 	}
 	if !deleteHintFound {
-		t.Fatalf("expected the ctrl-d hint to read 'delete 2', groups=%v", m.Keybar().Groups)
+		t.Fatalf("expected the D hint to read 'delete 2', groups=%v", m.Keybar().Groups)
 	}
 
 	m = step(t, m, tea.KeyPressMsg{Text: "D"})
 	if !m.pendingBulkDelete() {
-		t.Fatal("expected ctrl-d with marks active to open the bulk delete confirm")
+		t.Fatal("expected D with marks active to open the bulk delete confirm")
 	}
 	kb := m.Keybar()
 	if !strings.Contains(kb.RightNote, "kubectl delete") {

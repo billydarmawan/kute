@@ -1000,7 +1000,7 @@ func deletePolicies(actions []k8stesting.Action) []string {
 }
 
 // TestDeleteSendsBackgroundPropagation pins H4: an empty DeleteOptions
-// leaves a batch/v1 Job on its server default, orphan, so ctrl-d on a running
+// leaves a batch/v1 Job on its server default, orphan, so D on a running
 // Job left its pods running ownerless. Every delete — plain or forced, typed
 // or dynamic — sends kubectl's Background explicitly.
 func TestDeleteSendsBackgroundPropagation(t *testing.T) {
@@ -1519,7 +1519,7 @@ func newWidget(name, ns string) *unstructured.Unstructured {
 }
 
 // TestDeleteResourceFallsBackToTheDynamicClient covers the gap that made
-// ctrl-d fail on every discovered CRD row while the keybar advertised it.
+// D fail on every discovered CRD row while the keybar advertised it.
 func TestDeleteResourceFallsBackToTheDynamicClient(t *testing.T) {
 	t.Parallel()
 	c, dyn := newDynTestCluster(newWidget("thing", "default"))

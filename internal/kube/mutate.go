@@ -375,7 +375,7 @@ func (c *Cluster) deleteResource(ctx context.Context, kind ResourceKind, namespa
 	case KindNode:
 		return cs.CoreV1().Nodes().Delete(ctx, name, opts)
 	default:
-		// Every discovered CRD lands here. Without this fallback ctrl-d
+		// Every discovered CRD lands here. Without this fallback D
 		// failed on every custom-resource row while the keybar advertised
 		// it — the verb registry offers Delete on any kind, so the write
 		// seam has to be able to honour that on any kind.

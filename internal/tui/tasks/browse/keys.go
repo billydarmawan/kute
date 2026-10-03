@@ -447,11 +447,11 @@ func (m Model) Keybar() tui.Keybar {
 	if m.mutator != nil && m.kind != kube.KindForward && m.kind != kube.KindHelmRelease {
 		// 18a: delete/uninstall is deliberately out of scope for Helm
 		// Releases, the same "no install/upgrade-from-repo" carve-out —
-		// ctrl-d has no meaningful, safe implementation here (it would only
+		// D has no meaningful, safe implementation here (it would only
 		// delete one revision Secret, not uninstall the release).
 		deleteHint := verbs.Delete.Hint()
 		if n := len(m.marks); n > 0 && verbs.Delete.Bulk {
-			// 20a: "ctrl-d delete 3 · y/N" — the set-applicable verb's
+			// 20a: "D delete 3 · y/N" — the set-applicable verb's
 			// keybar label names the marked count instead of the cursor row.
 			deleteHint.Label = fmt.Sprintf("delete %d", n)
 		}

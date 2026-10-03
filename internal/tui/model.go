@@ -68,7 +68,7 @@ type TaskScope struct {
 	// for every other verb.
 	Resources *kube.ResourceEdits
 	// MetaKey/MetaValue/MetaIsAnnotation/MetaRemove are a "set-meta" verb's
-	// (26a) target label/annotation edit. MetaRemove true is a ctrl-d key
+	// (26a) target label/annotation edit. MetaRemove true is a D key
 	// removal (MetaValue is "" in that case). Empty/false for every other
 	// verb.
 	MetaKey          string
@@ -89,14 +89,14 @@ type TaskScope struct {
 	MetaJoinService  string
 	MetaJoinPodCount int
 	// SecretKey/SecretValue/SecretRemove are a "secret-data" verb's (27b)
-	// target Secret data-key edit. SecretRemove true is a ctrl-d key
+	// target Secret data-key edit. SecretRemove true is a D key
 	// removal (SecretValue is "" in that case). Empty/false for every other
 	// verb.
 	SecretKey    string
 	SecretValue  string
 	SecretRemove bool
 	// ConfigMapKey/ConfigMapValue/ConfigMapRemove are a "configmap-data" verb's
-	// (27a) target ConfigMap data-key edit. ConfigMapRemove true is a ctrl-d
+	// (27a) target ConfigMap data-key edit. ConfigMapRemove true is a D
 	// key removal (ConfigMapValue is "" in that case). Empty/false for every
 	// other verb.
 	ConfigMapKey    string

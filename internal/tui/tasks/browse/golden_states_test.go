@@ -631,7 +631,7 @@ func goldenArgoModel(t *testing.T, width, height int) Model {
 	return m
 }
 
-// --- 8b: destructive-action confirm (ctrl-d delete) ---
+// --- 8b: destructive-action confirm (D delete) ---
 //
 // Both friction tiers render inline in this same package's Body()/keybar —
 // TierInline never overrides Body (the table stays visible under the y/N

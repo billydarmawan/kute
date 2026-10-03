@@ -1,6 +1,5 @@
 // Deployment-specific browse machinery for 9a (docs/design README.md §9a):
-// the ctrl-r rollout-restart verb (moved off 'R', then off bare 'r' too —
-// see verbs.RolloutRestart's own doc comment) and the ↵ "open this
+// the R rollout-restart verb (verbs.RolloutRestart) and the ↵ "open this
 // deployment's pods" shortcut, plus StatefulSet's and DaemonSet's own ↵
 // "open this workload's pods" (same recipe, no rollout-restart verb —
 // neither StatefulSets nor DaemonSets have one). Kept in its own file,

@@ -1,4 +1,4 @@
-// ctrl-d delete machinery for 8b (docs/design README.md §8b, mvp-plan.md
+// D delete machinery for 8b (docs/design README.md §8b, mvp-plan.md
 // §Phase 5): any row, any kind (verbs.Delete.Kinds is nil — "all kinds").
 // Kept in its own file, browse's per-concern split convention (like
 // nodes.go/sort.go/grouping.go/metrics.go) rather than sprinkled through
