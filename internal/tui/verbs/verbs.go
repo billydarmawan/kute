@@ -119,6 +119,13 @@ var (
 	// (tasks/debugpanel, node), same policy row as NodeDebug; only
 	// the physical key differs, and only in this one screen.
 	NodeDebugDetail = Verb{ID: "node-debug-detail", Key: "s", Label: "debug node", Mutating: true, Kinds: []kube.ResourceKind{kube.KindNode}}
+	// PodDebug is the §41b/§41c debug panel's '↵ start' on a Pod target — the
+	// attach (ephemeral container) or copy-pod kubectl debug launch. There's
+	// no key that opens the pod panel itself: Exec's 'x' routes there when no
+	// container has a shell or the pod won't stay running. Like NodeDebug, it
+	// is a tea.ExecProcess handoff, never a Mutator call, so tasks/debugpanel
+	// applies its policy row itself — immediate outside PROD, one y/N in PROD.
+	PodDebug = Verb{ID: "pod-debug", Key: "↵", Label: "start", Mutating: true, Kinds: []kube.ResourceKind{kube.KindPod}}
 	// Edit is 'E' on any row, any kind — kubectl edit (kube.EditSpec) over
 	// tea.ExecProcess, the same tty-handoff path as Exec/NodeShell, and
 	// Mutating for the plainest reason of the three: it applies whatever the
@@ -630,7 +637,7 @@ var (
 // All is every registered verb, for the help overlay's fixed SCOPE/GLOBAL
 // columns and for ByID lookups.
 var All = []Verb{
-	Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, Edit, Events,
+	Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, PodDebug, Edit, Events,
 	Namespace, Context, AllNamespaces, JumpNamespace, ToggleGroup, PageUp, PageDown, Help, Retry, WhoCan,
 	HelmValues, EnvMounts, HelmHistory, HelmPods, Mark, MarkAll,
 	LogPause, LogFollow, LogNextWarning, LogNextError, LogToggleWrap, LogToggleTime,

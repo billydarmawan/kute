@@ -139,6 +139,7 @@ var policies = map[string]rule{
 	Edit.ID:            {prod: TierInline},
 	NodeDebug.ID:       {prod: TierInline},
 	NodeDebugDetail.ID: {prod: TierInline},
+	PodDebug.ID:        {prod: TierInline},
 }
 
 // untiered are the Mutating verbs with no confirm policy at all: tty

@@ -291,15 +291,20 @@ func (m *Model) cycleProfile() {
 	}
 }
 
-// beginLaunch resolves 'enter': verbs.Resolve(verbs.NodeDebug, …) decides whether
-// to launch immediately (TierNone, outside PROD — reproduces the retired
-// 's' NodeShell verb's zero-friction launch for an unmodified node target)
-// or stage launchPending for one inline y/N line first (TierInline, PROD
+// beginLaunch resolves 'enter' through the target's own policy row —
+// verbs.NodeDebug for a node, verbs.PodDebug for a pod — which decides
+// whether to launch immediately (TierNone, outside PROD — for a node,
+// reproduces the retired 's' NodeShell verb's zero-friction launch) or
+// stage launchPending for one inline y/N line first (TierInline, PROD
 // only) — the same bespoke, non-actions.Controller gate
 // nodedetail/edit.go's beginEdit uses, since the actual launch is a
 // tea.ExecProcess handoff, never a Mutator call.
 func (m *Model) beginLaunch() tea.Cmd {
-	if verbs.Resolve(verbs.NodeDebug, verbs.Target{}, m.isProd()).Tier == verbs.TierNone {
+	verb := verbs.PodDebug
+	if m.tgt == targetNode {
+		verb = verbs.NodeDebug
+	}
+	if verbs.Resolve(verb, verbs.Target{}, m.isProd()).Tier == verbs.TierNone {
 		return m.launchCmd()
 	}
 	m.launchPending = true

@@ -90,10 +90,10 @@ func (m Model) readyKeybar() tui.Keybar {
 			RightHints: []tui.KeyHint{{Key: "esc", Label: "cancel"}},
 		}
 	}
-	group := []tui.KeyHint{{Key: "↵", Label: "start"}}
+	group := []tui.KeyHint{verbs.PodDebug.Hint()}
 	switch {
 	case m.tgt == targetNode:
-		group = append(group, tui.KeyHint{Key: "i", Label: "image"}, tui.KeyHint{Key: "p", Label: "profile"})
+		group = []tui.KeyHint{{Key: "↵", Label: "start"}, {Key: "i", Label: "image"}, {Key: "p", Label: "profile"}}
 	case m.mode == modeAttach:
 		group = append(group,
 			tui.KeyHint{Key: "m", Label: "mode"},

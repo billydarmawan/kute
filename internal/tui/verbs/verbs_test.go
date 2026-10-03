@@ -90,7 +90,7 @@ func TestByID(t *testing.T) {
 func TestTtyHandoffVerbsAreGatedOffline(t *testing.T) {
 	t.Parallel()
 
-	for _, v := range []Verb{Exec, NodeDebug, NodeDebugDetail, Edit} {
+	for _, v := range []Verb{Exec, NodeDebug, NodeDebugDetail, PodDebug, Edit} {
 		if !v.Mutating {
 			t.Errorf("%s should be Mutating so the OFFLINE gate reaches it", v.ID)
 		}
@@ -116,7 +116,7 @@ func TestAllRegistersEveryDefinedVerb(t *testing.T) {
 	t.Parallel()
 
 	defined := []Verb{
-		Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, Edit, Events,
+		Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, PodDebug, Edit, Events,
 		Namespace, Context, AllNamespaces, JumpNamespace, ToggleGroup, PageUp, PageDown, Help, Retry, WhoCan,
 		HelmValues, HelmHistory, HelmPods, Mark, MarkAll,
 		FluxReconcile, FluxSuspend, FluxSource,

@@ -66,6 +66,7 @@ var wantPolicy = map[string][2]string{
 	Edit.ID:                      {immediate, yN},
 	NodeDebug.ID:                 {immediate, yN},
 	NodeDebugDetail.ID:           {immediate, yN},
+	PodDebug.ID:                  {immediate, yN},
 }
 
 // kindsFor is every kind a verb is checked against: its own Kinds (or a
