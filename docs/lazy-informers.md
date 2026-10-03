@@ -134,7 +134,8 @@ was trustworthy. Informers fill independently, so that conflates two questions �
 cluster whose RBAC forbids listing some rarely-watched kind, the aggregate answer is "no"
 forever.
 
-`Cluster.KindSynced(kind)` answers for one kind's own cache. `Synced()` keeps its name but
+`Cluster.KindSynced(kind, namespace)` answers for one kind's own cache (the namespace
+argument arrived with §5.6; outside scoped mode it normalizes to `""`). `Synced()` keeps its name but
 is now explicitly a connect latch. `KindSynced` reports "settled" for anything nothing will
 ever deliver — a stopped cluster, a kind with no informer, and a kind whose watch came back
 Forbidden — so a caller gating a spinner on it cannot hang.
@@ -280,11 +281,16 @@ deployments           33 objects  324.4 KB
 - **Auto-start is implicit, inside `ListRaw`.** The alternative — every caller declaring
   its kinds — meant touching ~85 read sites (72 direct `ListRaw` calls plus 13 through
   `resources.List`/`Count`) where a *missed* one fails silently as an empty list.
-  Implicit is correct by construction and needs suppression at exactly two breadth-first
-  consumers (the goto palette, the empty-state hints). Both gate on `tui.KindCached` —
-  `KindStarted` ("would this read start nothing new?"), then `KindSynced` — never on
-  `KindSynced` alone, which by design reports "settled" for a kind no informer backs yet
-  and so once let a goto keystroke start the full-CRD informer.
+  Implicit is correct by construction and needs suppression at every breadth-first
+  consumer — today the goto palette's resource corpus, the namespace palette's
+  per-namespace counts, browse's empty-state hints, and 24a's cross-workload image
+  history. All gate on `tui.KindCached` — `KindStarted` ("would this read start nothing
+  new?"), then `KindSynced` — never on `KindSynced` alone, which by design reports
+  "settled" for a kind no informer backs yet. That gate is only as good as `KindStarted`'s
+  answer: until `KindCustomResourceDefinition` with no informer yet was made to read as
+  un-started, a goto keystroke still started the full-CRD informer through it. A new
+  consumer goes on this list and through `KindCached`; nothing reads breadth-first
+  without it.
 - **`ensureKind` holds `c.mu` across `factory.Start`.** The two-phase alternative has a
   real interleave: goroutine B's `Start` runs A's just-registered informer before A wires
   its handler, and `SetWatchErrorHandler` then fails outright on a running informer.
@@ -508,8 +514,11 @@ Measured on that cluster, from the workstation:
 | informer scoped to `nva-uat` | 255 Secrets in 13.4 s, synced |
 
 So `ensureHelmSecrets` now takes the namespace being read and keys one informer per
-namespace ("" still meaning all). `KindSynced(KindHelmRelease)` answers for the scope of
-the most recent read, since that is the cache the rows on screen came from.
+namespace ("" still meaning all). `KindSynced(KindHelmRelease, namespace)` answers for the
+namespace asked about — the caller passes the one its own read used, since that is the
+cache the rows on screen came from. (This section first shipped answering for whichever
+scope was read most recently; §5.6 replaced that with the explicit argument every kind now
+takes.)
 
 This is the exception to [Why not namespace-scoped informers by default](#why-not-namespace-scoped-informers-by-default),
 and it pays that section's price honestly: switching namespaces on the Helm list starts a
