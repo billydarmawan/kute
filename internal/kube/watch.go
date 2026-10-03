@@ -339,7 +339,7 @@ func (c *Cluster) notifyScope(gen int, kind ResourceKind, scope string) {
 		return
 	}
 	select {
-	case c.events <- ResourceChangedMsg{Kind: kind}:
+	case c.events <- ResourceChangedMsg{Kind: kind, Namespace: scope}:
 	default:
 	}
 }

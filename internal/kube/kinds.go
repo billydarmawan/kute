@@ -365,6 +365,19 @@ const (
 // a plain struct so the kube package needs no dependency on Bubble Tea.
 type ResourceChangedMsg struct {
 	Kind ResourceKind
+	// Namespace is the scope of the cache that changed: "" for a
+	// cluster-wide cache (every cache in a plain kute), the namespace for a
+	// per-namespace one (--namespace-scoped, Helm releases, TLS Secrets).
+	Namespace string
+}
+
+// Affects reports whether this change can alter a read of its kind at
+// namespace. A cluster-wide cache's change, or a cluster-wide read, always
+// can; a per-namespace cache's change only affects a read of that namespace,
+// which is what keeps an event in namespace A from reloading a screen
+// showing B.
+func (m ResourceChangedMsg) Affects(namespace string) bool {
+	return m.Namespace == "" || namespace == "" || m.Namespace == namespace
 }
 
 // CRDsDiscoveredMsg fires once after the initial (detached, out-of-band)

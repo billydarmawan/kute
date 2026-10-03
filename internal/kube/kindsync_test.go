@@ -113,6 +113,22 @@ func TestReachedSurvivesADroppedEvent(t *testing.T) {
 	}
 }
 
+// TestNotifyScopeCarriesTheCacheNamespace: a per-namespace cache's change
+// event names its namespace, so a screen showing another one can skip it.
+func TestNotifyScopeCarriesTheCacheNamespace(t *testing.T) {
+	t.Parallel()
+	c := newSyncTestCluster()
+	defer close(c.stopCh)
+	c.events = make(chan ResourceChangedMsg, 1)
+
+	c.notifyScope(c.generation, KindHelmRelease, "team-a")
+
+	got := <-c.events
+	if got != (ResourceChangedMsg{Kind: KindHelmRelease, Namespace: "team-a"}) {
+		t.Fatalf("notifyScope sent %+v, want the release cache's namespace on it", got)
+	}
+}
+
 // TestReachedIgnoresAStaleGeneration: a callback from an informer a completed
 // SwitchContext has already torn down says nothing about the context now
 // active — the same guard notify already applies to the reload message.

@@ -446,3 +446,31 @@ func TestResourceChangedDebouncesReload(t *testing.T) {
 		}
 	})
 }
+
+// TestResourceChangedInAnotherNamespaceSkipsReload: under --namespace-scoped
+// (and for Helm's per-namespace caches) a change event carries its cache's
+// namespace, and one from a namespace the screen isn't showing can't change
+// what it reads — so it must not schedule a reload. A cluster-wide event
+// ("") still does.
+func TestResourceChangedInAnotherNamespaceSkipsReload(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-1")},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	for _, tc := range []struct {
+		namespace string
+		reload    bool
+	}{
+		{"team-a", false},
+		{"default", true},
+		{"", true},
+	} {
+		_, cmd := m.Update(kube.ResourceChangedMsg{Kind: kube.KindPod, Namespace: tc.namespace})
+		if got := cmd != nil; got != tc.reload {
+			t.Errorf("Pod change in %q while showing default: reload scheduled = %v, want %v", tc.namespace, got, tc.reload)
+		}
+	}
+}

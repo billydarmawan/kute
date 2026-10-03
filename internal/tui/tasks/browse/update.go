@@ -135,7 +135,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.scheduleReload(m.reloadEpoch)
 			}
 		}
-		if msg.Kind == m.kind || slices.Contains(m.currentAuxKinds(), msg.Kind) {
+		if (msg.Kind == m.kind || slices.Contains(m.currentAuxKinds(), msg.Kind)) && msg.Affects(m.countNamespace()) {
 			m.reloadEpoch++
 			return m, m.scheduleReload(m.reloadEpoch)
 		}
