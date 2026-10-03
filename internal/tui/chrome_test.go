@@ -11,8 +11,8 @@ import (
 )
 
 // TestLiveConnBadge pins the shared badge's phase mapping: connected (and
-// no-cluster/zero states) render the screen's own connected text plus a
-// latency suffix when known; Reconnecting/Failed always render the red
+// the zero state) render the screen's own connected text plus a
+// latency suffix when known; Reconnecting always renders the red
 // disconnected badge regardless of a stale latency value.
 func TestLiveConnBadge(t *testing.T) {
 	theme := Dark()
@@ -24,7 +24,6 @@ func TestLiveConnBadge(t *testing.T) {
 		{"zero state", kube.ConnState{}, GlyphRunning + " connected"},
 		{"connected with latency", kube.ConnState{Phase: kube.ConnConnected, Latency: 12 * time.Millisecond}, GlyphRunning + " connected · 12ms"},
 		{"reconnecting", kube.ConnState{Phase: kube.ConnReconnecting, Latency: 12 * time.Millisecond}, GlyphProbing + " disconnected"},
-		{"failed", kube.ConnState{Phase: kube.ConnFailed}, GlyphProbing + " disconnected"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

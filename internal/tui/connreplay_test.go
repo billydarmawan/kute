@@ -112,7 +112,7 @@ func TestReplaceRootDoesNotReplayOldClusterState(t *testing.T) {
 	root := &connTask{name: "setup"}
 	replacement := &connTask{name: "browse"}
 	m := tui.New(root)
-	m = step(t, m, kube.ConnStateMsg{Phase: kube.ConnFailed, Err: "unreachable"})
+	m = step(t, m, kube.ConnStateMsg{Phase: kube.ConnReconnecting, Err: "unreachable"})
 	m = step(t, m, tui.ReplaceRootMsg{Task: replacement})
 
 	if replacement.seen != 0 {

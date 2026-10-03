@@ -17,8 +17,6 @@ type ConnPhase string
 const (
 	ConnConnected    ConnPhase = "connected"
 	ConnReconnecting ConnPhase = "reconnecting"
-	ConnFailed       ConnPhase = "failed"
-	ConnNoCluster    ConnPhase = "no-cluster"
 
 	// ConnUnauthenticated is "there is no usable credential for this
 	// cluster" — a 401 for a plugin-minted credential (a static cert/token
@@ -52,11 +50,11 @@ type ConnState struct {
 type ConnStateMsg ConnState
 
 // Offline reports whether Phase is a mid-outage state (watch/ping failing,
-// backoff retries under way) rather than a one-shot failure — the single
+// backoff retries under way, or a credential that needs a re-login) — the single
 // predicate every "disconnected"/OFFLINE treatment (4a banner, header badge,
 // mutating-verb gate) shares.
 func (s ConnState) Offline() bool {
-	return s.Phase == ConnReconnecting || s.Phase == ConnFailed || s.Phase == ConnUnauthenticated
+	return s.Phase == ConnReconnecting || s.Phase == ConnUnauthenticated
 }
 
 // NeedsCredentials reports whether the outage is an authentication one, for
@@ -365,7 +363,7 @@ func nextProbeDelay(state ConnState, now time.Time) time.Duration {
 		// simple without repeatedly invoking an expired credential plugin.
 		return 24 * time.Hour
 	}
-	if state.Phase == ConnReconnecting || state.Phase == ConnFailed {
+	if state.Phase == ConnReconnecting {
 		if delay := state.NextRetryAt.Sub(now); !state.NextRetryAt.IsZero() && delay > 0 {
 			return delay
 		}

@@ -81,12 +81,12 @@ func TestHealthOnWatchErrorDoesNotResetAttemptWhileReconnecting(t *testing.T) {
 func TestHealthSetEmitsOnChannel(t *testing.T) {
 	t.Parallel()
 	h := newHealth()
-	h.set(ConnState{Phase: ConnFailed})
+	h.set(ConnState{Phase: ConnReconnecting})
 
 	select {
 	case msg := <-h.ch:
-		if msg.Phase != ConnFailed {
-			t.Fatalf("got phase %v, want Failed", msg.Phase)
+		if msg.Phase != ConnReconnecting {
+			t.Fatalf("got phase %v, want Reconnecting", msg.Phase)
 		}
 	default:
 		t.Fatalf("expected a ConnStateMsg on the channel")

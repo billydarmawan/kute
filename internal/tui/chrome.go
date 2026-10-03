@@ -75,7 +75,7 @@ func (b ConnBadge) compact() ConnBadge {
 // kube.ConnStateMsg the screen saw (the root shell forwards it to the active
 // task): connectedText — plus a "· 12ms" latency suffix when known — in
 // green while connected, a red "◌ disconnected" once the watch/ping loop
-// reports Reconnecting/Failed. Screens with genuinely stateful badges
+// reports Reconnecting. Screens with genuinely stateful badges
 // (podlogs' following/paused, setup's connecting-failed) build their own.
 func LiveConnBadge(theme Theme, conn kube.ConnState, connectedText string) ConnBadge {
 	if conn.Offline() {
