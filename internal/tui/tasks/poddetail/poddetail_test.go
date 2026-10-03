@@ -732,6 +732,10 @@ func TestDeleteInProdRequiresTypedName(t *testing.T) {
 	if view := plain(m.Render()); !strings.Contains(view, verbs.ForceDeleteModalHint()) {
 		t.Fatalf("expected the modal to advertise %q:\n%s", verbs.ForceDeleteModalHint(), view)
 	}
+	// §8b: the pod's own grace period, not "default grace period applies".
+	if view := plain(m.Render()); !strings.Contains(view, "grace period 30s applies") {
+		t.Fatalf("expected the modal to name the pod's grace period:\n%s", view)
+	}
 	m = step(t, m, tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	for _, r := range "api-0" {
 		m = step(t, m, tea.KeyPressMsg{Text: string(r)})

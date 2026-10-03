@@ -684,10 +684,12 @@ func (m *Model) beginDelete() tea.Cmd {
 	if !m.found {
 		return nil
 	}
+	grace := m.pod.GracePeriodSeconds
 	return m.actions.Begin(actions.Request{Verb: verbs.Delete, Prod: m.isProd()}, tui.TaskAction{
-		ID:    "pod-delete-" + m.namespace + "/" + m.name,
-		Label: "Delete pod " + m.name + "?",
-		Owner: m.pod.Owner,
+		ID:                 "pod-delete-" + m.namespace + "/" + m.name,
+		Label:              "Delete pod " + m.name + "?",
+		Owner:              m.pod.Owner,
+		GracePeriodSeconds: &grace,
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindPod),
 			ResourceName: m.name,

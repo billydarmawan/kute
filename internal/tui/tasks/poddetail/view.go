@@ -781,7 +781,13 @@ func (m Model) deleteConfirmModal(width, height int) string {
 		if pending.Scope.Verb == "force-delete" {
 			detail = "grace period 0 — force delete, immediate"
 		} else {
-			detail = "default grace period applies · " + verbs.ForceDeleteModalHint()
+			// docs/design README.md §8b: the concrete figure (e.g. "30s"),
+			// same as browse's modal.
+			detail = "default grace period applies"
+			if pending.GracePeriodSeconds != nil {
+				detail = fmt.Sprintf("grace period %ds applies", *pending.GracePeriodSeconds)
+			}
+			detail += " · " + verbs.ForceDeleteModalHint()
 		}
 	}
 
