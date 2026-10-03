@@ -71,7 +71,7 @@ func BuildSession(cfg Config) (sess *tui.Session, cluster *kube.Cluster, err err
 		return sess, nil, err
 	}
 	sess.Cluster = cluster
-	sess.Location = restoredLocation(sessionState, cluster.Context)
+	sess.Location = restoredLocation(sessionState, cluster.ContextSnapshot())
 	// -n/--namespace is the highest-precedence namespace source, so it's
 	// applied last: an explicit flag has to beat both the context's own
 	// default namespace and the per-context restore above.
@@ -82,7 +82,7 @@ func BuildSession(cfg Config) (sess *tui.Session, cluster *kube.Cluster, err err
 	// does — cmd/kute's conflictingScopeFlags already rejects the two
 	// together, so this and the block above never both fire — and then turns
 	// scoped mode on for the whole session before a single informer starts.
-	// SetNamespaceScope also pins Cluster.Context.Namespace, so
+	// SetNamespaceScope also pins the Cluster's context namespace, so
 	// Session.Location, Cluster.Context, and the eager Pod cache all agree
 	// from the first frame (see its own doc comment).
 	if cfg.ScopeNamespace != "" {

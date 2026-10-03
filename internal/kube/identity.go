@@ -97,5 +97,6 @@ func (c *Cluster) whoCanIdentity() (user string, groups []string, fromAuthInfo b
 	if id, ok := c.ReviewedIdentity(); ok {
 		return id.Username, id.Groups, false
 	}
-	return c.Context.UserName, c.Context.UserGroups, c.Context.UserFromAuthInfo
+	kctx := c.ContextSnapshot()
+	return kctx.UserName, kctx.UserGroups, kctx.UserFromAuthInfo
 }

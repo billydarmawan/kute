@@ -38,10 +38,10 @@ func NewCommandTarget(contextName string) CommandTarget {
 
 // CommandTarget is the target for a subprocess acting on this Cluster — the
 // context its own client is built against. Read under c.mu: SwitchContext
-// replaces c.Context from a tea.Cmd goroutine.
+// replaces c.kctx from a tea.Cmd goroutine.
 func (c *Cluster) CommandTarget() CommandTarget {
 	c.mu.Lock()
-	name := c.Context.ContextName
+	name := c.kctx.ContextName
 	c.mu.Unlock()
 	return NewCommandTarget(name)
 }

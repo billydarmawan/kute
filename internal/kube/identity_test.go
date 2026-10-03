@@ -42,7 +42,7 @@ func answerSelfSubjectReview(cs *fake.Clientset, username string, groups ...stri
 func TestStartIssuesExactlyOneSelfSubjectReview(t *testing.T) {
 	c, cs := newLazyTestCluster()
 	defer c.Stop()
-	c.Context = Context{UserName: "gke_proj_zone_c", UserFromAuthInfo: true}
+	c.kctx = Context{UserName: "gke_proj_zone_c", UserFromAuthInfo: true}
 	answerSelfSubjectReview(cs, "alice@example.com", "devs", "system:authenticated")
 
 	if err := c.Start(t.Context()); err != nil {
@@ -101,7 +101,7 @@ func TestFailedSelfSubjectReviewKeepsTheKubeconfigFallback(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c, cs := newLazyTestCluster()
 			defer c.Stop()
-			c.Context = Context{UserName: "gke_proj_zone_c", UserFromAuthInfo: true}
+			c.kctx = Context{UserName: "gke_proj_zone_c", UserFromAuthInfo: true}
 			cs.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 				return true, nil, err
 			})

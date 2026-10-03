@@ -702,7 +702,8 @@ func NewModel(cfg Config) (tui.Model, *kube.Cluster, *fake.Cluster) {
 // rebuild so the two never drift.
 func buildBrowseTask(cfg Config, sess *tui.Session, cluster *kube.Cluster) *browse.Model {
 	streamer := liveClusterLogStreamer{cluster: cluster}
-	clusterName, namespace := cluster.Context.ClusterName, cluster.Context.Namespace
+	kctx := cluster.ContextSnapshot()
+	clusterName, namespace := kctx.ClusterName, kctx.Namespace
 	lister := newSessionLister(cluster, sess.Forwards, sess.Charts)
 	openLogs := openLogsFunc(sess, cluster, streamer, clusterName, namespace)
 	openYAML := openYAMLFunc(sess, cluster)
@@ -748,12 +749,12 @@ func buildBrowseTask(cfg Config, sess *tui.Session, cluster *kube.Cluster) *brow
 		OpenSecretData:      openSecretDataFunc(sess, cluster),
 		OpenConfigMapData:   openConfigMapDataFunc(sess, cluster),
 		OpenCronJobSchedule: openCronJobSchedule,
-		OpenCronJobDetail:   openCronJobDetailFunc(sess, cluster, openLogs, openYAML, openCronJobSchedule, cluster.Context.UserName),
-		OpenJobAttempts:     openJobAttemptsFunc(sess, cluster, openPodDetail, openLogs, openYAML, cluster.Context.UserName),
+		OpenCronJobDetail:   openCronJobDetailFunc(sess, cluster, openLogs, openYAML, openCronJobSchedule, kctx.UserName),
+		OpenJobAttempts:     openJobAttemptsFunc(sess, cluster, openPodDetail, openLogs, openYAML, kctx.UserName),
 		OpenOverview:        openOverviewFunc(sess, lister, cluster, openNodeDetail, openTimeline, openEvents),
 		Forwards:            sess.Forwards,
 		Retrier:             cluster,
-		CurrentUser:         cluster.Context.UserName,
+		CurrentUser:         kctx.UserName,
 		Identity:            cluster,
 		Demo:                false,
 	})
@@ -766,12 +767,13 @@ func buildBrowseTask(cfg Config, sess *tui.Session, cluster *kube.Cluster) *brow
 // tasks/setup (import cycle: setup, like every task, imports tui).
 func buildSetupFactory(cfg Config, sess *tui.Session, cluster *kube.Cluster) func(kube.ConnState) tui.Task {
 	return func(conn kube.ConnState) tui.Task {
+		contextName := cluster.CurrentContext()
 		s := setup.New(setup.Config{
 			Session:         sess,
 			State:           setup.Unreachable,
-			ClusterName:     cluster.Context.ContextName,
+			ClusterName:     contextName,
 			Conn:            conn,
-			OtherContexts:   otherContexts(cluster.Context.ContextName),
+			OtherContexts:   otherContexts(contextName),
 			KubeconfigPath:  kubeconfigPathOrEmpty(),
 			RetryNow:        cluster.RetryNow,
 			Reconnect:       func(path string) tea.Cmd { return attemptReconnect(cfg, sess, path) },
@@ -964,7 +966,7 @@ func rebuildCluster(cfg Config, sess *tui.Session, kubeconfig string, relaunch b
 				sess.Lister = newSessionLister(cluster, sess.Forwards, sess.Charts)
 				sess.Metrics = cluster
 				sess.ClearPendingKind()
-				sess.Location = restoredLocation(sess.State, cluster.Context)
+				sess.Location = restoredLocation(sess.State, cluster.ContextSnapshot())
 				if relaunch && cfg.Namespace != "" {
 					sess.Location.Namespace = cfg.Namespace
 				}
@@ -1352,7 +1354,7 @@ func openCronJobScheduleFunc(sess *tui.Session, active seams) browse.OpenCronJob
 // Task/buildDemoBrowseTask hand to browse itself, so cronjobdetail's `l`/`y`/
 // `S` push exactly the same screens browse's own keys do rather than a
 // second, possibly-drifting construction. currentUser threads through
-// browse.Config.CurrentUser's own identity (real: cluster.Context.UserName,
+// browse.Config.CurrentUser's own identity (real: the cluster's kubeconfig UserName,
 // demo: fake.Cluster.CurrentUser()) so cronjobdetail's run-now preflight
 // stamps the same kube.AnnotationTriggeredBy creator browse's list does.
 func openCronJobDetailFunc(sess *tui.Session, active seams, openLogs browse.OpenLogsFunc, openYAML browse.OpenYAMLFunc, openSchedule browse.OpenCronJobScheduleFunc, currentUser string) browse.OpenCronJobDetailFunc {

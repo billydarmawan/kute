@@ -73,7 +73,10 @@ type Cluster struct {
 	// upgraded SPDY transport must be constructed. Ordinary and derived REST
 	// clients use restCfg's gated outer transport.
 	credentialCfg *rest.Config
-	Context       Context
+	// kctx is the active kubeconfig context. SwitchContext replaces it from a
+	// tea.Cmd goroutine, so every read outside c.mu goes through
+	// ContextSnapshot (or CurrentNamespace/CurrentContext).
+	kctx          Context
 	authGate      *authenticationGate
 	watcher       *watchObserver
 
@@ -261,7 +264,7 @@ func NewClusterForContext(contextName string) (*Cluster, error) {
 		factory:       newTypedFactory(client.Interface),
 		restCfg:       client.RESTConfig,
 		credentialCfg: client.credentialConfig,
-		Context:       client.Context,
+		kctx:          client.Context,
 		dynClient:     dynClient,
 		dynFactory:    dynamicinformer.NewDynamicSharedInformerFactory(dynClient, defaultResync),
 		events:        make(chan ResourceChangedMsg, 64),
@@ -300,7 +303,7 @@ func (c *Cluster) SetNamespaceScope(namespace string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.scoped = true
-	c.Context.Namespace = namespace
+	c.kctx.Namespace = namespace
 }
 
 // Scoped reports whether SetNamespaceScope has pinned this Cluster to one
@@ -452,7 +455,7 @@ func (c *Cluster) Start(ctx context.Context) error {
 	}
 
 	c.registerWatchesLocked(KindNamespace, KindNode)
-	podScope := c.cacheScopeLocked(KindPod, c.Context.Namespace)
+	podScope := c.cacheScopeLocked(KindPod, c.kctx.Namespace)
 	podFactory := c.factoryForScopeLocked(podScope)
 	c.registerTypedWatchLocked(KindPod, podScope, podFactory)
 	c.eagerKeys = []scopeKey{{KindNamespace, ""}, {KindNode, ""}, {KindPod, podScope}}
@@ -1134,9 +1137,18 @@ func (c *Cluster) KindForbidden(kind ResourceKind, namespace string) error {
 	return c.kindFailed[key]
 }
 
+// ContextSnapshot is a copy of the active kubeconfig context, read under
+// c.mu: SwitchContext, SwitchNamespace and SetNamespaceScope write it while
+// tea.Cmd goroutines and the composition root read it.
+func (c *Cluster) ContextSnapshot() Context {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.kctx
+}
+
 // CurrentNamespace and CurrentContext expose the active scope for switchers.
-func (c *Cluster) CurrentNamespace() string { return c.Context.Namespace }
-func (c *Cluster) CurrentContext() string   { return c.Context.ContextName }
+func (c *Cluster) CurrentNamespace() string { return c.ContextSnapshot().Namespace }
+func (c *Cluster) CurrentContext() string   { return c.ContextSnapshot().ContextName }
 
 // Contexts lists the kubeconfig context names available to switch to.
 func (c *Cluster) Contexts() []string {
@@ -1158,7 +1170,7 @@ func (c *Cluster) SwitchNamespace(namespace string) {
 		return
 	}
 	c.mu.Lock()
-	c.Context.Namespace = namespace
+	c.kctx.Namespace = namespace
 	c.mu.Unlock()
 }
 
@@ -1249,10 +1261,10 @@ func (c *Cluster) SwitchContext(ctx context.Context, contextName, namespace stri
 	c.metaClient = nil
 	c.helmFactories = nil
 	c.helmInformers = nil
-	c.Context = client.Context
+	c.kctx = client.Context
 	c.identity = nil
 	if c.scoped && namespace != "" {
-		c.Context.Namespace = namespace
+		c.kctx.Namespace = namespace
 	}
 	c.health.reset()
 	c.started = false

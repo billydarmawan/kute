@@ -120,7 +120,7 @@ func TestClusterHelmRollbackTargetsClusterContext(t *testing.T) {
 	SetKubeconfigPath("/etc/kute/config")
 	t.Cleanup(func() { SetKubeconfigPath("") })
 
-	c := &Cluster{Context: Context{ContextName: "prod-eu"}}
+	c := &Cluster{kctx: Context{ContextName: "prod-eu"}}
 	if err := c.HelmRollback(t.Context(), "production", "postgresql", 2); err != nil {
 		t.Fatalf("HelmRollback: %v", err)
 	}
