@@ -362,8 +362,18 @@ func TestLoadGatewayListeners(t *testing.T) {
 	if m.listeners[0].name != "https" || m.listeners[0].attached != 3 {
 		t.Fatalf("unexpected https listener: %+v", m.listeners[0])
 	}
-	if m.listeners[0].hostname != "*.demo.local" || m.listeners[1].hostname != "*" {
+	if m.listeners[0].hostname != "*.demo.local" || m.listeners[1].hostname != "" {
 		t.Fatalf("unexpected hostnames: %+v / %+v", m.listeners[0], m.listeners[1])
+	}
+
+	// The hostname-less listener renders as "*" but, loaded through the
+	// real loader, ↵ still filters on this Gateway rather than on "*".
+	m.selected = 1
+	if filter, ok := m.selectedListenerRouteFilter(); !ok || filter != "gw/public" {
+		t.Fatalf("filter = %q, ok=%v, want \"gw/public\", true", filter, ok)
+	}
+	if view := plain(m.Render()); !strings.Contains(view, "HTTP:80") || !strings.Contains(view, " * ") {
+		t.Fatalf("view should render the hostname-less listener as *:\n%s", view)
 	}
 }
 

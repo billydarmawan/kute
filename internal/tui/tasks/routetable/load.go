@@ -738,10 +738,9 @@ func (m Model) loadGateway() tea.Cmd {
 			lname, _, _ := unstructured.NestedString(lm, "name")
 			proto, _, _ := unstructured.NestedString(lm, "protocol")
 			port, _, _ := unstructured.NestedInt64(lm, "port")
+			// Kept raw: "" (any hostname) renders as "*" in the view, but
+			// ↵'s route filter needs to tell it apart from a literal one.
 			hostname, _, _ := unstructured.NestedString(lm, "hostname")
-			if hostname == "" {
-				hostname = "*"
-			}
 
 			tlsText, tlsClass := "–", resources.StatusNeutral
 			if certRefs, found, _ := unstructured.NestedSlice(lm, "tls", "certificateRefs"); found && len(certRefs) > 0 {

@@ -483,10 +483,14 @@ func (m Model) listenersTable(width, height int) string {
 			dim = dim.Background(theme.SelBg)
 			tls = tls.Background(theme.SelBg)
 		}
+		hostname := l.hostname
+		if hostname == "" {
+			hostname = "*"
+		}
 		rows = append(rows, components.Row{Cells: []components.Cell{
 			{Text: l.name, Style: text},
 			{Text: l.protoPort, Style: dim},
-			{Text: l.hostname, Style: dim},
+			{Text: hostname, Style: dim},
 			{Text: l.tlsText, Style: tls},
 			{Text: strconv.Itoa(l.attached), Style: dim},
 		}})

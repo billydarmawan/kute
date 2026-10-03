@@ -69,7 +69,7 @@ type routeRow struct {
 type listenerRow struct {
 	name      string
 	protoPort string // "HTTPS:443"
-	hostname  string
+	hostname  string // raw spec value; "" (any hostname) renders as "*"
 	tlsText   string
 	tlsClass  resources.StatusClass
 	attached  int
