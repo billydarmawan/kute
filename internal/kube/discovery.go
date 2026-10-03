@@ -41,7 +41,7 @@ type DiscoveredKind struct {
 	// ShortNames are the resource's declared short names from API discovery
 	// (cert-manager's Certificate: cert, certs) — 14a's keybar pill.
 	ShortNames []string
-	Group  string
+	Group      string
 	// Versions is every version declared on the CRD (spec.versions),
 	// served or not — the 14b VERSIONS column renders all of them,
 	// dimming Deprecated ones.
