@@ -320,7 +320,7 @@ func (m Model) conditionLines() []string {
 			if c.Message != "" {
 				line += dim.Render(" — " + c.Message)
 			}
-			line += dim.Render(" · " + shortAge(time.Since(c.LastTransitionTime.Time)))
+			line += dim.Render(" · " + shortAge(m.now.Sub(c.LastTransitionTime.Time)))
 			lines = append(lines, line)
 		default:
 			// Kute Spec.dc.html §11b: glyph green (no pressure = healthy),

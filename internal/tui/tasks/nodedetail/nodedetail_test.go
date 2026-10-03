@@ -225,6 +225,34 @@ func TestActiveConditionAppendsAgeWithoutDanglingSeparator(t *testing.T) {
 	}
 }
 
+// TestConditionAgeReadsModelClock pins Render's purity: an active
+// condition's age is measured against the model's own clock (m.now), not a
+// wall-clock read inside the render path.
+func TestConditionAgeReadsModelClock(t *testing.T) {
+	transitioned := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{
+					Type:               corev1.NodeMemoryPressure,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(transitioned),
+				},
+			},
+		},
+	}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindNode: {node}}}
+	m := New(Config{Session: newSession(), Lister: lister, NodeName: "node-a"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	m.now = transitioned.Add(2 * time.Hour)
+
+	if view := plain(m.Render()); !strings.Contains(view, "MemoryPressure · 2h") {
+		t.Fatalf("expected the age measured from m.now, got:\n%s", view)
+	}
+}
+
 // TestAllocationTextTurnsYellowWhenHot pins 11b: the "used / total" text
 // next to a bar must also turn yellow at the same ≥70% "hot" threshold the
 // bar's own fill segment already uses — previously only the bar changed
