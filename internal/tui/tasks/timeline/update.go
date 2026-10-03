@@ -338,6 +338,12 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case verbs.RolloutUndo.Key:
 		if m.railFocused && m.mutator != nil {
 			if rev, ok := m.selectedRevision(); ok {
+				if m.railSelected == 0 {
+					// rail[0] is the live revision: rolling back to it
+					// patches the template to what it already is.
+					m.actionsCtl.Refuse(fmt.Sprintf("revision %d is the current revision · pick an earlier one to roll back to", rev.Revision))
+					return m, nil
+				}
 				return m, m.beginRollback(rev)
 			}
 		}

@@ -841,6 +841,27 @@ func TestRailFocusAndRollbackFlow(t *testing.T) {
 	}
 }
 
+// rail[0] is the live revision: R there would only patch the template to
+// what it already is, so it's refused with a reason instead of confirmed.
+func TestRollbackToTheCurrentRevisionIsRefused(t *testing.T) {
+	lister, podName := railFixture()
+	mut := &fakeRolloutMutator{}
+	m := New(Config{
+		Session: newSession(), Events: fakeEvents{}, Lister: lister, Mutator: mut,
+		Namespace: "default", ObjectKind: kube.KindPod, ObjectName: podName,
+	})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m = step(t, m, tea.KeyPressMsg{Text: "R"})
+	if m.actionsCtl.Active() || mut.called {
+		t.Fatal("R on the current revision must not begin a rollback")
+	}
+	if res := m.ActionResult(); !res.Failed || !strings.Contains(res.Text, "current revision") {
+		t.Fatalf("expected a refusal naming the current revision, got %+v", res)
+	}
+}
+
 // TestRolloutUndoInProdRequiresTypedName mirrors poddetail's own
 // TestDeleteInProdRequiresTypedName for 16b's rollback: a PROD context
 // escalates to the type-the-deployment-name modal, and a bare "y" types

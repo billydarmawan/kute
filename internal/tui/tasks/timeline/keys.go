@@ -98,7 +98,11 @@ func (m Model) objectKeybar() tui.Keybar {
 		if m.railFocused {
 			rail := []tui.KeyHint{{Key: "↑↓", Label: "select revision"}}
 			if m.mutator != nil && !verbs.RolloutUndo.HiddenWhileOffline(m.conn.Offline()) {
-				rail = append(rail, verbs.RolloutUndo.Hint())
+				hint := verbs.RolloutUndo.Hint()
+				// rail[0], the current revision, is no rollback target
+				// (update.go refuses it).
+				hint.Disabled = m.railSelected == 0
+				rail = append(rail, hint)
 			}
 			groups = append(groups, rail)
 		}
