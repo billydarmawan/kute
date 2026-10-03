@@ -67,15 +67,15 @@ func (m Model) Keybar() tui.Keybar {
 	return m.readyKeybar()
 }
 
-// launchPrompt mirrors actions.Controller.Prompt()'s "<Verb> <target>? (y)
-// confirm (esc) cancel" shape for the launch's own bespoke, non-Controller
+// launchPrompt mirrors actions.Controller.Prompt()'s verbs.ConfirmPrompt
+// shape for the launch's own bespoke, non-Controller
 // gate.
 func (m Model) launchPrompt() string {
 	name := m.podName
 	if m.tgt == targetNode {
 		name = "node/" + m.nodeName
 	}
-	return fmt.Sprintf("Launch kubectl debug against %s? (y) confirm  (esc) cancel", name)
+	return verbs.ConfirmPrompt("Launch kubectl debug against " + name + "?")
 }
 
 func (m Model) readyKeybar() tui.Keybar {

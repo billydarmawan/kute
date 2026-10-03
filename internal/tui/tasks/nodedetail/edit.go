@@ -69,8 +69,8 @@ func (m *Model) updateEditConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // editConfirmPrompt renders pendingEdit's keybar RightNote — mirrors
-// actions.Controller.Prompt()'s "<Verb> <target>? (y) confirm (n) cancel"
+// actions.Controller.Prompt()'s "<Verb> <target>? (y) confirm (esc) cancel"
 // shape for Edit's bespoke (non-Controller) gate.
 func (m Model) editConfirmPrompt() string {
-	return fmt.Sprintf("Edit %s %s? (y) confirm  (n) cancel", kube.KindNode, m.pendingEdit.name)
+	return verbs.ConfirmPrompt(fmt.Sprintf("Edit %s %s?", kube.KindNode, m.pendingEdit.name))
 }

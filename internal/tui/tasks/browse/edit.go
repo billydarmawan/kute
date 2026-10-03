@@ -8,8 +8,6 @@
 package browse
 
 import (
-	"fmt"
-
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kute-dev/kute/internal/kube"
@@ -72,7 +70,7 @@ func (m *Model) updateEditConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // editConfirmPrompt renders pendingEdit's keybar RightNote — mirrors
-// actions.Controller.Prompt()'s "<Verb> <target>? (y) confirm (n) cancel"
+// actions.Controller.Prompt()'s "<Verb> <target>? (y) confirm (esc) cancel"
 // shape for Edit's bespoke (non-Controller) gate.
 func (m Model) editConfirmPrompt() string {
 	t := m.pendingEdit
@@ -82,5 +80,5 @@ func (m Model) editConfirmPrompt() string {
 	} else {
 		target += " " + t.name
 	}
-	return fmt.Sprintf("Edit %s? (y) confirm  (n) cancel", target)
+	return verbs.ConfirmPrompt("Edit " + target + "?")
 }

@@ -228,7 +228,7 @@ func (m *Model) updateRevealAllConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.C
 // browse/edit.go's editConfirmPrompt shape for this package's own bespoke
 // (non-actions.Controller) inline gate.
 func (m Model) revealAllConfirmPrompt() string {
-	return fmt.Sprintf("Reveal all %d keys in this Secret? (y) confirm  (n) cancel", len(m.secretData))
+	return verbs.ConfirmPrompt(fmt.Sprintf("Reveal all %d keys in this Secret?", len(m.secretData)))
 }
 
 // copyDecodedSecretValue copies the cursor's decoded plaintext — "the only

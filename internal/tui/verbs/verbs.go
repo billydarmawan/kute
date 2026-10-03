@@ -706,6 +706,13 @@ func ConfirmHints() []tui.KeyHint {
 	return []tui.KeyHint{ConfirmAccept.Hint(), ConfirmCancel.Hint()}
 }
 
+// ConfirmPrompt suffixes a y/N question with the same answer keys
+// ConfirmHints advertises — "Edit pod dev/api? (y) confirm  (esc) cancel" —
+// for a confirm's keybar RightNote.
+func ConfirmPrompt(question string) string {
+	return question + " (" + ConfirmAccept.Key + ") " + ConfirmAccept.Label + "  (" + ConfirmCancel.Key + ") " + ConfirmCancel.Label
+}
+
 // All is every registered verb, for the help overlay's fixed SCOPE/GLOBAL
 // columns and for ByID lookups.
 var All = []Verb{

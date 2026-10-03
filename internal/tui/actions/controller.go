@@ -565,7 +565,7 @@ func (c Controller) Prompt() string {
 	} else {
 		target += " " + s.ResourceName
 	}
-	return fmt.Sprintf("%s %s? (y) confirm  (esc) cancel", capitalize(s.Verb), target)
+	return verbs.ConfirmPrompt(capitalize(s.Verb) + " " + target + "?")
 }
 
 // execute dispatches the pending action's write, watched by watchSlow so a

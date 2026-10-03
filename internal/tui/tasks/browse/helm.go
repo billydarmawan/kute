@@ -246,7 +246,7 @@ func rollbackPrompt(target kube.CommandTarget, scope tui.TaskScope) string {
 	// Kept short deliberately: insetChromeLine (tui/chrome.go) drops the
 	// whole RightNote rather than truncating it when the keybar line
 	// overflows width, so this stays terser than Controller.Prompt()'s own
-	// default "Rollback HelmRelease ns/name? (y) confirm (n) cancel" despite
+	// default "Rollback HelmRelease ns/name? (y) confirm  (esc) cancel" despite
 	// carrying more information (the actual command). The --kubeconfig path
 	// alone can still overflow it, which is what rollbackPromptShort is for.
 	return kube.HelmRollbackCommandString(target, scope.Namespace, scope.ResourceName, scope.Revision)

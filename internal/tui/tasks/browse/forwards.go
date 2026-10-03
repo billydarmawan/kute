@@ -102,7 +102,7 @@ func (m *Model) updateStopAllForwardsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 
 // stopAllForwardsPrompt renders pendingStopAllForwards' keybar RightNote.
 func (m Model) stopAllForwardsPrompt() string {
-	return fmt.Sprintf("Stop all %d forwards? (y) confirm  (n) cancel", len(m.rows))
+	return verbs.ConfirmPrompt(fmt.Sprintf("Stop all %d forwards?", len(m.rows)))
 }
 
 // forwardSummaryText is 13c's health-strip right side: "4 forwards · 2
