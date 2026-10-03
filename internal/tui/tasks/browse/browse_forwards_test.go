@@ -50,7 +50,7 @@ func TestForwardsBreadcrumbShowsAllNamespacesNotClusterScoped(t *testing.T) {
 	session.Location.Kind = kube.KindForward
 	m := New(Config{Session: session, Lister: fakeLister{}})
 	m.SetSize(120, 36)
-	m = step(t, m, m.Init()())
+	m = step(t, m, m.load()()) // not Init: the Forwards clock tick would loop step forever
 
 	view := plain(m.Render())
 	if !strings.Contains(view, "all namespaces") {
@@ -120,7 +120,7 @@ func TestStopSelectedForwardEndsSession(t *testing.T) {
 	sess.Location.Kind = kube.KindForward
 	m := New(Config{Session: sess, Lister: forwardsLister(mgr), Forwards: mgr})
 	m.SetSize(120, 36)
-	m = step(t, m, m.Init()())
+	m = step(t, m, m.load()()) // not Init: the Forwards clock tick would loop step forever
 
 	if m.kind != kube.KindForward {
 		t.Fatalf("kind = %s, want Forward", m.kind)
@@ -153,7 +153,7 @@ func TestStopAllForwardsRequiresConfirm(t *testing.T) {
 	sess.Location.Kind = kube.KindForward
 	m := New(Config{Session: sess, Lister: forwardsLister(mgr), Forwards: mgr})
 	m.SetSize(120, 36)
-	m = step(t, m, m.Init()())
+	m = step(t, m, m.load()()) // not Init: the Forwards clock tick would loop step forever
 
 	updated, _ := m.Update(tea.KeyPressMsg{Text: "X"})
 	next := updated.(*Model)
@@ -193,11 +193,42 @@ func TestForwardSummaryText(t *testing.T) {
 	sess.Location.Kind = kube.KindForward
 	m := New(Config{Session: sess, Lister: forwardsLister(mgr), Forwards: mgr})
 	m.SetSize(120, 36)
-	m = step(t, m, m.Init()())
+	m = step(t, m, m.load()()) // not Init: the Forwards clock tick would loop step forever
 
 	got := m.forwardSummaryText()
 	want := "1 forwards · 1 namespaces · forwards end when kute exits"
 	if got != want {
 		t.Fatalf("forwardSummaryText() = %q, want %q", got, want)
+	}
+}
+
+// TestForwardsListTicksTheClock pins review 11 L10: UPTIME, "idle 12m" and a
+// Reconnecting row's "next in Ns" are derived at projection time and the
+// manager only notifies on a state change, so the Forwards list must ride
+// the same one-second UI clock as CronJobs — each tick re-projects the rows
+// and re-arms the next one.
+func TestForwardsListTicksTheClock(t *testing.T) {
+	session := newSession()
+	session.Location.Kind = kube.KindForward
+	m := New(Config{Session: session, Lister: fakeLister{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.load()()) // not Init: the Forwards clock tick would loop step forever
+	if !m.ticksCronJobClock() {
+		t.Fatal("expected the Forwards list to run the one-second UI clock")
+	}
+
+	_, cmd := m.Update(cronJobTickMsg{epoch: m.clockEpoch})
+	msgs := drainCmd(cmd, 1500*time.Millisecond)
+	var reloaded bool
+	for _, msg := range msgs {
+		if _, ok := msg.(rowsLoadedMsg); ok {
+			reloaded = true
+		}
+	}
+	if !reloaded {
+		t.Fatalf("expected a Forwards tick to re-project the rows, got %#v", msgs)
+	}
+	if len(clockTicks(msgs)) != 1 {
+		t.Fatalf("expected the tick to re-arm exactly one next tick, got %#v", msgs)
 	}
 }

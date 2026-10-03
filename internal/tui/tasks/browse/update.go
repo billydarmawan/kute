@@ -258,9 +258,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.now = time.Now()
-		if m.kind == kube.KindJob {
+		switch m.kind {
+		case kube.KindForward:
+			return m, tea.Batch(m.load(), m.scheduleCronJobTick(m.clockEpoch))
+		case kube.KindJob:
 			m.applyJobTick(m.now, m.actingUser())
-		} else {
+		default:
 			m.applyCronJobTick(m.now)
 		}
 		return m, m.scheduleCronJobTick(m.clockEpoch)

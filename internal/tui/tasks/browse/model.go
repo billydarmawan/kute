@@ -1005,9 +1005,14 @@ func (m Model) pollsMetrics() bool {
 // CronJobs, DURATION for Jobs (§37a) — both recomputed from a stored
 // summary on every tick, never a lister call, metrics poll, or discovery
 // read. Name kept from its CronJob-only origin; the tick itself now serves
-// both kinds via applyJobTick.epoch dispatch (update.go).
+// both kinds via applyJobTick.epoch dispatch (update.go), and Forwards
+// (§13c): UPTIME, "idle 12m" and a Reconnecting row's "next in Ns" are
+// derived at projection time, and the manager only notifies on a state
+// change, so without the tick the countdown would sit frozen until the
+// retry fired. A Forwards tick reloads from the in-memory ForwardManager —
+// still no cluster read.
 func (m Model) ticksCronJobClock() bool {
-	return m.kind == kube.KindCronJob || m.kind == kube.KindJob
+	return m.kind == kube.KindCronJob || m.kind == kube.KindJob || m.kind == kube.KindForward
 }
 
 // offline reports whether the 4a treatment applies: the last known
