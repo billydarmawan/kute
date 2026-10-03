@@ -227,7 +227,7 @@ func (m *Model) beginReconcile(row treeRow) tea.Cmd {
 	}
 	cmds := []string{kube.FluxReconcileCommandString(row.kind, row.namespace, row.name, now)}
 	label := fmt.Sprintf("Reconcile %s?", row.name)
-	if !row.isSource && row.sourceName != "" {
+	if !row.isSource && row.sourceName != "" && !m.sourceMissing(row) {
 		scope.FluxSourceKind = string(row.sourceKind)
 		scope.FluxSourceName = row.sourceName
 		scope.FluxSourceNamespace = row.sourceNamespace
@@ -245,6 +245,20 @@ func (m *Model) beginReconcile(row treeRow) tea.Cmd {
 		Label: label,
 		Scope: scope,
 	})
+}
+
+// sourceMissing reports whether row's group head is the synthetic stand-in
+// for a source that resolved to nothing. Stamping it would only fail — and
+// with it the reconciler's own request — so with-source is skipped there.
+func (m Model) sourceMissing(row treeRow) bool {
+	for _, g := range m.groups {
+		for _, c := range g.children {
+			if c.kind == row.kind && c.namespace == row.namespace && c.name == row.name {
+				return g.head.missing
+			}
+		}
+	}
+	return false
 }
 
 // beginSuspend toggles spec.suspend — one verb, two directions, exactly

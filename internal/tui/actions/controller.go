@@ -687,14 +687,24 @@ func executeScope(mutator kube.Mutator, scope tui.TaskScope) error {
 	case "flux-reconcile":
 		// §30b's with-source reconcile stamps the source first: asking a
 		// reconciler to sync against an artifact that is still stale
-		// just re-applies what it already has.
+		// just re-applies what it already has. A failed source stamp
+		// (no RBAC in the source's namespace, say) still runs the
+		// reconciler's own — that one is still worth asking for — and the
+		// result reports both halves.
+		var srcErr error
 		if scope.FluxSourceName != "" {
-			err = mutator.RequestFluxReconcile(context.Background(),
+			srcErr = mutator.RequestFluxReconcile(context.Background(),
 				kube.ResourceKind(scope.FluxSourceKind), scope.FluxSourceNamespace, scope.FluxSourceName)
 		}
-		if err == nil {
-			err = mutator.RequestFluxReconcile(context.Background(),
-				kube.ResourceKind(scope.ResourceKind), scope.Namespace, scope.ResourceName)
+		err = mutator.RequestFluxReconcile(context.Background(),
+			kube.ResourceKind(scope.ResourceKind), scope.Namespace, scope.ResourceName)
+		if srcErr != nil {
+			src := scope.FluxSourceKind + "/" + scope.FluxSourceName
+			if err == nil {
+				err = fmt.Errorf("reconcile of %s requested, but source %s was not: %w", scope.ResourceName, src, srcErr)
+			} else {
+				err = fmt.Errorf("source %s: %w; %s: %w", src, srcErr, scope.ResourceName, err)
+			}
 		}
 	case "argo-refresh":
 		err = mutator.RequestArgoRefresh(context.Background(),

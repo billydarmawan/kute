@@ -771,3 +771,36 @@ func TestOneUnreadableFluxKindDegradesTheTree(t *testing.T) {
 		t.Errorf("state = %s, want error when no Flux kind can be read", all.state)
 	}
 }
+
+// TestReconcileUnderAMissingSourceSkipsWithSource: a reconciler whose
+// sourceRef resolved to nothing has no source to stamp — doing so would
+// only fail — so its 'r' is the plain one-command reconcile.
+func TestReconcileUnderAMissingSourceSkipsWithSource(t *testing.T) {
+	m := demoModel(t)
+	gi := -1
+	for i, g := range m.groups {
+		if len(g.children) > 0 && g.children[0].sourceName != "" {
+			gi = i
+			break
+		}
+	}
+	if gi < 0 {
+		t.Fatal("need a group with a reconciler")
+	}
+	child := m.groups[gi].children[0]
+	m.groups[gi].head = missingSourceRow(child, nil)
+	m.expanded = true
+	m.recomputeVisible()
+	for i, l := range m.lines {
+		if l.kind == lineRow && m.rows[l.row].name == child.name && m.rows[l.row].namespace == child.namespace && !m.rows[l.row].isSource {
+			m.selected = i
+		}
+	}
+	if row, _ := m.selectedRow(); row.name != child.name {
+		t.Fatalf("could not select %s", child.name)
+	}
+	m.Update(tea.KeyPressMsg{Text: "r"})
+	if strings.Contains(m.execFeedback, "&&") || !strings.Contains(m.execFeedback, child.name) {
+		t.Errorf("a reconciler under a missing source reconciles alone, got %q", m.execFeedback)
+	}
+}

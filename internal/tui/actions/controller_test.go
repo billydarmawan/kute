@@ -82,7 +82,11 @@ type fakeMutator struct {
 	// only way to exercise a genuine partial failure through the real
 	// executeBulk dispatch rather than constructing a BulkResultMsg by hand.
 	suspendErrByName map[string]error
-	err              error
+	// fluxReconciles records every RequestFluxReconcile as "Kind/ns/name";
+	// fluxReconcileErrByName fails one by name.
+	fluxReconciles         []string
+	fluxReconcileErrByName map[string]error
+	err                    error
 }
 
 func (f *fakeMutator) DeleteResource(_ context.Context, kind kube.ResourceKind, ns, name string) error {
@@ -172,7 +176,8 @@ func (f *fakeMutator) RequestArgoSync(_ context.Context, kind kube.ResourceKind,
 func (f *fakeMutator) RenewCertificate(_ context.Context, namespace, name string) error { return nil }
 
 func (f *fakeMutator) RequestFluxReconcile(_ context.Context, kind kube.ResourceKind, namespace, name string) error {
-	return nil
+	f.fluxReconciles = append(f.fluxReconciles, string(kind)+"/"+namespace+"/"+name)
+	return f.fluxReconcileErrByName[name]
 }
 func (f *fakeMutator) RetryJob(_ context.Context, namespace, name, newName, creator string, at time.Time) error {
 	return nil
@@ -1227,5 +1232,31 @@ func TestEscalateForceDeleteIgnoresOtherKindsAndVerbs(t *testing.T) {
 	c.Begin(Request{Verb: verbs.Drain}, drain)
 	if c.EscalateForceDelete(false) || c.Pending().Scope.Verb != verbs.Drain.ID {
 		t.Fatalf("expected a drain to be left alone, got %q", c.Pending().Scope.Verb)
+	}
+}
+
+// TestFluxReconcileWithSourceStillAnnotatesTheReconciler: §30b's with-source
+// 'r' stamps the source first, but a source stamp that fails (no RBAC in
+// the source's namespace) must not swallow the reconciler's own — and the
+// result has to say which half failed.
+func TestFluxReconcileWithSourceStillAnnotatesTheReconciler(t *testing.T) {
+	mut := &fakeMutator{fluxReconcileErrByName: map[string]error{"repo": errors.New("forbidden")}}
+	c := New(mut)
+	cmd := beginAt(&c, TierNone, tui.TaskAction{
+		ID:    "flux-reconcile-apps",
+		Label: "Reconcile apps with source?",
+		Scope: tui.TaskScope{
+			ResourceKind: "Kustomization", ResourceName: "apps", Namespace: "flux-system",
+			Verb: "flux-reconcile", IsMutating: true,
+			FluxSourceKind: "GitRepository", FluxSourceName: "repo", FluxSourceNamespace: "other",
+		},
+	})
+	msg := cmd().(ResultMsg)
+	want := []string{"GitRepository/other/repo", "Kustomization/flux-system/apps"}
+	if strings.Join(mut.fluxReconciles, ",") != strings.Join(want, ",") {
+		t.Fatalf("reconciles = %v, want %v", mut.fluxReconciles, want)
+	}
+	if msg.Err == nil || !strings.Contains(msg.Err.Error(), "GitRepository/repo") || !strings.Contains(msg.Err.Error(), "forbidden") {
+		t.Fatalf("Err = %v, want it to name the failed source stamp", msg.Err)
 	}
 }
