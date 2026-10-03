@@ -659,10 +659,10 @@ func executeScope(mutator kube.Mutator, scope tui.TaskScope) error {
 			scope.MetaIsAnnotation, scope.MetaKey, scope.MetaValue, scope.MetaRemove)
 	case "secret-data":
 		err = mutator.PatchSecretData(context.Background(),
-			scope.Namespace, scope.ResourceName, scope.SecretKey, scope.SecretValue, scope.SecretRemove)
+			scope.Namespace, scope.ResourceName, scope.DataResourceVersion, scope.SecretKey, scope.SecretValue, scope.SecretRemove)
 	case "configmap-data":
 		err = mutator.PatchConfigMapData(context.Background(),
-			scope.Namespace, scope.ResourceName, scope.ConfigMapKey, scope.ConfigMapValue, scope.ConfigMapRemove)
+			scope.Namespace, scope.ResourceName, scope.DataResourceVersion, scope.ConfigMapKey, scope.ConfigMapValue, scope.ConfigMapRemove)
 		if err == nil && scope.ConfigMapRestartConsumers {
 			partial := &RestartsFailedError{Total: len(scope.ConfigMapConsumers)}
 			for _, ref := range scope.ConfigMapConsumers {

@@ -56,6 +56,7 @@ type fakeMutator struct {
 	metaPatches          []string
 	secretDataPatches    []string
 	configMapDataPatches []string
+	dataResourceVersions []string
 	rolloutRestarts      []string
 	cronJobTriggers      []cronJobTriggerCall
 	cronJobSuspends      []cronJobSuspendCall
@@ -118,7 +119,8 @@ func (f *fakeMutator) PatchMeta(_ context.Context, kind kube.ResourceKind, ns, n
 	return f.err
 }
 
-func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, key, value string, remove bool) error {
+func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+	f.dataResourceVersions = append(f.dataResourceVersions, resourceVersion)
 	entry := key + "=" + value
 	if remove {
 		entry = key + "-"
@@ -127,7 +129,8 @@ func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, key, v
 	return f.err
 }
 
-func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, key, value string, remove bool) error {
+func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+	f.dataResourceVersions = append(f.dataResourceVersions, resourceVersion)
 	entry := key + "=" + value
 	if remove {
 		entry = key + "-"
@@ -429,7 +432,7 @@ func TestExecuteDispatchesSecretDataToPatchSecretData(t *testing.T) {
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindSecret), ResourceName: "nva-secrets", Namespace: "default",
 			Verb: "secret-data", IsMutating: true,
-			SecretKey: "SMTP_PASSWORD", SecretValue: "hunter2-staging",
+			SecretKey: "SMTP_PASSWORD", SecretValue: "hunter2-staging", DataResourceVersion: "41",
 		},
 	})
 	if cmd == nil {
@@ -442,6 +445,9 @@ func TestExecuteDispatchesSecretDataToPatchSecretData(t *testing.T) {
 	if len(mut.secretDataPatches) != 1 || mut.secretDataPatches[0] != "default/nva-secrets SMTP_PASSWORD=hunter2-staging" {
 		t.Fatalf("secretDataPatches = %v, want one default/nva-secrets SMTP_PASSWORD=hunter2-staging patch", mut.secretDataPatches)
 	}
+	if len(mut.dataResourceVersions) != 1 || mut.dataResourceVersions[0] != "41" {
+		t.Fatalf("precondition = %v, want the scope's resourceVersion 41", mut.dataResourceVersions)
+	}
 }
 
 func TestExecuteDispatchesConfigMapDataToPatchConfigMapData(t *testing.T) {
@@ -453,7 +459,7 @@ func TestExecuteDispatchesConfigMapDataToPatchConfigMapData(t *testing.T) {
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindConfigMap), ResourceName: "nva-config", Namespace: "default",
 			Verb: "configmap-data", IsMutating: true,
-			ConfigMapKey: "LOG_LEVEL", ConfigMapValue: "debug",
+			ConfigMapKey: "LOG_LEVEL", ConfigMapValue: "debug", DataResourceVersion: "41",
 		},
 	})
 	if cmd == nil {
@@ -468,6 +474,9 @@ func TestExecuteDispatchesConfigMapDataToPatchConfigMapData(t *testing.T) {
 	}
 	if len(mut.rolloutRestarts) != 0 {
 		t.Fatalf("rolloutRestarts = %v, want none for a plain apply", mut.rolloutRestarts)
+	}
+	if len(mut.dataResourceVersions) != 1 || mut.dataResourceVersions[0] != "41" {
+		t.Fatalf("precondition = %v, want the scope's resourceVersion 41", mut.dataResourceVersions)
 	}
 }
 

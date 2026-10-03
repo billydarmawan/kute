@@ -1,6 +1,7 @@
 package kube
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1552,7 +1553,7 @@ func TestPatchSecretDataSetsAndRemovesKeys(t *testing.T) {
 	c, cs := newTestCluster(secret)
 	ctx := t.Context()
 
-	if err := c.PatchSecretData(ctx, "default", "nva-secrets", "SMTP_PASSWORD", "hunter2-staging", false); err != nil {
+	if err := c.PatchSecretData(ctx, "default", "nva-secrets", "1", "SMTP_PASSWORD", "hunter2-staging", false); err != nil {
 		t.Fatalf("PatchSecretData add: %v", err)
 	}
 	got, err := cs.CoreV1().Secrets("default").Get(ctx, "nva-secrets", metav1.GetOptions{})
@@ -1566,7 +1567,7 @@ func TestPatchSecretDataSetsAndRemovesKeys(t *testing.T) {
 		t.Errorf("existing key data[DATABASE_URL] = %q, want unchanged", got.Data["DATABASE_URL"])
 	}
 
-	if err := c.PatchSecretData(ctx, "default", "nva-secrets", "DATABASE_URL", "", true); err != nil {
+	if err := c.PatchSecretData(ctx, "default", "nva-secrets", "1", "DATABASE_URL", "", true); err != nil {
 		t.Fatalf("PatchSecretData remove: %v", err)
 	}
 	got, err = cs.CoreV1().Secrets("default").Get(ctx, "nva-secrets", metav1.GetOptions{})
@@ -1581,7 +1582,7 @@ func TestPatchSecretDataSetsAndRemovesKeys(t *testing.T) {
 func TestPatchSecretDataRejectsEmptyName(t *testing.T) {
 	t.Parallel()
 	c, _ := newTestCluster()
-	if err := c.PatchSecretData(t.Context(), "default", "", "k", "v", false); err == nil {
+	if err := c.PatchSecretData(t.Context(), "default", "", "1", "k", "v", false); err == nil {
 		t.Fatal("expected an error for an empty secret name")
 	}
 }
@@ -1651,7 +1652,7 @@ func TestPatchConfigMapDataSetsAndRemovesKeys(t *testing.T) {
 	c, cs := newTestCluster(cm)
 	ctx := t.Context()
 
-	if err := c.PatchConfigMapData(ctx, "default", "nva-config", "FEATURE_X", "on", false); err != nil {
+	if err := c.PatchConfigMapData(ctx, "default", "nva-config", "1", "FEATURE_X", "on", false); err != nil {
 		t.Fatalf("PatchConfigMapData add: %v", err)
 	}
 	got, err := cs.CoreV1().ConfigMaps("default").Get(ctx, "nva-config", metav1.GetOptions{})
@@ -1665,7 +1666,7 @@ func TestPatchConfigMapDataSetsAndRemovesKeys(t *testing.T) {
 		t.Errorf("existing key data[LOG_LEVEL] = %q, want unchanged", got.Data["LOG_LEVEL"])
 	}
 
-	if err := c.PatchConfigMapData(ctx, "default", "nva-config", "LOG_LEVEL", "", true); err != nil {
+	if err := c.PatchConfigMapData(ctx, "default", "nva-config", "1", "LOG_LEVEL", "", true); err != nil {
 		t.Fatalf("PatchConfigMapData remove: %v", err)
 	}
 	got, err = cs.CoreV1().ConfigMaps("default").Get(ctx, "nva-config", metav1.GetOptions{})
@@ -1680,8 +1681,77 @@ func TestPatchConfigMapDataSetsAndRemovesKeys(t *testing.T) {
 func TestPatchConfigMapDataRejectsEmptyName(t *testing.T) {
 	t.Parallel()
 	c, _ := newTestCluster()
-	if err := c.PatchConfigMapData(t.Context(), "default", "", "k", "v", false); err == nil {
+	if err := c.PatchConfigMapData(t.Context(), "default", "", "1", "k", "v", false); err == nil {
 		t.Fatal("expected an error for an empty configmap name")
+	}
+}
+
+// TestPatchDataCarriesResourceVersionPrecondition pins review finding 09
+// M5: every 27a/27b data patch carries the caller's observed
+// metadata.resourceVersion, so a concurrent writer's change to the same key
+// is a 409 Conflict rather than a silent lost update — and a missing one is
+// refused rather than sent unconditionally.
+func TestPatchDataCarriesResourceVersionPrecondition(t *testing.T) {
+	t.Parallel()
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "default", ResourceVersion: "7"}}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "default", ResourceVersion: "7"}}
+	tests := []struct {
+		name   string
+		call   func(c *Cluster, rv string) error
+		remove bool
+	}{
+		{"secret set", func(c *Cluster, rv string) error {
+			return c.PatchSecretData(t.Context(), "default", "s", rv, "K", "v", false)
+		}, false},
+		{"secret remove", func(c *Cluster, rv string) error {
+			return c.PatchSecretData(t.Context(), "default", "s", rv, "K", "", true)
+		}, true},
+		{"configmap set", func(c *Cluster, rv string) error {
+			return c.PatchConfigMapData(t.Context(), "default", "c", rv, "K", "v", false)
+		}, false},
+		{"configmap remove", func(c *Cluster, rv string) error {
+			return c.PatchConfigMapData(t.Context(), "default", "c", rv, "K", "", true)
+		}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, cs := newTestCluster(secret.DeepCopy(), cm.DeepCopy())
+			if err := tt.call(c, ""); err == nil {
+				t.Fatal("expected a missing resourceVersion to be refused")
+			}
+			if err := tt.call(c, "7"); err != nil {
+				t.Fatalf("patch: %v", err)
+			}
+			var patches int
+			for _, a := range cs.Actions() {
+				p, ok := a.(k8stesting.PatchAction)
+				if !ok {
+					continue
+				}
+				patches++
+				if p.GetPatchType() != types.MergePatchType {
+					t.Errorf("patch type = %v, want a merge patch", p.GetPatchType())
+				}
+				var body struct {
+					Metadata struct {
+						ResourceVersion string `json:"resourceVersion"`
+					} `json:"metadata"`
+					Data map[string]*string `json:"data"`
+				}
+				if err := json.Unmarshal(p.GetPatch(), &body); err != nil {
+					t.Fatalf("patch body %s is not JSON: %v", p.GetPatch(), err)
+				}
+				if body.Metadata.ResourceVersion != "7" {
+					t.Errorf("patch body %s: metadata.resourceVersion = %q, want 7", p.GetPatch(), body.Metadata.ResourceVersion)
+				}
+				if v, ok := body.Data["K"]; tt.remove && (!ok || v != nil) {
+					t.Errorf("patch body %s: want data.K null for a removal", p.GetPatch())
+				}
+			}
+			if patches != 1 {
+				t.Errorf("sent %d patches, want exactly 1 (the empty-precondition call must not reach the server)", patches)
+			}
+		})
 	}
 }
 

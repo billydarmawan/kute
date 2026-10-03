@@ -15,15 +15,17 @@
 //     consumer (kute never restarts consumers on a plain ↵ apply — 27a's own
 //     "pods don't reload configmaps on their own").
 //
-// §27a's own spec leans on §17a (the not-yet-built YAML edit-mode screen)
-// for two things this package deliberately does *not* build: a shared
-// "buffer editor" component for multi-line values, and resourceVersion-based
-// conflict detection on apply. 17a doesn't exist yet, so per the plan this
-// package uses its own minimal multi-line textarea (multilineEditState
-// below) instead of waiting on 17a, and skips optimistic-concurrency
-// conflict handling entirely — the same gap every other implemented editor
-// in this repo (26a meta.go, 27b secretdata, 25a setresources.go) already
-// has, for the identical reason.
+// 17a (the not-yet-built YAML edit-mode screen) would supply a shared
+// "buffer editor" component for multi-line values; this package uses its
+// own minimal multi-line textarea (multilineEditState below) instead.
+//
+// Every patch carries the ConfigMap's resourceVersion as observed when the
+// buffer opened (bufferRV), so a concurrent write is a 409 Conflict rather
+// than a lost update — the same precondition 36d's cronjobschedule applies
+// with. A conflict keeps the typed buffer, says the ConfigMap changed,
+// reloads, and runs no ctrl-r restarts; applying again goes over the
+// reloaded version. There is no dry-run and no diff/rebase banner (those
+// are 17a's).
 //
 // Like meta.go (26a) and secretdata (27b), a commit never closes this
 // screen: adding a key, editing one (single- or multi-line), or removing one
@@ -181,6 +183,9 @@ type configMapPendingCommit struct {
 	overwrite        bool
 	restartConsumers bool
 	consumers        []configMapConsumer
+	// resourceVersion is the precondition the patch carried — what a
+	// failed commit's restored buffer goes back to.
+	resourceVersion string
 }
 
 type Model struct {
@@ -198,6 +203,18 @@ type Model struct {
 	keys      []configMapKeyRow
 	selected  int
 	consumers []configMapConsumer
+	// resourceVersion is the ConfigMap's resourceVersion as of the last
+	// load.
+	resourceVersion string
+	// bufferRV is the open add/edit/buffer editor's patch precondition:
+	// the resourceVersion observed when it opened, so a write that lands
+	// while the user is typing makes the commit a 409 Conflict rather than
+	// a silent overwrite. bufferRVFollows is set once a commit has
+	// conflicted and the user has been told: from then on every load moves
+	// bufferRV to the latest resourceVersion, so applying again goes over
+	// it.
+	bufferRV        string
+	bufferRVFollows bool
 
 	// adding is non-nil while 'a'/insert's line-insert add row is showing.
 	adding *addKeyState
@@ -234,11 +251,12 @@ type Model struct {
 
 // loadedMsg carries one load()'s result.
 type loadedMsg struct {
-	epoch     int
-	found     bool
-	keys      []configMapKeyRow
-	consumers []configMapConsumer
-	err       error
+	epoch           int
+	found           bool
+	keys            []configMapKeyRow
+	consumers       []configMapConsumer
+	resourceVersion string
+	err             error
 }
 
 func New(cfg Config) Model {
@@ -295,6 +313,7 @@ func (m Model) load() tea.Cmd {
 		}
 		var found bool
 		var keys []configMapKeyRow
+		var resourceVersion string
 		for _, obj := range objs {
 			cm, ok := obj.(*corev1.ConfigMap)
 			if !ok || cm.Name != name {
@@ -302,13 +321,14 @@ func (m Model) load() tea.Cmd {
 			}
 			found = true
 			keys = configMapRowsFrom(cm.Data)
+			resourceVersion = cm.ResourceVersion
 			break
 		}
 		if !found {
 			return loadedMsg{epoch: epoch, found: false}
 		}
 		consumers := findConfigMapConsumers(ctx, lister, namespace, name)
-		return loadedMsg{epoch: epoch, found: true, keys: keys, consumers: consumers}
+		return loadedMsg{epoch: epoch, found: true, keys: keys, consumers: consumers, resourceVersion: resourceVersion}
 	}
 }
 

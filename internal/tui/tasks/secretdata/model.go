@@ -128,6 +128,9 @@ type secretPendingCommit struct {
 	// overwrite marks an add whose key already exists — escalated to a
 	// confirm, and reported as "updated" rather than "added".
 	overwrite bool
+	// resourceVersion is the precondition the patch carried — what a
+	// failed commit's restored buffer goes back to.
+	resourceVersion string
 }
 
 type Model struct {
@@ -145,6 +148,16 @@ type Model struct {
 	secretType string
 	keys       []secretKeyRow
 	selected   int
+	// resourceVersion is the Secret's resourceVersion as of the last load.
+	resourceVersion string
+	// bufferRV is the open add/edit buffer's patch precondition: the
+	// resourceVersion observed when it opened, so a write that lands while
+	// the user is typing makes the commit a 409 Conflict rather than a
+	// silent overwrite. bufferRVFollows is set once a commit has conflicted
+	// and the user has been told: from then on every load moves bufferRV to
+	// the latest resourceVersion, so ↵ again applies over it.
+	bufferRV        string
+	bufferRVFollows bool
 
 	// adding is non-nil while 'a'/insert's line-insert add row is showing.
 	adding *addKeyState
@@ -183,11 +196,12 @@ type Model struct {
 
 // loadedMsg carries one load()'s result.
 type loadedMsg struct {
-	epoch      int
-	found      bool
-	secretType string
-	keys       []secretKeyRow
-	err        error
+	epoch           int
+	found           bool
+	secretType      string
+	keys            []secretKeyRow
+	resourceVersion string
+	err             error
 }
 
 func New(cfg Config) Model {
@@ -251,7 +265,7 @@ func (m Model) load() tea.Cmd {
 			if secretType == "" {
 				secretType = "Opaque"
 			}
-			return loadedMsg{epoch: epoch, found: true, secretType: secretType, keys: secretRowsFrom(s.Data)}
+			return loadedMsg{epoch: epoch, found: true, secretType: secretType, keys: secretRowsFrom(s.Data), resourceVersion: s.ResourceVersion}
 		}
 		return loadedMsg{epoch: epoch, found: false}
 	}

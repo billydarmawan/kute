@@ -88,14 +88,20 @@ type Mutator interface {
 	// add-key editor. remove=true deletes the key (a JSON-merge-patch null
 	// under .data, the same null-removes-a-key idiom PatchMeta uses);
 	// otherwise sets key=value via .stringData, so the API server does the
-	// base64 encoding, not the caller.
-	PatchSecretData(ctx context.Context, namespace, name, key, value string, remove bool) error
+	// base64 encoding, not the caller. resourceVersion is the Secret's
+	// resourceVersion as the caller observed it, sent as a precondition in
+	// the patch body, so a concurrent write returns Conflict
+	// (apierrors.IsConflict) instead of being silently overwritten — the
+	// same precondition SetCronJobSchedule carries. It is required.
+	PatchSecretData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) error
 	// PatchConfigMapData sets or removes a single key in a ConfigMap's data —
 	// 27a's value-edit editor. remove=true deletes the key (a JSON-merge-patch
 	// null under .data, same idiom as PatchSecretData's removal); otherwise
 	// sets key=value directly under .data — unlike Secret, ConfigMap's .data
 	// is already plain text, so there's no .stringData split to make.
-	PatchConfigMapData(ctx context.Context, namespace, name, key, value string, remove bool) error
+	// resourceVersion is the same required precondition PatchSecretData
+	// carries.
+	PatchConfigMapData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) error
 	// SetFluxSuspend sets or clears spec.suspend on a Flux object — what
 	// `flux suspend`/`flux resume` do, as a plain API patch with no flux
 	// binary anywhere in the path (docs/design README.md §30a; contrast
@@ -1422,13 +1428,21 @@ func metaResourceArg(kind ResourceKind) string {
 // base64-encodes it and merges the result into .data) or .data with a null
 // value to remove (.stringData is write-only and never itself holds a
 // delete signal). Secret has no dynamic-client CRD fallback to speak of —
-// it's always a typed core/v1 kind.
-func (c *Cluster) PatchSecretData(ctx context.Context, namespace, name, key, value string, remove bool) error {
+// it's always a typed core/v1 kind. The body carries
+// metadata.resourceVersion, so the API server rejects it with 409 Conflict
+// if the Secret changed since the caller read it.
+func (c *Cluster) PatchSecretData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
 	if name == "" {
 		return fmt.Errorf("cannot patch secret: empty name")
 	}
-	patch := []byte(secretDataPatchJSON(key, value, remove))
-	_, err := c.clientset.CoreV1().Secrets(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
+	if resourceVersion == "" {
+		return fmt.Errorf("cannot patch secret %q: missing resourceVersion precondition", name)
+	}
+	patch, err := secretDataPatchJSON(resourceVersion, key, value, remove)
+	if err != nil {
+		return err
+	}
+	_, err = c.clientset.CoreV1().Secrets(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
 	return err
 }
 
@@ -1436,12 +1450,16 @@ func (c *Cluster) PatchSecretData(ctx context.Context, namespace, name, key, val
 // sends — mirrors metaPatchJSON's null-removes-a-key shape, targeting
 // .stringData to set (the server encodes/merges it into .data) or .data
 // directly to remove (the only field a merge patch can null out — a
-// Secret's stored representation never carries .stringData back).
-func secretDataPatchJSON(key, value string, remove bool) string {
+// Secret's stored representation never carries .stringData back), plus
+// the metadata.resourceVersion precondition.
+func secretDataPatchJSON(resourceVersion, key, value string, remove bool) ([]byte, error) {
+	body := map[string]any{"metadata": map[string]any{"resourceVersion": resourceVersion}}
 	if remove {
-		return fmt.Sprintf(`{"data":{%q:null}}`, key)
+		body["data"] = map[string]any{key: nil}
+	} else {
+		body["stringData"] = map[string]any{key: value}
 	}
-	return fmt.Sprintf(`{"stringData":{%q:%q}}`, key, value)
+	return json.Marshal(body)
 }
 
 // SecretDataCommandString renders the exact `kubectl patch` invocation
@@ -1461,24 +1479,37 @@ func SecretDataCommandString(namespace, name, key string, remove bool) string {
 // PatchConfigMapData implements Mutator against the live clientset — a JSON
 // merge patch (RFC 7386) targeting .data directly to set or (with a null
 // value) remove a key. Unlike Secret, ConfigMap's .data is already plain
-// text server-side, so there's no .stringData split to make.
-func (c *Cluster) PatchConfigMapData(ctx context.Context, namespace, name, key, value string, remove bool) error {
+// text server-side, so there's no .stringData split to make. Like
+// PatchSecretData, the body carries the metadata.resourceVersion
+// precondition, so a concurrent change returns 409 Conflict.
+func (c *Cluster) PatchConfigMapData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
 	if name == "" {
 		return fmt.Errorf("cannot patch configmap: empty name")
 	}
-	patch := []byte(configMapDataPatchJSON(key, value, remove))
-	_, err := c.clientset.CoreV1().ConfigMaps(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
+	if resourceVersion == "" {
+		return fmt.Errorf("cannot patch configmap %q: missing resourceVersion precondition", name)
+	}
+	patch, err := configMapDataPatchJSON(resourceVersion, key, value, remove)
+	if err != nil {
+		return err
+	}
+	_, err = c.clientset.CoreV1().ConfigMaps(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
 	return err
 }
 
 // configMapDataPatchJSON builds the JSON merge patch body PatchConfigMapData
 // sends — a null value under the target key removes it (same idiom
-// metaPatchJSON/secretDataPatchJSON use), otherwise sets it.
-func configMapDataPatchJSON(key, value string, remove bool) string {
+// metaPatchJSON/secretDataPatchJSON use), otherwise sets it — plus the
+// metadata.resourceVersion precondition.
+func configMapDataPatchJSON(resourceVersion, key, value string, remove bool) ([]byte, error) {
+	var v any = value
 	if remove {
-		return fmt.Sprintf(`{"data":{%q:null}}`, key)
+		v = nil
 	}
-	return fmt.Sprintf(`{"data":{%q:%q}}`, key, value)
+	return json.Marshal(map[string]any{
+		"metadata": map[string]any{"resourceVersion": resourceVersion},
+		"data":     map[string]any{key: v},
+	})
 }
 
 // ConfigMapDataCommandString renders the exact `kubectl patch` invocation

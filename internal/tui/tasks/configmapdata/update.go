@@ -14,6 +14,7 @@ import (
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
 	"github.com/kute-dev/kute/internal/tui/verbs"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // focusedInput returns whichever of the add row's two buffers currently has
@@ -139,6 +140,10 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.keys = msg.keys
 	m.consumers = msg.consumers
+	m.resourceVersion = msg.resourceVersion
+	if m.bufferRVFollows {
+		m.bufferRV = m.resourceVersion
+	}
 	m.state = tui.TaskStateReady
 	m.feedback = ""
 	switch {
@@ -198,6 +203,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			valueInput.Prompt = ""
 			valueInput.SetStyles(configMapInputStyles(theme))
 			m.adding = &addKeyState{keyInput: keyInput, valueInput: valueInput}
+			m.openBuffer()
 		}
 	case "enter":
 		if m.mutator != nil && m.state == tui.TaskStateReady {
@@ -237,6 +243,7 @@ func (m *Model) beginEditRow(row configMapKeyRow) {
 		m.notice = row.key + " has tabs, CRLF line endings or binary content · can't edit it here — use E on the ConfigMaps list"
 		return
 	}
+	m.openBuffer()
 	if !textfield.RoundTrips(row.value) {
 		m.multiline = newMultilineEditState(row.key, row.value, m.Theme())
 		return
@@ -360,7 +367,7 @@ func (m *Model) beginCommit(key, value string, isEdit bool, original string, res
 	overwrite := exists && !isEdit
 	m.pendingCommit = &configMapPendingCommit{
 		key: key, value: value, isEdit: isEdit, original: original, overwrite: overwrite,
-		restartConsumers: restart, consumers: m.consumers,
+		restartConsumers: restart, consumers: m.consumers, resourceVersion: m.bufferRV,
 	}
 	m.message, m.lastError = "", ""
 	tier := verbs.TierForConfigMapData(m.isProd())
@@ -382,7 +389,7 @@ func (m *Model) beginCommit(key, value string, isEdit bool, original string, res
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindConfigMap), ResourceName: m.name, Namespace: m.namespace,
 			Verb: "configmap-data", IsMutating: true,
-			ConfigMapKey: key, ConfigMapValue: value,
+			ConfigMapKey: key, ConfigMapValue: value, DataResourceVersion: m.bufferRV,
 			ConfigMapRestartConsumers: restart, ConfigMapConsumers: consumerRefs(m.consumers),
 		},
 	})
@@ -432,7 +439,7 @@ func (m *Model) commitMultiline(restart bool) tea.Cmd {
 // y/N too" policy), never chained with a restart (ctrl-r's own restart
 // chaining is described only for the value apply, not a removal).
 func (m *Model) beginRemove(row configMapKeyRow) tea.Cmd {
-	m.pendingCommit = &configMapPendingCommit{key: row.key, remove: true}
+	m.pendingCommit = &configMapPendingCommit{key: row.key, remove: true, resourceVersion: m.resourceVersion}
 	m.message, m.lastError = "", ""
 	return m.actions.Begin(actions.TierInline, tui.TaskAction{
 		ID:    "remove-configmap-key-" + m.namespace + "/" + m.name + "/" + row.key,
@@ -440,9 +447,31 @@ func (m *Model) beginRemove(row configMapKeyRow) tea.Cmd {
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindConfigMap), ResourceName: m.name, Namespace: m.namespace,
 			Verb: "configmap-data", IsMutating: true,
-			ConfigMapKey: row.key, ConfigMapRemove: true,
+			ConfigMapKey: row.key, ConfigMapRemove: true, DataResourceVersion: m.resourceVersion,
 		},
 	})
+}
+
+// openBuffer pins a just-opened add/edit/buffer editor's patch
+// precondition to the ConfigMap as it is on screen right now.
+func (m *Model) openBuffer() {
+	m.bufferRV = m.resourceVersion
+	m.bufferRVFollows = false
+}
+
+// conflictMessage is the result line for a commit the API server refused
+// with 409 Conflict: the ConfigMap changed after the buffer opened (or, for
+// a removal, after the row was read). multiline picks the buffer editor's
+// own apply key.
+func conflictMessage(name string, pc *configMapPendingCommit, multiline bool) string {
+	retry := "↵ again applies your edit to the latest version"
+	switch {
+	case pc != nil && pc.remove:
+		retry = verbs.RemoveConfigMapKey.Key + " again removes " + pc.key + " from the latest version"
+	case multiline:
+		retry = "alt+a again applies your edit to the latest version"
+	}
+	return name + " changed on the server since you opened it — reloaded · " + retry
 }
 
 // handleResult applies an add/edit/remove action's outcome — never leaves
@@ -454,7 +483,13 @@ func (m *Model) beginRemove(row configMapKeyRow) tea.Cmd {
 // value intact, and the server's error is surfaced via lastError. A ctrl-r
 // whose patch landed but some restarts failed (actions.RestartsFailedError)
 // refreshes like a success, with what restarted and what didn't on the
-// error line.
+// error line. A 409 Conflict (the ConfigMap changed after the buffer
+// opened — every patch carries the observed resourceVersion as a
+// precondition, and the controller runs no restarts once the patch fails)
+// is the one failure that does refetch: the buffer is restored as for any
+// failure, the result line says the ConfigMap changed, and the restored
+// buffer follows the reload's resourceVersion so applying again goes over
+// the latest version.
 func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	pc := m.pendingCommit
 	m.pendingCommit = nil
@@ -473,6 +508,11 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	if msg.Err != nil {
 		m.lastError = msg.Err.Error()
 		m.message = ""
+		conflict := apierrors.IsConflict(msg.Err)
+		if pc != nil {
+			m.bufferRV = pc.resourceVersion
+		}
+		m.bufferRVFollows = conflict
 		switch {
 		case pc == nil || pc.remove:
 			// A failed removal has no buffer to restore — the row is still
@@ -503,6 +543,11 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 			valueInput.CursorEnd()
 			valueInput.Focus()
 			m.adding = &addKeyState{keyInput: keyInput, valueInput: valueInput, onValue: true}
+		}
+		if conflict {
+			m.lastError = conflictMessage(m.name, pc, m.multiline != nil)
+			m.reloadEpoch++
+			return m.load()
 		}
 		return nil
 	}

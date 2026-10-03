@@ -3,6 +3,7 @@ package configmapdata
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -11,8 +12,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kute-dev/kute/internal/config"
 	"github.com/kute-dev/kute/internal/kube"
@@ -40,6 +43,8 @@ type fakeMutator struct {
 	rolloutRestarts []string // "kind/namespace/name"
 	// restartErr fails RolloutRestart for the named "kind/namespace/name".
 	restartErr map[string]error
+	// dataResourceVersions records every PatchConfigMapData precondition.
+	dataResourceVersions []string
 }
 
 func (f *fakeMutator) DeleteResource(context.Context, kube.ResourceKind, string, string) error {
@@ -76,15 +81,25 @@ func (f *fakeMutator) SetResources(context.Context, kube.ResourceKind, string, s
 func (f *fakeMutator) PatchMeta(context.Context, kube.ResourceKind, string, string, bool, string, string, bool) error {
 	return nil
 }
-func (f *fakeMutator) PatchSecretData(context.Context, string, string, string, string, bool) error {
+func (f *fakeMutator) PatchSecretData(context.Context, string, string, string, string, string, bool) error {
 	return nil
 }
-func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, key, value string, remove bool) error {
+func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+	f.dataResourceVersions = append(f.dataResourceVersions, resourceVersion)
 	if f.err != nil {
 		return f.err
 	}
 	if f.cm == nil || f.cm.Name != name || f.cm.Namespace != namespace {
 		return nil
+	}
+	// A fixture that carries a resourceVersion gets the API server's
+	// precondition check: a mismatch is a 409, a match bumps it.
+	if f.cm.ResourceVersion != "" {
+		if resourceVersion != f.cm.ResourceVersion {
+			return apierrors.NewConflict(schema.GroupResource{Resource: "configmaps"}, name, errors.New("the object has been modified"))
+		}
+		n, _ := strconv.Atoi(f.cm.ResourceVersion)
+		f.cm.ResourceVersion = strconv.Itoa(n + 1)
 	}
 	if f.cm.Data == nil {
 		f.cm.Data = map[string]string{}
@@ -770,5 +785,95 @@ func TestKeybarGoesOfflineAndHidesAddRemove(t *testing.T) {
 	_ = step(t, m, tea.KeyPressMsg{Text: "enter"})
 	if cm.Data["FEATURE_X"] != "" {
 		t.Fatalf("expected the add refused while offline, cm.Data = %+v", cm.Data)
+	}
+}
+
+// typeOver replaces the open single-line edit buffer's value with value.
+func typeOver(t *testing.T, m Model, old, value string) Model {
+	t.Helper()
+	for range old {
+		m = step(t, m, tea.KeyPressMsg{Text: "backspace"})
+	}
+	for _, r := range value {
+		m = step(t, m, tea.KeyPressMsg{Text: string(r)})
+	}
+	return m
+}
+
+// TestConcurrentEditConflictsKeepsBufferAndReloads pins review finding 09
+// M5: the patch carries the resourceVersion observed when the buffer
+// opened — not whatever a watch event refreshed it to while the user was
+// typing — so a concurrent writer's change to the same key is a 409, not a
+// silent lost update. The 409 keeps the typed buffer, says the ConfigMap
+// changed, reloads, runs no restarts, and a second ctrl-r applies over the
+// latest version.
+func TestConcurrentEditConflictsKeepsBufferAndReloads(t *testing.T) {
+	cm := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
+	cm.ResourceVersion = "1"
+	mut := &fakeMutator{cm: cm}
+	extra := map[kube.ResourceKind][]runtime.Object{
+		kube.KindDeployment: {deploymentEnvFrom("nva-stage", "nva-worker", "nva-config")},
+	}
+	m := newModel(t, newSession(), cm, mut, extra)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	m = typeOver(t, m, "info", "debug")
+
+	// Someone else writes the same key while the buffer is open, and the
+	// watch event lands before the user commits.
+	cm.Data["LOG_LEVEL"] = "warn"
+	cm.ResourceVersion = "2"
+	m = step(t, m, kube.ResourceChangedMsg{Kind: kube.KindConfigMap})
+
+	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+
+	if got := mut.dataResourceVersions; len(got) != 1 || got[0] != "1" {
+		t.Fatalf("patch preconditions = %v, want [1] (the version the buffer opened on)", got)
+	}
+	if cm.Data["LOG_LEVEL"] != "warn" {
+		t.Fatalf("the concurrent write was overwritten: cm.Data = %+v", cm.Data)
+	}
+	if len(mut.rolloutRestarts) != 0 {
+		t.Fatalf("a conflicted apply must not restart consumers, restarted %v", mut.rolloutRestarts)
+	}
+	if m.editing == nil || m.editing.valueInput.Value() != "debug" {
+		t.Fatalf("expected the typed buffer kept open after a conflict, editing = %+v", m.editing)
+	}
+	if !strings.Contains(m.lastError, "changed on the server since you opened it") {
+		t.Fatalf("lastError = %q, want the conflict message", m.lastError)
+	}
+	if !strings.Contains(plain(m.View().Content), "changed on the server since you opened it") {
+		t.Fatalf("expected the conflict message on screen:\n%s", plain(m.View().Content))
+	}
+	if m.resourceVersion != "2" {
+		t.Fatalf("expected the conflict to reload the ConfigMap, resourceVersion = %q", m.resourceVersion)
+	}
+
+	// Retrying applies over the version the user has now been told about.
+	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	if cm.Data["LOG_LEVEL"] != "debug" {
+		t.Fatalf("expected the retry applied, cm.Data = %+v (preconditions %v, lastError %q)", cm.Data, mut.dataResourceVersions, m.lastError)
+	}
+	if len(mut.rolloutRestarts) != 1 {
+		t.Fatalf("expected the retry to restart the consumer, restarted %v", mut.rolloutRestarts)
+	}
+}
+
+// TestRemoveKeyCarriesObservedResourceVersion: a removal's precondition is
+// the ConfigMap as last loaded.
+func TestRemoveKeyCarriesObservedResourceVersion(t *testing.T) {
+	cm := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
+	cm.ResourceVersion = "4"
+	mut := &fakeMutator{cm: cm}
+	m := newModel(t, newSession(), cm, mut, nil)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	_ = step(t, m, tea.KeyPressMsg{Text: "y"})
+
+	if got := mut.dataResourceVersions; len(got) != 1 || got[0] != "4" {
+		t.Fatalf("patch preconditions = %v, want [4]", got)
+	}
+	if _, ok := cm.Data["LOG_LEVEL"]; ok {
+		t.Fatalf("expected LOG_LEVEL removed, cm.Data = %+v", cm.Data)
 	}
 }

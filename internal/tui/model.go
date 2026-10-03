@@ -101,6 +101,12 @@ type TaskScope struct {
 	ConfigMapKey    string
 	ConfigMapValue  string
 	ConfigMapRemove bool
+	// DataResourceVersion is a "secret-data"/"configmap-data" verb's
+	// precondition: the Secret's/ConfigMap's resourceVersion as the screen
+	// observed it when the buffer opened, so a concurrent write returns
+	// Conflict instead of being silently overwritten. Empty for every
+	// other verb.
+	DataResourceVersion string
 	// ConfigMapRestartConsumers/ConfigMapConsumers are a "configmap-data"
 	// edit/add's ctrl-r commit (27a) — chains the patch with a RolloutRestart
 	// of every entry in ConfigMapConsumers. Empty/false for a plain ↵ apply

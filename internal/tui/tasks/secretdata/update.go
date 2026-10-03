@@ -13,6 +13,7 @@ import (
 	"github.com/kute-dev/kute/internal/tui/actions"
 	"github.com/kute-dev/kute/internal/tui/components"
 	"github.com/kute-dev/kute/internal/tui/verbs"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // focusedAddInput returns whichever of the add row's two buffers currently
@@ -128,6 +129,10 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.secretType = msg.secretType
 	m.keys = msg.keys
+	m.resourceVersion = msg.resourceVersion
+	if m.bufferRVFollows {
+		m.bufferRV = m.resourceVersion
+	}
 	m.state = tui.TaskStateReady
 	m.feedback = ""
 	switch {
@@ -179,6 +184,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			keyInput := newSecretInput(theme)
 			keyInput.Focus()
 			m.adding = &addKeyState{keyInput: keyInput, valueInput: newSecretInput(theme)}
+			m.openBuffer()
 		}
 	case "enter":
 		if m.mutator != nil && m.state == tui.TaskStateReady {
@@ -196,6 +202,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				valueInput.CursorEnd()
 				valueInput.Focus()
 				m.editing = &editKeyState{key: row.key, original: row.value, valueInput: valueInput}
+				m.openBuffer()
 			}
 		}
 	case verbs.RemoveSecretKey.Key:
@@ -306,7 +313,7 @@ func (m *Model) commitAdd() tea.Cmd {
 	value := a.valueInput.Value()
 	m.adding = nil
 	_, overwrite := indexOfSecretKey(m.keys, key)
-	m.pendingCommit = &secretPendingCommit{key: key, value: value, overwrite: overwrite}
+	m.pendingCommit = &secretPendingCommit{key: key, value: value, overwrite: overwrite, resourceVersion: m.bufferRV}
 	m.message, m.lastError = "", ""
 	tier := verbs.TierForAddSecretKey(m.isProd())
 	label := fmt.Sprintf("Add key %s to %s?", key, m.name)
@@ -323,7 +330,7 @@ func (m *Model) commitAdd() tea.Cmd {
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindSecret), ResourceName: m.name, Namespace: m.namespace,
 			Verb: "secret-data", IsMutating: true,
-			SecretKey: key, SecretValue: value,
+			SecretKey: key, SecretValue: value, DataResourceVersion: m.bufferRV,
 		},
 	})
 }
@@ -341,7 +348,7 @@ func (m *Model) commitEdit() tea.Cmd {
 	}
 	key, value, original := e.key, e.valueInput.Value(), e.original
 	m.editing = nil
-	m.pendingCommit = &secretPendingCommit{key: key, value: value, isEdit: true, original: original}
+	m.pendingCommit = &secretPendingCommit{key: key, value: value, isEdit: true, original: original, resourceVersion: m.bufferRV}
 	m.message, m.lastError = "", ""
 	tier := verbs.TierForAddSecretKey(m.isProd())
 	return m.actions.Begin(tier, tui.TaskAction{
@@ -350,7 +357,7 @@ func (m *Model) commitEdit() tea.Cmd {
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindSecret), ResourceName: m.name, Namespace: m.namespace,
 			Verb: "secret-data", IsMutating: true,
-			SecretKey: key, SecretValue: value,
+			SecretKey: key, SecretValue: value, DataResourceVersion: m.bufferRV,
 		},
 	})
 }
@@ -360,7 +367,7 @@ func (m *Model) commitEdit() tea.Cmd {
 // key keeps the y/N too"), never escalated further to a type-the-name
 // modal, the same policy 26a's meta.go removal uses.
 func (m *Model) beginRemove(row secretKeyRow) tea.Cmd {
-	m.pendingCommit = &secretPendingCommit{key: row.key, remove: true}
+	m.pendingCommit = &secretPendingCommit{key: row.key, remove: true, resourceVersion: m.resourceVersion}
 	m.message, m.lastError = "", ""
 	return m.actions.Begin(actions.TierInline, tui.TaskAction{
 		ID:    "remove-secret-key-" + m.namespace + "/" + m.name + "/" + row.key,
@@ -368,9 +375,28 @@ func (m *Model) beginRemove(row secretKeyRow) tea.Cmd {
 		Scope: tui.TaskScope{
 			ResourceKind: string(kube.KindSecret), ResourceName: m.name, Namespace: m.namespace,
 			Verb: "secret-data", IsMutating: true,
-			SecretKey: row.key, SecretRemove: true,
+			SecretKey: row.key, SecretRemove: true, DataResourceVersion: m.resourceVersion,
 		},
 	})
+}
+
+// openBuffer pins a just-opened add/edit buffer's patch precondition to
+// the Secret as it is on screen right now.
+func (m *Model) openBuffer() {
+	m.bufferRV = m.resourceVersion
+	m.bufferRVFollows = false
+}
+
+// conflictMessage is the result line for a commit the API server refused
+// with 409 Conflict: the Secret changed after the buffer opened (or, for a
+// removal, after the row was read). It names the object and key only,
+// never a value.
+func conflictMessage(name string, pc *secretPendingCommit) string {
+	retry := "↵ again applies your edit to the latest version"
+	if pc != nil && pc.remove {
+		retry = verbs.RemoveSecretKey.Key + " again removes " + pc.key + " from the latest version"
+	}
+	return name + " changed on the server since you opened it — reloaded · " + retry
 }
 
 // handleResult applies an add/edit/remove action's outcome — update.go's
@@ -384,12 +410,25 @@ func (m *Model) beginRemove(row secretKeyRow) tea.Cmd {
 // refetched: a failed add/edit re-opens its own row with the attempted
 // value intact, and the server's error is surfaced via lastError (view.go's
 // will-run strip) — never the value, per this screen's own no-leak rule.
+// A 409 Conflict (the Secret changed after the buffer opened — every patch
+// carries the observed resourceVersion as a precondition) is the one
+// failure that does refetch: the buffer is restored as for any failure, the
+// result line says the Secret changed, and the restored buffer follows the
+// reload's resourceVersion so ↵ again applies over the latest version.
 func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	pc := m.pendingCommit
 	m.pendingCommit = nil
 	if msg.Err != nil {
 		m.lastError = msg.Err.Error()
 		m.message = ""
+		conflict := apierrors.IsConflict(msg.Err)
+		if conflict {
+			m.lastError = conflictMessage(m.name, pc)
+		}
+		if pc != nil {
+			m.bufferRV = pc.resourceVersion
+		}
+		m.bufferRVFollows = conflict
 		switch {
 		case pc == nil || pc.remove:
 			// A failed removal has no buffer to restore — the row is still
@@ -410,6 +449,10 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 			valueInput.CursorEnd()
 			valueInput.Focus()
 			m.adding = &addKeyState{keyInput: keyInput, valueInput: valueInput, onValue: true}
+		}
+		if conflict {
+			m.reloadEpoch++
+			return m.load()
 		}
 		return nil
 	}

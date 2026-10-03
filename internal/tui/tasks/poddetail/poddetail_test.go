@@ -164,10 +164,10 @@ func (f *fakeMutator) SetResources(context.Context, kube.ResourceKind, string, s
 func (f *fakeMutator) PatchMeta(context.Context, kube.ResourceKind, string, string, bool, string, string, bool) error {
 	return nil
 }
-func (f *fakeMutator) PatchSecretData(context.Context, string, string, string, string, bool) error {
+func (f *fakeMutator) PatchSecretData(context.Context, string, string, string, string, string, bool) error {
 	return nil
 }
-func (f *fakeMutator) PatchConfigMapData(context.Context, string, string, string, string, bool) error {
+func (f *fakeMutator) PatchConfigMapData(context.Context, string, string, string, string, string, bool) error {
 	return nil
 }
 

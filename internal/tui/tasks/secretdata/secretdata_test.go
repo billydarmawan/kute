@@ -2,6 +2,8 @@ package secretdata
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -9,8 +11,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kute-dev/kute/internal/config"
 	"github.com/kute-dev/kute/internal/kube"
@@ -35,6 +39,8 @@ func (f fakeLister) ListRaw(_ context.Context, kind kube.ResourceKind, _ string)
 type fakeMutator struct {
 	secret *corev1.Secret
 	err    error
+	// dataResourceVersions records every PatchSecretData precondition.
+	dataResourceVersions []string
 }
 
 func (f *fakeMutator) DeleteResource(context.Context, kube.ResourceKind, string, string) error {
@@ -66,12 +72,22 @@ func (f *fakeMutator) SetResources(context.Context, kube.ResourceKind, string, s
 func (f *fakeMutator) PatchMeta(context.Context, kube.ResourceKind, string, string, bool, string, string, bool) error {
 	return nil
 }
-func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, key, value string, remove bool) error {
+func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+	f.dataResourceVersions = append(f.dataResourceVersions, resourceVersion)
 	if f.err != nil {
 		return f.err
 	}
 	if f.secret == nil || f.secret.Name != name || f.secret.Namespace != namespace {
 		return nil
+	}
+	// A fixture that carries a resourceVersion gets the API server's
+	// precondition check: a mismatch is a 409, a match bumps it.
+	if f.secret.ResourceVersion != "" {
+		if resourceVersion != f.secret.ResourceVersion {
+			return apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, name, errors.New("the object has been modified"))
+		}
+		n, _ := strconv.Atoi(f.secret.ResourceVersion)
+		f.secret.ResourceVersion = strconv.Itoa(n + 1)
 	}
 	if f.secret.Data == nil {
 		f.secret.Data = map[string][]byte{}
@@ -83,7 +99,7 @@ func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, key, v
 	}
 	return nil
 }
-func (f *fakeMutator) PatchConfigMapData(context.Context, string, string, string, string, bool) error {
+func (f *fakeMutator) PatchConfigMapData(context.Context, string, string, string, string, string, bool) error {
 	return nil
 }
 
@@ -660,5 +676,86 @@ func TestEnterRefusesValuesThatCannotRoundTripTheSingleLineBuffer(t *testing.T) 
 				t.Fatalf("refusal leaked the value: %q", strip)
 			}
 		})
+	}
+}
+
+// TestConcurrentEditConflictsKeepsBufferAndReloads pins review finding 09
+// M5 for 27b: the patch carries the resourceVersion observed when the edit
+// opened, so a concurrent writer's change is a 409 rather than a silent
+// lost update. The 409 keeps the typed buffer, says the Secret changed
+// (never the value), reloads, and ↵ again applies over the latest version.
+func TestConcurrentEditConflictsKeepsBufferAndReloads(t *testing.T) {
+	secret := secretObj("nva-stage", "nva-secrets", map[string][]byte{"DATABASE_URL": []byte("postgres://old")})
+	secret.ResourceVersion = "1"
+	mut := &fakeMutator{secret: secret}
+	m := newModel(t, newSession(), secret, mut)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	for range "postgres://old" {
+		m = step(t, m, tea.KeyPressMsg{Text: "backspace"})
+	}
+	for _, r := range "postgres://new" {
+		m = step(t, m, tea.KeyPressMsg{Text: string(r)})
+	}
+
+	// Someone else rotates the same key while the buffer is open, and the
+	// watch event lands before the user commits.
+	secret.Data["DATABASE_URL"] = []byte("postgres://rotated")
+	secret.ResourceVersion = "2"
+	m = step(t, m, kube.ResourceChangedMsg{Kind: kube.KindSecret})
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+
+	if got := mut.dataResourceVersions; len(got) != 1 || got[0] != "1" {
+		t.Fatalf("patch preconditions = %v, want [1] (the version the buffer opened on)", got)
+	}
+	if string(secret.Data["DATABASE_URL"]) != "postgres://rotated" {
+		t.Fatalf("the concurrent write was overwritten: secret.Data = %q", secret.Data)
+	}
+	if m.editing == nil || m.editing.valueInput.Value() != "postgres://new" {
+		t.Fatalf("expected the typed buffer kept open after a conflict, editing = %+v", m.editing)
+	}
+	if !strings.Contains(m.lastError, "changed on the server since you opened it") {
+		t.Fatalf("lastError = %q, want the conflict message", m.lastError)
+	}
+	if strings.Contains(m.lastError, "postgres://") {
+		t.Fatalf("conflict message leaked a value: %q", m.lastError)
+	}
+	if m.resourceVersion != "2" {
+		t.Fatalf("expected the conflict to reload the Secret, resourceVersion = %q", m.resourceVersion)
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if string(secret.Data["DATABASE_URL"]) != "postgres://new" {
+		t.Fatalf("expected the retry applied, secret.Data = %q (preconditions %v, lastError %q)", secret.Data, mut.dataResourceVersions, m.lastError)
+	}
+	if m.editing != nil {
+		t.Fatal("expected the edit row to close after the retry applied")
+	}
+}
+
+// TestRemoveKeyConflictSaysSoAndReloads: a removal racing a concurrent
+// write is refused with the conflict message, and the reload lets D again
+// succeed against the new version.
+func TestRemoveKeyConflictSaysSoAndReloads(t *testing.T) {
+	secret := secretObj("nva-stage", "nva-secrets", map[string][]byte{"DATABASE_URL": []byte("postgres://old")})
+	secret.ResourceVersion = "3"
+	mut := &fakeMutator{secret: secret}
+	m := newModel(t, newSession(), secret, mut)
+
+	secret.ResourceVersion = "4" // changed, and no watch event yet
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+
+	if _, ok := secret.Data["DATABASE_URL"]; !ok {
+		t.Fatal("a conflicted removal must not remove the key")
+	}
+	if !strings.Contains(m.lastError, "D again removes DATABASE_URL") {
+		t.Fatalf("lastError = %q, want the removal conflict message", m.lastError)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if _, ok := secret.Data["DATABASE_URL"]; ok {
+		t.Fatalf("expected the retry to remove the key, preconditions %v", mut.dataResourceVersions)
 	}
 }

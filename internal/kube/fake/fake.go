@@ -41,6 +41,13 @@ import (
 // requirement.
 var cronJobGroupResource = schema.GroupResource{Group: "batch", Resource: "cronjobs"}
 
+// secretGroupResource/configMapGroupResource are the same, for
+// PatchSecretData/PatchConfigMapData's resourceVersion precondition.
+var (
+	secretGroupResource    = schema.GroupResource{Resource: "secrets"}
+	configMapGroupResource = schema.GroupResource{Resource: "configmaps"}
+)
+
 // Cluster is the in-memory stand-in for *kube.Cluster. The zero value (via
 // New) is an empty cluster; NewDemo seeds it with the fixtures --demo shows.
 type Cluster struct {
@@ -90,7 +97,8 @@ type Cluster struct {
 	conn   kube.ConnState
 
 	// cronJobRVSeq is the fake cluster's own resourceVersion source for
-	// CronJob mutations (SetCronJobSuspend/SetCronJobSchedule) — Plan Phase
+	// CronJob mutations (SetCronJobSuspend/SetCronJobSchedule), and for
+	// PatchSecretData/PatchConfigMapData's precondition too — Plan Phase
 	// 2 task 13's "enforce/increment resourceVersion on mutations". The
 	// shared k8s.io/client-go/kubernetes/fake clientset (used to unit-test
 	// *kube.Cluster itself, a different package) doesn't check this at all;
@@ -149,6 +157,16 @@ func New(namespace, contextName string) *Cluster {
 func (c *Cluster) Seed(kind kube.ResourceKind, objs ...runtime.Object) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if kind == kube.KindSecret || kind == kube.KindConfigMap {
+		// A real apiserver never hands out an object without a
+		// resourceVersion, and PatchSecretData/PatchConfigMapData require
+		// one as their precondition — stamp fixtures that left it blank.
+		for _, obj := range objs {
+			if accessor, err := apimeta.Accessor(obj); err == nil && accessor.GetResourceVersion() == "" {
+				accessor.SetResourceVersion("1")
+			}
+		}
+	}
 	c.objects[kind] = append(c.objects[kind], objs...)
 }
 
@@ -567,6 +585,28 @@ func (c *Cluster) bumpCronJob(cj *batchv1.CronJob) {
 	cj.Generation++
 }
 
+// checkAndBumpResourceVersion is PatchSecretData/PatchConfigMapData's
+// counterpart of checkCronJobResourceVersion + bumpCronJob: resourceVersion
+// is required, a mismatch is a typed Conflict, and a match advances the
+// object's resourceVersion off the same counter so a second write against
+// the first one's precondition conflicts. Must be called with c.mu held.
+func (c *Cluster) checkAndBumpResourceVersion(meta *metav1.ObjectMeta, gr schema.GroupResource, resourceVersion string) error {
+	if resourceVersion == "" {
+		return fmt.Errorf("cannot patch %s %q: missing resourceVersion precondition", gr.Resource, meta.Name)
+	}
+	if meta.ResourceVersion != resourceVersion {
+		return apierrors.NewConflict(gr, meta.Name,
+			fmt.Errorf("the object has been modified; please apply your changes to the latest version and try again"))
+	}
+	next := c.cronJobRVSeq + 1
+	if n, err := strconv.Atoi(meta.ResourceVersion); err == nil && n >= next {
+		next = n + 1
+	}
+	c.cronJobRVSeq = next
+	meta.ResourceVersion = strconv.Itoa(next)
+	return nil
+}
+
 // SetCronJobSuspend patches spec.suspend on a CronJob in place, stamping/
 // clearing Kute's own suspend-timestamp annotations atomically — matches
 // kube.Cluster.SetCronJobSuspend's own contract (Plan Phase 2 task 13).
@@ -926,14 +966,19 @@ func (c *Cluster) findUnstructuredLocked(kind kube.ResourceKind, namespace, name
 }
 
 // PatchSecretData sets or removes a single key in a Secret's .Data map in
-// place — 27b's add-key editor against the fake cluster.
-func (c *Cluster) PatchSecretData(_ context.Context, namespace, name, key, value string, remove bool) error {
+// place — 27b's add-key editor against the fake cluster. resourceVersion is
+// checked the way a real apiserver checks the merge patch's
+// metadata.resourceVersion: a mismatch is a typed Conflict.
+func (c *Cluster) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, obj := range c.objects[kube.KindSecret] {
 		s, ok := obj.(*corev1.Secret)
 		if !ok || s.Name != name || s.Namespace != namespace {
 			continue
+		}
+		if err := c.checkAndBumpResourceVersion(&s.ObjectMeta, secretGroupResource, resourceVersion); err != nil {
+			return err
 		}
 		if remove {
 			delete(s.Data, key)
@@ -950,14 +995,18 @@ func (c *Cluster) PatchSecretData(_ context.Context, namespace, name, key, value
 }
 
 // PatchConfigMapData sets or removes a single key in a ConfigMap's .Data map
-// in place — 27a's value-edit editor against the fake cluster.
-func (c *Cluster) PatchConfigMapData(_ context.Context, namespace, name, key, value string, remove bool) error {
+// in place — 27a's value-edit editor against the fake cluster, with the same
+// resourceVersion precondition PatchSecretData checks.
+func (c *Cluster) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, obj := range c.objects[kube.KindConfigMap] {
 		cm, ok := obj.(*corev1.ConfigMap)
 		if !ok || cm.Name != name || cm.Namespace != namespace {
 			continue
+		}
+		if err := c.checkAndBumpResourceVersion(&cm.ObjectMeta, configMapGroupResource, resourceVersion); err != nil {
+			return err
 		}
 		if remove {
 			delete(cm.Data, key)
@@ -1059,7 +1108,11 @@ func (c *Cluster) HelmRollback(_ context.Context, namespace, name string, toRevi
 	next.Status = "deployed"
 	next.StatusReason = ""
 	next.Updated = time.Now()
-	c.objects[kube.KindSecret] = append(objs, kube.EncodeHelmReleaseSecret(next))
+	secret := kube.EncodeHelmReleaseSecret(next)
+	if accessor, err := apimeta.Accessor(secret); err == nil && accessor.GetResourceVersion() == "" {
+		accessor.SetResourceVersion("1") // PatchSecretData's precondition, as in Seed
+	}
+	c.objects[kube.KindSecret] = append(objs, secret)
 
 	c.notify(kube.KindSecret)
 	return nil

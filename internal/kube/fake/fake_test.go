@@ -1161,3 +1161,42 @@ func TestDemoCrashLoopPodHasReadablePreviousRun(t *testing.T) {
 		t.Fatalf("ContainerInfos = %+v, want a Waiting container with a readable previous run", infos)
 	}
 }
+
+// TestPatchDataEnforcesResourceVersion is the fake-cluster side of review
+// finding 09 M5: a seeded ConfigMap/Secret gets a resourceVersion, a patch
+// against it bumps it, and a second patch against the old one is a typed
+// Conflict that leaves the data untouched — so --demo exercises the same
+// 409 path a real apiserver does.
+func TestPatchDataEnforcesResourceVersion(t *testing.T) {
+	t.Parallel()
+	c := New("default", "dev")
+	c.Seed(kube.KindConfigMap, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
+		Data:       map[string]string{"K": "a"},
+	})
+	c.Seed(kube.KindSecret, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: "default"},
+		Data:       map[string][]byte{"K": []byte("a")},
+	})
+
+	if err := c.PatchConfigMapData(t.Context(), "default", "cfg", "", "K", "b", false); err == nil || apierrors.IsConflict(err) {
+		t.Fatalf("expected a missing precondition refused (not a Conflict), got %v", err)
+	}
+	if err := c.PatchConfigMapData(t.Context(), "default", "cfg", "1", "K", "b", false); err != nil {
+		t.Fatalf("PatchConfigMapData at the seeded version: %v", err)
+	}
+	if err := c.PatchConfigMapData(t.Context(), "default", "cfg", "1", "K", "c", false); !apierrors.IsConflict(err) {
+		t.Fatalf("expected a Conflict against the stale version, got %v", err)
+	}
+	objs, _ := c.ListRaw(t.Context(), kube.KindConfigMap, "default")
+	if got := objs[0].(*corev1.ConfigMap).Data["K"]; got != "b" {
+		t.Errorf("Data[K] = %q, want b (the conflicted write must not land)", got)
+	}
+
+	if err := c.PatchSecretData(t.Context(), "default", "sec", "1", "K", "", true); err != nil {
+		t.Fatalf("PatchSecretData at the seeded version: %v", err)
+	}
+	if err := c.PatchSecretData(t.Context(), "default", "sec", "1", "K", "x", false); !apierrors.IsConflict(err) {
+		t.Fatalf("expected a Conflict against the stale version, got %v", err)
+	}
+}

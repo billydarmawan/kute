@@ -231,7 +231,7 @@ func (f *fakeMutator) PatchMeta(_ context.Context, kind kube.ResourceKind, names
 	}
 	return nil
 }
-func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, key, value string, remove bool) error {
+func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -242,7 +242,7 @@ func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, key, v
 	f.secretDataPatches = append(f.secretDataPatches, namespace+"/"+name+" "+entry)
 	return nil
 }
-func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, key, value string, remove bool) error {
+func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
 	if f.err != nil {
 		return f.err
 	}
