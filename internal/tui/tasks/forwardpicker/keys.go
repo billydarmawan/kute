@@ -1,6 +1,9 @@
 package forwardpicker
 
-import "github.com/kute-dev/kute/internal/tui"
+import (
+	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
+)
 
 // Keybar composes the bottom band from the panel's own key list (docs/design
 // README.md §13a: "↵ start · type local port · ↑↓ port · esc cancel").
@@ -9,11 +12,11 @@ func (m Model) Keybar() tui.Keybar {
 		Pill:     tui.ModeBrowse,
 		PillText: "FORWARD",
 		Groups: [][]tui.KeyHint{{
-			{Key: "↵", Label: "start"},
-			{Key: "0-9", Label: "type local port"},
-			{Key: "↑↓", Label: "port"},
+			verbs.Open.HintAs("start"),
+			verbs.ForwardLocalPort.Hint(),
+			verbs.Move.HintAs("port"),
 		}},
-		RightHints: []tui.KeyHint{{Key: "esc", Label: "cancel"}},
+		RightHints: []tui.KeyHint{verbs.Back.HintAs("cancel")},
 	}
 	if m.feedback != "" {
 		kb.RightNote = m.feedback

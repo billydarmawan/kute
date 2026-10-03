@@ -558,20 +558,20 @@ func (p *Model) Update(msg tea.KeyPressMsg, ctrl *actions.Controller) (closed bo
 		// here, so a retry-in-progress error stays visible while retyping.)
 		t.message, t.lastError = "", ""
 	}
-	switch msg.String() {
-	case "esc":
+	switch s := msg.String(); {
+	case s == "esc":
 		return true, nil
-	case "up", "k":
+	case s == "up", s == "k":
 		t.moveSelection(-1)
-	case "down", "j":
+	case s == "down", s == "j":
 		t.moveSelection(1)
-	case "tab", "shift+tab":
+	case s == "tab", s == "shift+tab":
 		if t.section == metaSectionLabels {
 			t.section = metaSectionAnnotations
 		} else {
 			t.section = metaSectionLabels
 		}
-	case "enter":
+	case s == "enter":
 		r := t.selectedRow()
 		if r == nil || r.readOnly || !textfield.RoundTrips(r.current) {
 			// A multi-line (or non-UTF-8) value would open already
@@ -583,7 +583,7 @@ func (p *Model) Update(msg tea.KeyPressMsg, ctrl *actions.Controller) (closed bo
 		r.setBuffer(r.current)
 		r.input.Focus()
 		t.editing = true
-	case verbs.MetaRemoveKey.Key:
+	case s == verbs.MetaRemoveKey.Key:
 		r := t.selectedRow()
 		if r == nil || r.readOnly {
 			return false, nil
@@ -591,7 +591,7 @@ func (p *Model) Update(msg tea.KeyPressMsg, ctrl *actions.Controller) (closed bo
 		row := *r
 		target := *t
 		return false, p.commitMetaRemove(target, row, ctrl)
-	case "a", "insert":
+	case verbs.MetaAddKey.Matches(s):
 		t.adding = metaAddLabel
 		if t.section == metaSectionAnnotations {
 			t.adding = metaAddAnnotation
@@ -605,7 +605,7 @@ func (p *Model) Update(msg tea.KeyPressMsg, ctrl *actions.Controller) (closed bo
 		t.addValueInput.SetStyles(addStyles)
 		t.addValueInput.Prompt = ""
 		t.addOnValue = false
-	case verbs.MetaCopyKeyValue.Key:
+	case s == verbs.MetaCopyKeyValue.Key:
 		if r := t.selectedRow(); r != nil && !r.secretMasked {
 			return false, tea.SetClipboard(r.key + "=" + r.current)
 		}
@@ -996,19 +996,19 @@ func (p *Model) KeybarHints() [][]tui.KeyHint {
 		// Editing mode (add sub-flow): every printable character inserts
 		// literally, so these are the only reserved keys.
 		hints = []tui.KeyHint{
-			{Key: "↵", Label: "apply"}, {Key: tui.GlyphTab, Label: "key ↔ value"}, {Key: "esc", Label: "cancel"},
+			verbs.Open.HintAs("apply"), verbs.NextPanel.HintAs("key ↔ value"), verbs.Back.HintAs("cancel"),
 		}
 	case t.editing:
 		// Editing mode: same reasoning — typing a value must never be
 		// shadowed by a shortcut.
-		hints = []tui.KeyHint{{Key: "↵", Label: "save"}, {Key: "esc", Label: "cancel"}}
+		hints = []tui.KeyHint{verbs.Open.HintAs("save"), verbs.Back.HintAs("cancel")}
 	default:
 		// Navigation mode never accepts typed text, so single-letter
 		// shortcuts here (a, y) can't shadow a value the way they could
 		// if typing edited the row directly.
 		hints = []tui.KeyHint{
-			{Key: "↑↓", Label: "row"}, {Key: tui.GlyphTab, Label: "switch grid"},
-			{Key: "↵", Label: "edit"}, {Key: "a/insert", Label: "add"},
+			verbs.Move.HintAs("row"), verbs.NextPanel.HintAs("switch grid"),
+			verbs.Open.HintAs("edit"), verbs.MetaAddKey.Hint(),
 			verbs.MetaRemoveKey.Hint(), verbs.MetaCopyKeyValue.Hint(),
 		}
 	}

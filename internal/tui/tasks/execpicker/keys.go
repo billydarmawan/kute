@@ -2,6 +2,7 @@ package execpicker
 
 import (
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // Keybar composes the bottom band from the panel's own key list (docs/design
@@ -18,10 +19,10 @@ func (m Model) Keybar() tui.Keybar {
 		Pill:     tui.ModeBrowse,
 		PillText: "EXEC",
 		Groups: [][]tui.KeyHint{{
-			{Key: "↵", Label: enterLabel},
-			{Key: "↑↓", Label: "move"},
+			verbs.Open.HintAs(enterLabel),
+			verbs.Move.Hint(),
 		}},
-		RightHints: []tui.KeyHint{{Key: "esc", Label: "cancel"}},
+		RightHints: []tui.KeyHint{verbs.Back.HintAs("cancel")},
 	}
 	if m.feedback != "" {
 		kb.RightNote = m.feedback

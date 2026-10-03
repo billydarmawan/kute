@@ -6,6 +6,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // pasteTarget is the local-port buffer of the row being edited. Digit-gated
@@ -83,7 +84,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Typing a digit on a selected row starts an in-place local-port
 		// edit (docs/design README.md §13a: "local port is edited in place
 		// on the selected row").
-		if m.state == tui.TaskStateReady && len(msg.Text) == 1 && msg.Text[0] >= '0' && msg.Text[0] <= '9' {
+		if m.state == tui.TaskStateReady && verbs.ForwardLocalPort.Matches(msg.Text) {
 			m.beginEdit(msg.Text)
 		}
 	}
