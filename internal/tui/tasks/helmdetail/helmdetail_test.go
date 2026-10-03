@@ -2,6 +2,7 @@ package helmdetail
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -218,5 +220,85 @@ func TestReleaseReadUsesReleaseSecretSeam(t *testing.T) {
 	}
 	if lister.secretReads != 1 || msg.release.Revision != 2 || msg.release.Status != "deployed" {
 		t.Fatalf("secretReads=%d release=%d/%s, want one seam read landing revision 2 deployed", lister.secretReads, msg.release.Revision, msg.release.Status)
+	}
+}
+
+// startedLister adds the KindStarted seam to recordingLister: only kinds in
+// started have a running cache.
+type startedLister struct {
+	recordingLister
+	started map[kube.ResourceKind]bool
+}
+
+func (l *startedLister) KindStarted(kind kube.ResourceKind, _ string) bool { return l.started[kind] }
+
+// TestDeclaredSecretReadsOnlyAStartedSecretCache: a chart's Secret must not
+// start the shared cluster-wide Secret informer from this screen. With no
+// Secret cache running the row reads neutral "not checked" rather than "not
+// created"; once something else has started that cache it is read normally.
+func TestDeclaredSecretReadsOnlyAStartedSecretCache(t *testing.T) {
+	release := pendingRelease()
+	release.Manifest += `---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: timesheet-backend-creds
+`
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "timesheet-backend-creds", Namespace: "timesheet"}}
+	secretRow := func(m Model) diagnosticRow {
+		t.Helper()
+		for _, row := range m.rows {
+			if row.ref.Kind == "Secret" {
+				return row
+			}
+		}
+		t.Fatalf("no Secret row in %+v", m.rows)
+		return diagnosticRow{}
+	}
+	readSecret := func(l *startedLister) bool {
+		for _, kind := range l.reads {
+			if kind == kube.KindSecret {
+				return true
+			}
+		}
+		return false
+	}
+
+	cold := &startedLister{
+		recordingLister: recordingLister{objects: map[kube.ResourceKind][]runtime.Object{kube.KindSecret: {secret}}},
+		started:         map[kube.ResourceKind]bool{},
+	}
+	m := New(Config{Session: diagnosticSession(), Lister: cold, Events: fakeEvents{}, Release: release})
+	m.SetSize(120, 36)
+	updated, _ := m.Update(m.load()())
+	m = *updated.(*Model)
+	if readSecret(cold) {
+		t.Fatalf("read Secret with no Secret cache started: %v", cold.reads)
+	}
+	for _, kind := range []kube.ResourceKind{kube.KindService, kube.KindDeployment, kube.KindJob} {
+		if !slices.Contains(cold.reads, kind) {
+			t.Errorf("declared %s not read: %v", kind, cold.reads)
+		}
+	}
+	row := secretRow(m)
+	if !row.unchecked || row.live || !strings.HasPrefix(row.liveState, "not checked") {
+		t.Fatalf("cold Secret row = %+v, want unchecked", row)
+	}
+	if view := ansi.Strip(m.Render()); !strings.Contains(view, "not checked") {
+		t.Errorf("render missing \"not checked\":\n%s", view)
+	}
+
+	warm := &startedLister{
+		recordingLister: recordingLister{objects: map[kube.ResourceKind][]runtime.Object{kube.KindSecret: {secret}}},
+		started:         map[kube.ResourceKind]bool{kube.KindSecret: true},
+	}
+	m = New(Config{Session: diagnosticSession(), Lister: warm, Events: fakeEvents{}, Release: release})
+	updated, _ = m.Update(m.load()())
+	m = *updated.(*Model)
+	if !readSecret(warm) {
+		t.Fatalf("started Secret cache not read: %v", warm.reads)
+	}
+	if row := secretRow(m); row.unchecked || !row.live || row.liveState != "present" {
+		t.Fatalf("warm Secret row = %+v, want present", row)
 	}
 }

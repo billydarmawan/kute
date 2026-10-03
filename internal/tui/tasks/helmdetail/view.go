@@ -134,6 +134,9 @@ func renderDiagnosticRow(row diagnosticRow, selected bool, widths []int, width i
 	switch {
 	case row.live:
 		liveStyle = lipgloss.NewStyle().Foreground(theme.Good)
+	case row.unchecked:
+		// Neutral: an unread cache is neither present nor missing.
+		liveStyle = lipgloss.NewStyle().Foreground(theme.TextFaint)
 	case strings.Contains(row.liveState, "Completed"):
 		liveStyle = lipgloss.NewStyle().Foreground(theme.Warn)
 	case strings.HasPrefix(row.liveState, "not created"):

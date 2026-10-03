@@ -77,7 +77,38 @@ type diagnosticRow struct {
 	liveState string
 	note      string
 	live      bool
+	// unchecked marks a row whose kind is in neverStartKinds and whose
+	// cache nothing has started: its presence was deliberately not read, so
+	// it is neither present nor missing.
+	unchecked bool
 	kindType  rowKind
+}
+
+// neverStartKinds are declared kinds this screen reads only from a cache
+// something else already started. A chart's Secret would otherwise start
+// the shared cluster-wide Secret informer — every Secret in the cluster,
+// Helm's own release Secrets included — which is exactly the read the Helm
+// list's filtered release-Secret informer exists to avoid
+// (docs/lazy-informers.md §5.5). Rows of these kinds read "not checked"
+// until the user opens that kind's list.
+var neverStartKinds = map[kube.ResourceKind]bool{kube.KindSecret: true}
+
+// skipRead reports whether reading kind at namespace would start a heavy
+// informer this screen must never start. A lister without the
+// tui.KindStartedChecker seam (fakes, test doubles) reads normally.
+func skipRead(lister resources.RawLister, kind kube.ResourceKind, namespace string) bool {
+	if !neverStartKinds[kind] {
+		return false
+	}
+	ks, ok := lister.(tui.KindStartedChecker)
+	return ok && !ks.KindStarted(kind, namespace)
+}
+
+// notChecked is the live-evidence text for an unchecked row: neutral, and
+// naming how to get an answer — opening that kind's list starts its cache,
+// and this screen reads it from then on.
+func notChecked(kind kube.ResourceKind) string {
+	return "not checked · open " + string(kind) + "s to load"
 }
 
 type Model struct {
@@ -192,8 +223,13 @@ func (m Model) load() tea.Cmd {
 
 		objects := map[scope][]runtime.Object{}
 		errs := map[scope]error{}
+		skipped := map[scope]bool{}
 		pending := false
 		for s := range scopes {
+			if skipRead(lister, s.kind, s.namespace) {
+				skipped[s] = true
+				continue
+			}
 			objects[s], errs[s] = lister.ListRaw(ctx, s.kind, s.namespace)
 			if !tui.KindsSynced(lister, s.namespace, s.kind) {
 				pending = true
@@ -221,7 +257,11 @@ func (m Model) load() tea.Cmd {
 			kind := registryKind(registry, ref)
 			s := scope{kind, ref.Namespace}
 			live := kind != "" && containsObject(objects[s], ref.Name)
+			unchecked := kind != "" && skipped[s]
 			liveState := evidenceFor(ref, live, errs[s], eventList, eventErr)
+			if unchecked && strings.HasPrefix(liveState, "not present") {
+				liveState = notChecked(kind)
+			}
 			event := strings.Join(hook.Events, ", ")
 			if event == "" {
 				event = "hook"
@@ -231,8 +271,8 @@ func (m Model) load() tea.Cmd {
 			if len(hook.DeletePolicies) > 0 {
 				note = "cleanup: " + strings.Join(hook.DeletePolicies, ", ")
 			}
-			rows = append(rows, diagnosticRow{typeLabel: event, ref: ref, kind: kind, helmState: phase, liveState: liveState, note: note, live: live, kindType: rowHook})
-			if diagnosis == "" && strings.HasPrefix(release.Status, "pending-") && strings.EqualFold(hook.LastRun.Phase, "running") && !live && completedEvent(ref, eventList, hook.LastRun.StartedAt) {
+			rows = append(rows, diagnosticRow{typeLabel: event, ref: ref, kind: kind, helmState: phase, liveState: liveState, note: note, live: live, unchecked: unchecked, kindType: rowHook})
+			if diagnosis == "" && !unchecked && strings.HasPrefix(release.Status, "pending-") && strings.EqualFold(hook.LastRun.Phase, "running") && !live && completedEvent(ref, eventList, hook.LastRun.StartedAt) {
 				diagnosis = fmt.Sprintf("Helm still records %s/%s as Running, but Kubernetes reports it Completed and the object is gone · the Helm transaction was not finalized", ref.Kind, ref.Name)
 			}
 		}
@@ -240,15 +280,18 @@ func (m Model) load() tea.Cmd {
 			kind := registryKind(registry, ref)
 			s := scope{kind, ref.Namespace}
 			live := kind != "" && containsObject(objects[s], ref.Name)
+			unchecked := kind != "" && skipped[s]
 			state := "not created"
 			if live {
 				state = "present"
+			} else if unchecked {
+				state = notChecked(kind)
 			} else if kind == "" {
 				state = "kind unavailable"
 			} else if errs[s] != nil {
 				state = "unknown · " + shortError(errs[s])
 			}
-			rows = append(rows, diagnosticRow{typeLabel: "object", ref: ref, kind: kind, helmState: "declared", liveState: state, live: live, kindType: rowObject})
+			rows = append(rows, diagnosticRow{typeLabel: "object", ref: ref, kind: kind, helmState: "declared", liveState: state, live: live, unchecked: unchecked, kindType: rowObject})
 		}
 		return loadedMsg{epoch: epoch, release: release, rows: rows, relevant: relevant, diagnosis: diagnosis, pending: pending, now: time.Now()}
 	}
