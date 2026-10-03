@@ -15,6 +15,7 @@ import (
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/testutil/goldentest"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 const giByte = 1024 * 1024 * 1024
@@ -111,6 +112,14 @@ func goldenNodePods() []nodePodRow {
 // (podsPanel's raw Age string).
 func goldenNodeDetailModel(t *testing.T, width, height int) Model {
 	t.Helper()
+	return goldenNodeDetailModelWithImpact(t, width, height, kube.DrainImpact{})
+}
+
+// goldenNodeDetailModelWithImpact is goldenNodeDetailModel with the
+// loadedMsg's drain impact supplied — the one field the resting 11b render
+// never reads, so only the drain-confirm fixture passes a non-zero one.
+func goldenNodeDetailModelWithImpact(t *testing.T, width, height int, impact kube.DrainImpact) Model {
+	t.Helper()
 	node := goldenNode()
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindNode: {node},
@@ -160,6 +169,7 @@ func goldenNodeDetailModel(t *testing.T, width, height int) Model {
 		allocatable: allocation{cpuMilli: 4000, memBytes: memAllocatable, pods: 110},
 		capacity:    allocation{cpuMilli: 4000, memBytes: int64(10 * giByte)},
 		pods:        goldenNodePods(),
+		drainImpact: impact,
 	})
 	m = *updated.(*Model)
 	updated, _ = m.Update(metricsLoadedMsg{
@@ -179,11 +189,52 @@ func goldenNodeDetailModel(t *testing.T, width, height int) Model {
 	return m
 }
 
+// goldenDrainImpact tallies one of each pod shape tui.DrainImpactLine
+// distinguishes through kube.DrainImpactOf — the same Add load() runs — so
+// the fixture's counts come from real pod specs rather than a hand-written
+// struct: a ReplicaSet pod, a bare (unmanaged) pod, a ReplicaSet pod with
+// an emptyDir, and a DaemonSet pod that drain leaves in place.
+func goldenDrainImpact() kube.DrainImpact {
+	controlled := func(kind, name string) []metav1.OwnerReference {
+		isController := true
+		return []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: kind, Name: name, Controller: &isController}}
+	}
+	onNode := func(name string, owners []metav1.OwnerReference, volumes []corev1.Volume) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "nva-stage", Name: name, OwnerReferences: owners},
+			Spec:       corev1.PodSpec{NodeName: "worker-01", Containers: []corev1.Container{{Name: "app"}}, Volumes: volumes},
+			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		}
+	}
+	scratch := []corev1.Volume{{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
+	return kube.DrainImpactOf([]*corev1.Pod{
+		onNode("nva-worker-9k2ss", controlled("ReplicaSet", "nva-worker-7c4d"), nil),
+		onNode("debug-shell", nil, nil),
+		onNode("cache-redis-6f8c2", controlled("ReplicaSet", "cache-redis-5d9b"), scratch),
+		onNode("kube-proxy-q7m4n", controlled("DaemonSet", "kube-proxy"), nil),
+	})
+}
+
+// goldenDrainConfirmModel is 11b with ctrl-d's drain confirm open, pinning
+// the red ConfirmBorder and the impact line's Bad (unmanaged) and Warn
+// (emptyDir) spans in the truecolor fixtures.
+func goldenDrainConfirmModel(t *testing.T, width, height int) Model {
+	t.Helper()
+	m := goldenNodeDetailModelWithImpact(t, width, height, goldenDrainImpact())
+	m = step(t, m, tea.KeyPressMsg{Text: verbs.Drain.Key})
+	if !m.actions.Active() {
+		t.Fatal("expected ctrl-d to open the drain confirm")
+	}
+	return m
+}
+
 func goldenNodeDetailFixtures(t *testing.T) map[string]string {
 	t.Helper()
 	return map[string]string{
-		"120x36.golden": goldentest.Plain(goldenNodeDetailModel(t, 120, 36).Render()),
-		"80x24.golden":  goldentest.Plain(goldenNodeDetailModel(t, 80, 24).Render()),
+		"120x36.golden":       goldentest.Plain(goldenNodeDetailModel(t, 120, 36).Render()),
+		"80x24.golden":        goldentest.Plain(goldenNodeDetailModel(t, 80, 24).Render()),
+		"drain-120x36.golden": goldentest.Plain(goldenDrainConfirmModel(t, 120, 36).Render()),
+		"drain-80x24.golden":  goldentest.Plain(goldenDrainConfirmModel(t, 80, 24).Render()),
 	}
 }
 
@@ -230,9 +281,14 @@ func truecolorGoldenFixtures(t *testing.T) map[string]string {
 	dark := goldenNodeDetailModel(t, 120, 36)
 	light := goldenNodeDetailModel(t, 120, 36)
 	light.session.Theme = tui.Light()
+	drainDark := goldenDrainConfirmModel(t, 120, 36)
+	drainLight := goldenDrainConfirmModel(t, 120, 36)
+	drainLight.session.Theme = tui.Light()
 	return map[string]string{
-		"120x36-dark.golden":  goldentest.Truecolor(dark.Render()),
-		"120x36-light.golden": goldentest.Truecolor(light.Render()),
+		"120x36-dark.golden":        goldentest.Truecolor(dark.Render()),
+		"120x36-light.golden":       goldentest.Truecolor(light.Render()),
+		"drain-120x36-dark.golden":  goldentest.Truecolor(drainDark.Render()),
+		"drain-120x36-light.golden": goldentest.Truecolor(drainLight.Render()),
 	}
 }
 

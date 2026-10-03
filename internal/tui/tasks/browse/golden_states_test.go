@@ -191,6 +191,59 @@ func goldenNodesModel(t *testing.T, width, height int) Model {
 	return m
 }
 
+// goldenDrainPods is one of each pod shape the drain confirm's impact line
+// (tui.DrainImpactLine) distinguishes, all on node-a: a ReplicaSet pod
+// (evictable, recreated), a bare pod (evictable, unmanaged — Bad), a
+// ReplicaSet pod with an emptyDir (evictable, scratch data lost — Warn) and
+// a DaemonSet pod (left in place, never counted). Shared with nothing else;
+// no timestamps, since the Nodes list never renders a pod's age.
+func goldenDrainPods() []runtime.Object {
+	controlled := func(kind, name string) []metav1.OwnerReference {
+		isController := true
+		return []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: kind, Name: name, Controller: &isController}}
+	}
+	onNode := func(name string, owners []metav1.OwnerReference, volumes []corev1.Volume) *corev1.Pod {
+		p := pod("default", name)
+		p.Spec.NodeName = "node-a"
+		p.OwnerReferences = owners
+		p.Spec.Volumes = volumes
+		return p
+	}
+	scratch := []corev1.Volume{{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
+	return []runtime.Object{
+		onNode("api-7d9f6c8-abcde", controlled("ReplicaSet", "api-7d9f6c8"), nil),
+		onNode("debug-shell", nil, nil),
+		onNode("cache-5b8c9d-xk2pq", controlled("ReplicaSet", "cache-5b8c9d"), scratch),
+		onNode("kube-proxy-q7m4n", controlled("DaemonSet", "kube-proxy"), nil),
+	}
+}
+
+// goldenNodesDrainModel is 11a's Nodes list with ctrl-d's drain confirm open
+// on node-a, pinning the card's red ConfirmBorder and the impact line's
+// "3 evictable · 1 unmanaged (will be lost) · 1 emptyDir (data lost)" —
+// unmanaged in Bad, emptyDir in Warn — which only a truecolor golden can
+// tell apart from plain secondary text.
+func goldenNodesDrainModel(t *testing.T, width, height int) Model {
+	t.Helper()
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {
+			goldenNodeObj("node-a", true, false, "4", "16Gi"),
+			goldenNodeObj("node-b", true, false, "4", "16Gi"),
+		},
+		kube.KindPod: goldenDrainPods(),
+	}}
+	sess := newSession()
+	sess.Location.Kind = kube.KindNode
+	m := New(Config{Session: sess, Lister: lister, Mutator: &fakeMutator{}})
+	m.SetSize(width, height)
+	m = step(t, m, m.load()())
+	m = step(t, m, tea.KeyPressMsg{Text: verbs.Drain.Key})
+	if !m.actions.Active() {
+		t.Fatal("expected ctrl-d to open the drain confirm")
+	}
+	return m
+}
+
 // --- 13c: forwards manager ---
 //
 // Forwards flow through the same resources.List/Project pipeline as real
@@ -847,7 +900,7 @@ func goldenMetaConfirmModel(t *testing.T, width, height int) Model {
 // by the plain and (for the color-heaviest states) truecolor fixture maps
 // below.
 var goldenStatePrefixes = []string{
-	"offline", "denied", "allns", "deployments", "empty", "nodes",
+	"offline", "denied", "allns", "deployments", "empty", "nodes", "nodes-drain",
 	"forwards", "crd-instances", "crd-list", "loading", "helm", "marks",
 	"confirm-inline", "confirm-modal", "set-image", "set-resources", "meta", "meta-confirm",
 	"flux", "argo", "certificates",
@@ -870,6 +923,8 @@ func goldenStateModel(t *testing.T, prefix string, width, height int) Model {
 		return goldenEmptyModel(t, width, height)
 	case "nodes":
 		return goldenNodesModel(t, width, height)
+	case "nodes-drain":
+		return goldenNodesDrainModel(t, width, height)
 	case "forwards":
 		return goldenForwardsModel(t, width, height)
 	case "crd-instances":
@@ -982,6 +1037,10 @@ var truecolorStatePrefixes = []string{
 	// modal — a plain golden can't tell any of these apart from their
 	// neutral/healthy counterparts (0.8.0 plan Phase 9 golden state 9).
 	"cronjobs", "cronjobs-failed", "cronjobs-suspended", "cronjobs-runnow", "cronjobs-suspend-confirm",
+	// The drain confirm's impact line is a colour claim: unmanaged pods
+	// (gone for good) in Bad, emptyDir pods (data lost) in Warn, inside the
+	// red ConfirmBorder — a plain golden reads all three as one string.
+	"nodes-drain",
 }
 
 func truecolorStateFixtures(t *testing.T) map[string]string {
