@@ -205,7 +205,7 @@ Everything else — Deployments, Services, ConfigMaps, and so on — follows the
 
 ## Configuration
 
-kute reads `~/.config/kute/config.yaml`. Every key is optional — with no file at all, kute runs with the defaults below.
+kute reads `$XDG_CONFIG_HOME/kute/config.yaml`, or `~/.config/kute/config.yaml` when `XDG_CONFIG_HOME` is unset (a file already at the `~/.config` path keeps being used until you create one under `XDG_CONFIG_HOME`). Every key is optional — with no file at all, kute runs with the defaults below.
 
 ```yaml
 # Contexts to treat as production. This is the ONLY source of PROD status —

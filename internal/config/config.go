@@ -1,5 +1,6 @@
 // Package config reads and writes the kute user config file
-// (~/.config/kute/config.yaml). Its one MVP field, prodContexts, is the
+// ($XDG_CONFIG_HOME/kute/config.yaml, else ~/.config/kute/config.yaml — see
+// Path). Its one MVP field, prodContexts, is the
 // sole source of PROD status (mvp-plan.md §Decisions already made #2) — a
 // deliberate deviation from the design handoff's kubeconfig-annotation
 // approach, and never a name heuristic. SetProd is the one write path (7a's
@@ -19,7 +20,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the parsed ~/.config/kute/config.yaml.
+// Config is the parsed config.yaml (see Path).
 type Config struct {
 	ProdContexts StringList `yaml:"prodContexts,omitempty"`
 	// Theme overrides terminal-background detection: "dark" or "light".
@@ -88,13 +89,32 @@ type UpdateConfig struct {
 	Check *bool `yaml:"check,omitempty"`
 }
 
-// Path returns ~/.config/kute/config.yaml.
+// Path returns $XDG_CONFIG_HOME/kute/config.yaml, or
+// ~/.config/kute/config.yaml when XDG_CONFIG_HOME is unset (or relative,
+// which the XDG spec says to ignore) — matching state.Path's use of
+// XDG_STATE_HOME. A config that only exists at the ~/.config path keeps
+// being used, for reads and ctrl+p's writes alike, until one is created
+// under XDG_CONFIG_HOME: builds before this honoured only the home path,
+// and a user's prodContexts must never silently stop applying.
 func Path() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
 	}
-	return filepath.Join(home, ".config", "kute", "config.yaml")
+	legacy := filepath.Join(home, ".config", "kute", "config.yaml")
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" || !filepath.IsAbs(dir) {
+		return legacy
+	}
+	path := filepath.Join(dir, "kute", "config.yaml")
+	if path != legacy {
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+			if _, err := os.Stat(legacy); err == nil {
+				return legacy
+			}
+		}
+	}
+	return path
 }
 
 // Load reads Path(). A missing file yields the zero value (nothing is prod)

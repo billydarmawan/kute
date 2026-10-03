@@ -526,3 +526,53 @@ func TestSetProdLeavesArgoCDNamespaceUntouched(t *testing.T) {
 		t.Fatalf("config.yaml =\n%s\nwant\n%s", got, want)
 	}
 }
+
+// TestPathHonoursXDGConfigHome: config.yaml follows XDG_CONFIG_HOME like
+// state.json follows XDG_STATE_HOME, but a file that only exists at the old
+// ~/.config path keeps being used, so nobody's prodContexts silently stop
+// applying (14 L16).
+func TestPathHonoursXDGConfigHome(t *testing.T) {
+	home := t.TempDir()
+	testenv.SetHome(t, home)
+	legacy := filepath.Join(home, ".config", "kute", "config.yaml")
+
+	if got := Path(); got != legacy {
+		t.Fatalf("Path() with XDG_CONFIG_HOME unset = %q, want %q", got, legacy)
+	}
+
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	want := filepath.Join(xdg, "kute", "config.yaml")
+	if got := Path(); got != want {
+		t.Fatalf("Path() = %q, want %q", got, want)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", "relative/dir")
+	if got := Path(); got != legacy {
+		t.Fatalf("Path() with a relative XDG_CONFIG_HOME = %q, want %q (ignored per the XDG spec)", got, legacy)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("prodContexts: [prod-eu]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := Path(); got != legacy {
+		t.Fatalf("Path() with only the legacy file = %q, want %q", got, legacy)
+	}
+	if !Load().IsProd("prod-eu") {
+		t.Fatal("the legacy config's prodContexts stopped applying")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(want), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(want, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := Path(); got != want {
+		t.Fatalf("Path() once the XDG file exists = %q, want %q", got, want)
+	}
+}

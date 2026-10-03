@@ -15,9 +15,14 @@ import (
 // which fails twice over — the assertion sees a path it never chose, and any
 // code under test that writes lands in the developer's own home directory,
 // leaking state into every later test in the package.
+//
+// It also clears XDG_CONFIG_HOME, which config.Path prefers over the home
+// directory: a developer who sets it would otherwise have tests read and
+// write their real config.yaml. A test that wants it sets it afterwards.
 func SetHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	if runtime.GOOS == "windows" {
 		t.Setenv("USERPROFILE", dir)
 	}
