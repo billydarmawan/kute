@@ -16,8 +16,9 @@ type Context struct {
 	// named "kwok-prod-sim" whose client cert CN is "kwok-admin"). Falls
 	// back to the kubeconfig AuthInfo name for every other auth mode (token,
 	// exec plugin, OIDC, …), where there's no local way to know the real
-	// identity without a server round trip (deliberately avoided — 22a's
-	// resolution is cache-only, "no server round-trip, works read-only").
+	// identity. 22a prefers Cluster.ReviewedIdentity (the one connect-time
+	// SelfSubjectReview, identity.go) and only falls back to this when the
+	// server didn't answer one.
 	UserName string
 	// UserGroups are the identity's known group memberships — for
 	// client-certificate auth, the cert's Subject Organization fields

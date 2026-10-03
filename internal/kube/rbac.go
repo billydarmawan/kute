@@ -97,9 +97,10 @@ type WhoCanSubject struct {
 type WhoCanResult struct {
 	Query    WhoCanQuery
 	Subjects []WhoCanSubject
-	// CurrentUser is the real authenticated identity (kube.Context.UserName
-	// — a client cert's CommonName when available, else the kubeconfig
-	// AuthInfo name), "" if unknown.
+	// CurrentUser is the authenticated identity: the connect-time
+	// SelfSubjectReview's username when the server answered one, else
+	// kube.Context.UserName (a client cert's CommonName when available,
+	// else the kubeconfig AuthInfo name), "" if unknown.
 	CurrentUser string
 	// CurrentUserGranted reports whether CurrentUser is covered by one of
 	// Subjects — either an exact "User" kind match, or (the overwhelmingly
@@ -448,8 +449,9 @@ func (c *Cluster) WhoCan(ctx context.Context, query WhoCanQuery) (WhoCanResult, 
 		}
 	}
 
-	result := ResolveWhoCan(query, c.Context.UserName, c.Context.UserGroups, clusterRoles, roles, clusterRoleBindings, roleBindings)
-	return markUnknownIdentity(result, c.Context.UserFromAuthInfo), nil
+	user, groups, fromAuthInfo := c.whoCanIdentity()
+	result := ResolveWhoCan(query, user, groups, clusterRoles, roles, clusterRoleBindings, roleBindings)
+	return markUnknownIdentity(result, fromAuthInfo), nil
 }
 
 // markUnknownIdentity turns an ungranted verdict for a kubeconfig AuthInfo

@@ -9,8 +9,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kute-dev/kute/internal/kube"
+	"github.com/kute-dev/kute/internal/kube/fake"
 	"github.com/kute-dev/kute/internal/tui"
 )
 
@@ -470,4 +473,33 @@ func TestCacheSyncRetryTickEventuallyLeavesLoading(t *testing.T) {
 			t.Fatal("expected rows after the retry resolved")
 		}
 	})
+}
+
+// TestReviewedIdentityIsPinnedAsYou: with a connect-time SelfSubjectReview
+// answer, "(you)" is the server's username and its groups count — the
+// kubeconfig entry name never appears.
+func TestReviewedIdentityIsPinnedAsYou(t *testing.T) {
+	cluster := fake.New("default", "test-cluster")
+	cluster.SetUserName("gke_proj_zone_c")
+	cluster.SetReviewedIdentity("alice@example.com", []string{"devs", "system:authenticated"})
+	cluster.Seed(kube.KindClusterRole, &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "secret-reader"},
+		Rules:      []rbacv1.PolicyRule{{APIGroups: []string{""}, Resources: []string{"secrets"}, Verbs: []string{"list"}}},
+	})
+	cluster.Seed(kube.KindClusterRoleBinding, &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "devs-read"},
+		RoleRef:    rbacv1.RoleRef{Kind: "ClusterRole", Name: "secret-reader"},
+		Subjects:   []rbacv1.Subject{{Kind: rbacv1.GroupKind, Name: "devs"}},
+	})
+	m := New(Config{Session: newSession(), RBAC: cluster, Verb: "list", Resource: "secrets", Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.rows) == 0 || !m.rows[0].pinned || !m.rows[0].granted || m.rows[0].unknown || m.rows[0].subject.Name != "alice@example.com" {
+		t.Fatalf("rows = %+v, want a granted pinned alice@example.com", m.rows)
+	}
+	view := plain(m.Render())
+	if !strings.Contains(view, "alice@example.com (you)") || strings.Contains(view, "gke_proj_zone_c") {
+		t.Fatalf("expected the reviewed identity pinned, not the kubeconfig name:\n%s", view)
+	}
 }

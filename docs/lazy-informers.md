@@ -20,6 +20,7 @@ behind each change and the trade-offs deliberately accepted, not a backlog.
 5. [Follow-ups](#5-follow-ups)
 6. [CronJobs: a second lazy dependency and a third one-shot read (v0.8.0)](#6-cronjobs-a-second-lazy-dependency-and-a-third-one-shot-read-v080)
 7. [Pod debug: an authoritative fourth one-shot read](#7-pod-debug-an-authoritative-fourth-one-shot-read)
+8. [Who am I: a fifth one-shot read](#8-who-am-i-a-fifth-one-shot-read)
 
 ---
 
@@ -728,6 +729,18 @@ the second `x` after Escape could be rejected. The server's `SelfSubjectAccessRe
 launch gate now; who-can remains an optional explanation after an explicit denial. Review
 errors and no-opinion answers fail open with a visible warning, leaving the actual debug request
 as the final server-side check.
+
+## 8. Who am I: a fifth one-shot read
+
+Right after the server-version read, connect (and every context switch) issues one
+`SelfSubjectReview` — `authentication.k8s.io/v1`, falling back to `v1beta1` only when v1
+answers NotFound — and caches the returned username and groups on the cluster
+(`Cluster.ReviewedIdentity`, `internal/kube/identity.go`). Who-can (22a) pins that identity as
+"(you)". For token, OIDC and
+exec-plugin auth the kubeconfig only knows its AuthInfo entry name, which is never an RBAC
+subject. The review is a create with an empty body, touches no informer, is cleared on context
+switch, and is never retried or re-issued per screen open; any failure leaves it unset and the
+kubeconfig identity stands in.
 
 ## Running the measurement
 

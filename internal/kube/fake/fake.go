@@ -71,6 +71,10 @@ type Cluster struct {
 	// a fixture sets them.
 	userName   string
 	userGroups []string
+	// reviewed is the fake counterpart of kube.Cluster's connect-time
+	// SelfSubjectReview answer (ReviewedIdentity) — nil, i.e. "the server
+	// didn't answer one", unless SetReviewedIdentity sets it.
+	reviewed *kube.ReviewedIdentity
 
 	// notSynced/kindSynced mirror *kube.Cluster's cache-sync reporting so a
 	// test can drive a screen's loading/retry path through the real seam.
@@ -1510,6 +1514,26 @@ func (c *Cluster) SetUserGroups(groups []string) {
 	c.userGroups = groups
 }
 
+// SetReviewedIdentity sets the identity a real cluster's connect-time
+// SelfSubjectReview would have answered. While set, WhoCan pins it as
+// "(you)" in place of SetUserName/SetUserGroups' kubeconfig-style identity.
+func (c *Cluster) SetReviewedIdentity(username string, groups []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reviewed = &kube.ReviewedIdentity{Username: username, Groups: slices.Clone(groups)}
+}
+
+// ReviewedIdentity mirrors *kube.Cluster.ReviewedIdentity: false until
+// SetReviewedIdentity is called.
+func (c *Cluster) ReviewedIdentity() (kube.ReviewedIdentity, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.reviewed == nil {
+		return kube.ReviewedIdentity{}, false
+	}
+	return kube.ReviewedIdentity{Username: c.reviewed.Username, Groups: slices.Clone(c.reviewed.Groups)}, true
+}
+
 // --- WhoCan (22a) ---
 
 // WhoCan resolves query against the fake cluster's seeded RBAC objects,
@@ -1560,6 +1584,9 @@ func (c *Cluster) WhoCan(ctx context.Context, query kube.WhoCanQuery) (kube.WhoC
 
 	c.mu.Lock()
 	user, groups := c.userName, c.userGroups
+	if c.reviewed != nil {
+		user, groups = c.reviewed.Username, c.reviewed.Groups
+	}
 	c.mu.Unlock()
 	return kube.ResolveWhoCan(query, user, groups, clusterRoles, roles, clusterRoleBindings, roleBindings), nil
 }

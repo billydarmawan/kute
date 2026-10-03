@@ -218,6 +218,11 @@ type Cluster struct {
 	// on Start/SwitchContext — never read directly, always through
 	// TimeZoneCapability() (mu-guarded like every other field above).
 	tzCapability TimeZoneCapability
+	// identity is identity.go's connect-time SelfSubjectReview answer —
+	// nil until one answers, and cleared by SwitchContext so a context
+	// whose review fails never inherits the previous one's user. Read
+	// through ReviewedIdentity().
+	identity *ReviewedIdentity
 }
 
 // dynamicKindInfo is one dynamically registered kind's watch/list handle.
@@ -496,6 +501,7 @@ func (c *Cluster) Start(ctx context.Context) error {
 
 	c.refreshDiscovery(ctx, probe.generation, probe.clientset)
 	c.probeTimeZoneCapability(ctx, probe.generation, probe.clientset)
+	c.probeSelfSubjectReview(ctx, probe.generation, probe.clientset)
 	return nil
 }
 
@@ -1267,6 +1273,7 @@ func (c *Cluster) SwitchContext(ctx context.Context, contextName, namespace stri
 	c.helmFactories = nil
 	c.helmInformers = nil
 	c.Context = client.Context
+	c.identity = nil
 	if c.scoped && namespace != "" {
 		c.Context.Namespace = namespace
 	}
