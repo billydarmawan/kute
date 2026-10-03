@@ -68,9 +68,9 @@ func (m Model) Keybar() tui.Keybar {
 		if len(m.otherContexts) > 0 {
 			// docs/design README.md §4c: "↵ connect to selected" — only
 			// meaningful once there's a SWITCH CONTEXT list to select from.
-			hints = append(hints, tui.KeyHint{Key: "↵", Label: "connect to selected"})
+			hints = append(hints, verbs.Open.HintAs("connect to selected"))
 		}
-		hints = append(hints, verbs.Context.Hint(), verbs.Retry.Hint(), tui.KeyHint{Key: "e", Label: "edit kubeconfig path"})
+		hints = append(hints, verbs.Context.Hint(), verbs.Retry.Hint(), verbs.SetupEditPath.Hint())
 		note := "probing other kubeconfig contexts in the background"
 		if m.conn.NeedsCredentials() {
 			// kute can't run the login for you — it deliberately holds the
@@ -83,14 +83,14 @@ func (m Model) Keybar() tui.Keybar {
 			PillText:   "NO CLUSTER",
 			Groups:     [][]tui.KeyHint{hints},
 			RightNote:  note,
-			RightHints: []tui.KeyHint{{Key: "ctrl+q", Label: "quit"}},
+			RightHints: []tui.KeyHint{verbs.Quit.Hint()},
 		}
 	default:
 		return tui.Keybar{
 			Pill:       tui.ModeSetup,
 			PillText:   "SETUP",
-			Groups:     [][]tui.KeyHint{{verbs.Retry.Hint(), {Key: "k", Label: "enter kubeconfig path"}}},
-			RightHints: []tui.KeyHint{{Key: "ctrl+q", Label: "quit"}},
+			Groups:     [][]tui.KeyHint{{verbs.Retry.Hint(), verbs.SetupEnterPath.Hint()}},
+			RightHints: []tui.KeyHint{verbs.Quit.Hint()},
 		}
 	}
 }

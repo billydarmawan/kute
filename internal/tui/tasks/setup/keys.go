@@ -15,7 +15,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateEditKey(msg)
 	}
 	switch msg.String() {
-	case "ctrl+q", "ctrl+c":
+	case verbs.Quit.Key, "ctrl+c":
 		return m, tea.Quit
 	case verbs.Retry.Key:
 		return m.doRetry("")
@@ -27,7 +27,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.state == Unreachable {
 			m.moveSwitchSelection(1)
 		}
-	case "k":
+	case verbs.SetupEnterPath.Key:
 		switch m.state {
 		case NoConfig:
 			m.startEdit()
@@ -46,7 +46,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		}
-	case "e":
+	case verbs.SetupEditPath.Key:
 		if m.state == Unreachable {
 			m.startEdit()
 		}
