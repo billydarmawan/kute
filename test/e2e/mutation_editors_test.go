@@ -138,7 +138,7 @@ func TestSecretRewriteRecoversFromConflict(t *testing.T) {
 	if got := a.Proxy().WaitForCompletion(rec.ID, Settle).StatusCode; got != http.StatusConflict {
 		t.Fatalf("secret conflict response = %d, want 409", got)
 	}
-	a.WaitForWrapped("server reported a conflict", Settle)
+	a.WaitForWrapped("changed on the server since you opened it", Settle)
 	a.WaitFor(after, Settle)
 	if got := secretValue(t, name, key); got != before {
 		t.Fatalf("secret changed despite conflict: %q", got)
