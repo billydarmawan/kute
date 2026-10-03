@@ -180,7 +180,7 @@ func (m *Model) decorateDebugCopies() {
 			// the glyph, just add the second fact.
 			tag = " · debug copy"
 		}
-		if m.session.DebugCopies.Contains(m.rows[i].Namespace, m.rows[i].Name) {
+		if m.session.DebugCopies.Contains(m.session.Location.Context, m.rows[i].Namespace, m.rows[i].Name) {
 			m.rows[i].NameSuffix += tag
 		}
 	}

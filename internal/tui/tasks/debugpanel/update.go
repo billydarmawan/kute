@@ -435,10 +435,14 @@ func (m *Model) handleLaunchResult(msg launchResultMsg) (tea.Model, tea.Cmd) {
 // prompt for it. startedAt is when the copy was created (zero when unknown),
 // for the prompt's "still running · 4m".
 func (m *Model) stageCopyCleanup(name string, startedAt time.Time) {
-	if m.session != nil && m.session.DebugCopies != nil {
-		m.session.DebugCopies.Add(m.namespace, name)
+	ctxName := ""
+	if m.session != nil {
+		ctxName = m.session.Location.Context
+		if m.session.DebugCopies != nil {
+			m.session.DebugCopies.Add(ctxName, m.namespace, name)
+		}
 	}
-	m.cleanup = &cleanupPrompt{namespace: m.namespace, name: name, startedAt: startedAt}
+	m.cleanup = &cleanupPrompt{context: ctxName, namespace: m.namespace, name: name, startedAt: startedAt}
 }
 
 // copyPodLookupMsg is findCopyPodCmd's answer: whether the copy a failed
@@ -534,7 +538,7 @@ func (m *Model) handleActionResult(msg actions.ResultMsg) (tea.Model, tea.Cmd) {
 	m.actions.HandleResult(msg)
 	if msg.Err == nil && m.cleanup != nil {
 		if m.tgt == targetPod && m.session != nil && m.session.DebugCopies != nil {
-			m.session.DebugCopies.Remove(m.cleanup.namespace, m.cleanup.name)
+			m.session.DebugCopies.Remove(m.cleanup.context, m.cleanup.namespace, m.cleanup.name)
 		}
 		m.cleanup = nil
 		return m, func() tea.Msg { return tui.BackMsg{} }

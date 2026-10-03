@@ -276,7 +276,7 @@ func TestDebugCopyTagRendersInPodsTable(t *testing.T) {
 	}}
 	session := newSession()
 	session.DebugCopies = kube.NewDebugCopyRegistry()
-	session.DebugCopies.Add("default", "worker-0-debug")
+	session.DebugCopies.Add(session.Location.Context, "default", "worker-0-debug")
 
 	m := New(Config{Session: session, Lister: lister})
 	m.SetSize(120, 36)
@@ -313,7 +313,7 @@ func TestDebugCopyTagCoexistsWithEphemeralTag(t *testing.T) {
 	}}
 	session := newSession()
 	session.DebugCopies = kube.NewDebugCopyRegistry()
-	session.DebugCopies.Add("default", "worker-0-debug")
+	session.DebugCopies.Add(session.Location.Context, "default", "worker-0-debug")
 
 	m := New(Config{Session: session, Lister: lister})
 	m.SetSize(120, 36)

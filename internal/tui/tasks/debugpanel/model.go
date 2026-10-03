@@ -111,6 +111,9 @@ type Config struct {
 // since a node-debug pod's namespace is only known once it's found —
 // m.namespace is unset for a Node target.
 type cleanupPrompt struct {
+	// context is the kubeconfig context a copy was created in — its
+	// Session.DebugCopies key (unset for a node-debugger pod, never added).
+	context   string
 	namespace string
 	name      string
 	startedAt time.Time

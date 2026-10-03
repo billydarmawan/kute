@@ -482,7 +482,7 @@ func TestHandleLaunchResultCopyModeStaysOnScreen(t *testing.T) {
 	if next.cleanup == nil || next.cleanup.name != "worker-0-debug" {
 		t.Fatalf("expected cleanup staged for worker-0-debug, got %+v", next.cleanup)
 	}
-	if !sess.DebugCopies.Contains("default", "worker-0-debug") {
+	if !sess.DebugCopies.Contains(sess.Location.Context, "default", "worker-0-debug") {
 		t.Error("expected the copy pod registered in Session.DebugCopies")
 	}
 }
@@ -518,7 +518,7 @@ func TestHandleLaunchResultCopyModeFailureStillOffersCleanUp(t *testing.T) {
 			if got := next.cleanup != nil && next.cleanup.name == "worker-0-debug"; got != tc.staged {
 				t.Fatalf("cleanup = %+v, want staged=%v", next.cleanup, tc.staged)
 			}
-			if got := sess.DebugCopies.Contains("default", "worker-0-debug"); got != tc.staged {
+			if got := sess.DebugCopies.Contains(sess.Location.Context, "default", "worker-0-debug"); got != tc.staged {
 				t.Errorf("DebugCopies.Contains = %v, want %v", got, tc.staged)
 			}
 			if want := "debug exited: boom"; next.feedback != want {

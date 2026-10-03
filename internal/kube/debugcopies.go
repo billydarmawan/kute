@@ -7,7 +7,9 @@ import "sync"
 // carries no marker distinguishing a debug copy from any other pod.
 // Session-scoped, not persisted: built once at the composition root
 // (mirrors kube.ForwardManager's own placement/lifetime — tui.Session's
-// DebugCopies field), survives context switches, and its entries never
+// DebugCopies field), survives context switches — so every entry is keyed
+// by the kubeconfig context it was created in, and a same-named pod on
+// another cluster is never tagged — and its entries never
 // expire on their own — only an explicit Remove (the CLEAN UP prompt's
 // ctrl-d) or the end of the process clears one, the same "no attempt to
 // track external deletion" realism ForwardManager applies to a forward's
@@ -22,30 +24,32 @@ func NewDebugCopyRegistry() *DebugCopyRegistry {
 	return &DebugCopyRegistry{set: map[string]bool{}}
 }
 
-func debugCopyKey(namespace, name string) string { return namespace + "/" + name }
+func debugCopyKey(contextName, namespace, name string) string {
+	return contextName + "\x00" + namespace + "/" + name
+}
 
-// Add records namespace/name as a debug copy kute created.
-func (r *DebugCopyRegistry) Add(namespace, name string) {
+// Add records namespace/name in context as a debug copy kute created.
+func (r *DebugCopyRegistry) Add(contextName, namespace, name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.set == nil {
 		r.set = map[string]bool{}
 	}
-	r.set[debugCopyKey(namespace, name)] = true
+	r.set[debugCopyKey(contextName, namespace, name)] = true
 }
 
-// Remove clears namespace/name — called once the copy is deleted (or the
-// user tells kute to forget it).
-func (r *DebugCopyRegistry) Remove(namespace, name string) {
+// Remove clears namespace/name in context — called once the copy is
+// deleted (or the user tells kute to forget it).
+func (r *DebugCopyRegistry) Remove(contextName, namespace, name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.set, debugCopyKey(namespace, name))
+	delete(r.set, debugCopyKey(contextName, namespace, name))
 }
 
-// Contains reports whether namespace/name is a tracked debug copy — the
-// pods-table row-decoration check (§41c's ⚑ tag).
-func (r *DebugCopyRegistry) Contains(namespace, name string) bool {
+// Contains reports whether namespace/name in context is a tracked debug
+// copy — the pods-table row-decoration check (§41c's ⚑ tag).
+func (r *DebugCopyRegistry) Contains(contextName, namespace, name string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.set[debugCopyKey(namespace, name)]
+	return r.set[debugCopyKey(contextName, namespace, name)]
 }
