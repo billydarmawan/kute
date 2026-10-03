@@ -159,9 +159,11 @@ type repositoriesFile struct {
 }
 
 // indexFile is the subset of a repo's index.yaml kute reads. Naming only
-// the version field matters: yaml.v3 discards unknown fields as it decodes,
-// so a 6 MB index never materializes its descriptions, digests, keywords and
-// download URLs — which are ~95% of the bytes and none of the answer.
+// the version field does *not* make a full yaml.Unmarshal cheap: yaml.v3
+// builds the whole node tree before decoding, so a 6 MB index still pays
+// ~110 MB and millions of allocations for descriptions, digests, keywords
+// and download URLs that are ~95% of the bytes and none of the answer.
+// readIndex therefore decodes it through reduceIndex first.
 type indexFile struct {
 	Entries map[string][]struct {
 		Version string `yaml:"version"`
@@ -253,7 +255,6 @@ func (i *Index) sortCandidates() {
 	}
 }
 
-// readIndex parses one index.yaml down to chart name → newest version.
 // safeRepoName reports whether name can be joined onto the cache dir as a
 // single path element.
 //
@@ -269,14 +270,22 @@ func safeRepoName(name string) bool {
 	return !strings.ContainsAny(name, `/\`) && !strings.ContainsRune(name, os.PathSeparator)
 }
 
+// readIndex parses one index.yaml down to chart name → newest version.
 func readIndex(path string) (map[string]string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	var f indexFile
-	if err := yaml.Unmarshal(raw, &f); err != nil {
-		return nil, err
+	reduced, ok := reduceIndex(raw)
+	if !ok || yaml.Unmarshal(reduced, &f) != nil {
+		// Not the block layout helm writes (JSON, flow style, anchors, a
+		// half-written file): the full decode is the authority, including
+		// on whether the file parses at all.
+		f = indexFile{}
+		if err := yaml.Unmarshal(raw, &f); err != nil {
+			return nil, err
+		}
 	}
 	out := make(map[string]string, len(f.Entries))
 	for name, versions := range f.Entries {
@@ -285,6 +294,124 @@ func readIndex(path string) (map[string]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// reduceIndex cuts an index.yaml in helm's own block layout down to the one
+// field kute reads, as a much smaller YAML document of the same shape:
+//
+//	entries:
+//	  <chart>:
+//	  - version: <raw value>
+//
+// It is a line walk, not a parser, so it is strict about the layout it
+// accepts: a chart key at one indent, its list items' dashes at another,
+// each item's fields two columns past its dash. Any line it can't place —
+// a top-level flow style, a tab, an indent between those columns — reports
+// !ok and the caller decodes the original in full. Values are copied
+// verbatim, so quoting and escapes are still the YAML decoder's to read.
+func reduceIndex(raw []byte) ([]byte, bool) {
+	var out strings.Builder
+	out.Grow(len(raw) / 16)
+	inEntries, seenEntries := false, false
+	keyIndent, dashIndent := -1, -1
+	chartOpen, chartItems := false, 0
+	// The current list item's version, written once the item ends — so a
+	// second version key on one item is caught rather than silently kept.
+	itemOpen, itemVersion := false, ""
+	closeItem := func() {
+		if itemOpen {
+			if itemVersion == "" {
+				out.WriteString("  - {}\n")
+			} else {
+				out.WriteString("  - version:" + itemVersion + "\n")
+			}
+		}
+		itemOpen, itemVersion = false, ""
+	}
+	closeChart := func() {
+		closeItem()
+		if chartOpen && chartItems == 0 {
+			out.WriteString(" []\n")
+		}
+		chartOpen, chartItems = false, 0
+	}
+	for line := range strings.Lines(string(raw)) {
+		line = strings.TrimRight(line, "\r\n")
+		trimmed := strings.TrimLeft(line, " ")
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.ContainsRune(line, '\t') {
+			return nil, false
+		}
+		indent := len(line) - len(trimmed)
+		if indent == 0 {
+			closeChart()
+			if trimmed == "---" || trimmed == "..." || strings.HasPrefix(trimmed, "{") {
+				return nil, false
+			}
+			inEntries = strings.HasPrefix(trimmed, "entries:")
+			if inEntries {
+				if seenEntries || strings.TrimSpace(strings.TrimPrefix(trimmed, "entries:")) != "" {
+					return nil, false
+				}
+				seenEntries = true
+				out.WriteString("entries:\n")
+			}
+			continue
+		}
+		if !inEntries {
+			continue
+		}
+		if keyIndent < 0 {
+			keyIndent = indent
+		}
+		isDash := strings.HasPrefix(trimmed, "- ")
+		switch {
+		case indent == keyIndent && !isDash:
+			// A chart name: "<name>:" with nothing after it.
+			if !strings.HasSuffix(trimmed, ":") {
+				return nil, false
+			}
+			closeChart()
+			out.WriteString("  " + trimmed)
+			chartOpen = true
+		case isDash && indent >= keyIndent && (dashIndent < 0 || indent == dashIndent):
+			if !chartOpen {
+				return nil, false
+			}
+			closeItem()
+			dashIndent = indent
+			if chartItems == 0 {
+				out.WriteString("\n")
+			}
+			chartItems++
+			itemOpen = true
+			if v, ok := strings.CutPrefix(trimmed[2:], "version:"); ok {
+				itemVersion = v
+			}
+		case dashIndent >= 0 && indent == dashIndent+2:
+			if !itemOpen {
+				return nil, false
+			}
+			if v, ok := strings.CutPrefix(trimmed, "version:"); ok {
+				if itemVersion != "" {
+					return nil, false
+				}
+				itemVersion = v
+			}
+		case dashIndent >= 0 && indent > dashIndent+2:
+			// A nested field (dependencies, maintainers, a block scalar's
+			// body): never an item's own version.
+		default:
+			return nil, false
+		}
+	}
+	closeChart()
+	if !seenEntries {
+		return nil, false
+	}
+	return []byte(out.String()), true
 }
 
 // newestVersion picks a chart's newest release, preferring stable versions
