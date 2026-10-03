@@ -139,24 +139,25 @@ func fromNodeResources(r kube.NodeResources) allocation {
 }
 
 // readNodeUsage pulls this node's live usage out of one NodeMetrics poll.
-// ok is false for every way the reading can be absent — no seam wired, the
-// poll failed (no metrics-server), the node isn't in the map, or it reports
-// kube.NodeMetric's own ""/"n/a" sentinel — so the caller has a single flag
-// to decide between a real bar and the "no metrics-server" note. This is
-// the same sentinel check overview's loadOverview applies.
-func readNodeUsage(ctx context.Context, src NodeMetricsReader, nodeName string) (allocation, bool) {
+// ok is false for every way the reading can be absent. err says why when
+// the poll itself failed (no seam wired reports kube.ErrMetricsNotConfigured,
+// like the real client does); a nil err with !ok means metrics-server
+// answered but has no reading for this node — it isn't in the map, or it
+// reports kube.NodeMetric's own ""/"n/a" sentinel, the same check
+// overview's readClusterUsage applies.
+func readNodeUsage(ctx context.Context, src NodeMetricsReader, nodeName string) (allocation, bool, error) {
 	if src == nil {
-		return allocation{}, false
+		return allocation{}, false, kube.ErrMetricsNotConfigured
 	}
 	metrics, err := src.NodeMetrics(ctx)
 	if err != nil {
-		return allocation{}, false
+		return allocation{}, false, err
 	}
 	nm, found := metrics[nodeName]
 	if !found || nm.CPU == "" || nm.CPU == "n/a" {
-		return allocation{}, false
+		return allocation{}, false, nil
 	}
-	return allocation{cpuMilli: nm.CPUMilli, memBytes: nm.MemBytes}, true
+	return allocation{cpuMilli: nm.CPUMilli, memBytes: nm.MemBytes}, true, nil
 }
 
 func nodeDetailTerminalPod(p *corev1.Pod) bool {
@@ -242,7 +243,7 @@ func (m Model) loadMetrics() tea.Cmd {
 		defer cancel()
 
 		msg := metricsLoadedMsg{epoch: epoch}
-		msg.used, msg.usedOK = readNodeUsage(ctx, nodeMetrics, nodeName)
+		msg.used, msg.usedOK, msg.usedErr = readNodeUsage(ctx, nodeMetrics, nodeName)
 		if metrics != nil {
 			msg.podMetrics = readPodUsage(ctx, metrics, namespaces)
 		}

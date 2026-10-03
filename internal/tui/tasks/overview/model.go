@@ -115,7 +115,10 @@ type Model struct {
 	changesDenied  bool
 	changesPending bool
 
-	metricsAvailable          bool
+	metricsAvailable bool
+	// metricsErr is why the last poll failed, nil when it answered — it
+	// picks CAPACITY's note when there's no reading to draw.
+	metricsErr                error
 	capCPUUsed, capCPUTotal   int64
 	capMemUsed, capMemTotal   int64
 	capPodsUsed, capPodsTotal int64
@@ -183,6 +186,7 @@ type metricsLoadedMsg struct {
 	epoch            int
 	available        bool
 	cpuUsed, memUsed int64
+	err              error
 }
 
 // loadedData is every field load() computes in one pass — applied onto

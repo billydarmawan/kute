@@ -47,7 +47,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.metricsPolled = true
-		m.metricsAvailable = msg.available
+		if msg.err != nil && m.metricsAvailable && !kube.IsMetricsServerMissing(msg.err) {
+			// A failed poll (timeout, Forbidden, a transient 503) says
+			// nothing about usage: keep the last good reading rather than
+			// flipping CAPACITY to a note until the next poll lands.
+			m.metricsErr = msg.err
+			return m, m.scheduleMetricsTick(m.metricsEpoch)
+		}
+		m.metricsAvailable, m.metricsErr = msg.available, msg.err
 		m.capCPUUsed, m.capMemUsed = msg.cpuUsed, msg.memUsed
 		return m, m.scheduleMetricsTick(m.metricsEpoch)
 	case spinner.TickMsg:

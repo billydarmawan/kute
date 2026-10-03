@@ -192,6 +192,10 @@ type Model struct {
 	used     allocation
 	capacity allocation
 	usedOK   bool
+	// usedErr is why the last poll had no reading (nil when metrics-server
+	// answered without one for this node) — it picks the note the block
+	// shows instead of bars.
+	usedErr error
 	// disk/diskState back USED / CAPACITY's disk row (NodeDiskReader).
 	// diskTicks counts usage-poll ticks since the last disk read, so the
 	// disk read rides the existing poll chain at a fraction of its rate.
@@ -292,6 +296,7 @@ type metricsLoadedMsg struct {
 	epoch      int
 	used       allocation
 	usedOK     bool
+	usedErr    error
 	podMetrics map[string]kube.PodMetrics
 }
 

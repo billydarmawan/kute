@@ -42,11 +42,16 @@ func (f *fakeLister) ListRaw(_ context.Context, kind kube.ResourceKind, _ string
 
 type fakeNodeMetrics struct {
 	metrics map[string]kube.NodeMetric
+	err     error
 }
 
 func (f *fakeNodeMetrics) NodeMetrics(_ context.Context) (map[string]kube.NodeMetric, error) {
-	return f.metrics, nil
+	return f.metrics, f.err
 }
+
+// metricsGone is what the metrics client returns when the metrics.k8s.io
+// API isn't served at all — a 404, i.e. no metrics-server.
+var metricsGone = apierrors.NewNotFound(schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "")
 
 func testNode(name string, ready, cordoned bool, cpuMilli, memBytes, pods int64) *corev1.Node {
 	status := corev1.ConditionTrue
@@ -158,7 +163,7 @@ func step(t *testing.T, m Model, msg tea.Msg) Model {
 }
 
 func TestLoadAggregatesNodesPodsAndRecentChanges(t *testing.T) {
-	m := New(Config{Session: newSession(), Lister: baseLister(), NodeMetrics: &fakeNodeMetrics{}})
+	m := New(Config{Session: newSession(), Lister: baseLister(), NodeMetrics: &fakeNodeMetrics{err: metricsGone}})
 	m.SetSize(120, 36)
 	m = step(t, m, m.Init()())
 
@@ -179,8 +184,8 @@ func TestLoadAggregatesNodesPodsAndRecentChanges(t *testing.T) {
 	if len(m.changes) != 1 || m.changes[0].Object != "Deployment/web" {
 		t.Fatalf("changes = %+v, want exactly the recent Deployment/web rollout", m.changes)
 	}
-	// The fake NodeMetrics reader returns an empty map here — no
-	// metrics-server poll ever landed, so CAPACITY's cpu/mem bars must be
+	// The fake NodeMetrics reader answers 404 here — no metrics-server,
+	// so no poll ever lands a reading, so CAPACITY's cpu/mem bars must be
 	// omitted rather than showing a flatlined 0-used bar.
 	if m.metricsAvailable {
 		t.Fatalf("metricsAvailable = true, want false with no metrics polled")
@@ -258,6 +263,40 @@ func TestNMetricsSentinelDoesNotCountAsAvailable(t *testing.T) {
 
 	if m.metricsAvailable {
 		t.Fatalf("metricsAvailable = true, want false when every node reports the n/a sentinel")
+	}
+}
+
+// TestCapacityKeepsLastReadingOnFailedPoll: one timed-out or Forbidden poll
+// says nothing about usage, so CAPACITY's bars stay up instead of flipping
+// to "no metrics-server installed" until the next poll — and a read that
+// never succeeded says why rather than claiming nothing is installed.
+func TestCapacityKeepsLastReadingOnFailedPoll(t *testing.T) {
+	src := &fakeNodeMetrics{metrics: map[string]kube.NodeMetric{
+		"node-a": {CPU: "500m", MEM: "1Gi", CPUMilli: 500, MemBytes: 1 << 30},
+	}}
+	m := New(Config{Session: newSession(), Lister: baseLister(), NodeMetrics: src})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	m = step(t, m, m.loadMetrics()())
+	if !m.metricsAvailable {
+		t.Fatalf("metricsAvailable = false after a good poll")
+	}
+
+	src.err = context.DeadlineExceeded
+	m = step(t, m, m.loadMetrics()())
+	view := plain(m.Render())
+	if !m.metricsAvailable || !strings.Contains(view, "500m /") {
+		t.Fatalf("a failed poll dropped the last good reading:\n%s", view)
+	}
+
+	fresh := New(Config{Session: newSession(), Lister: baseLister(), NodeMetrics: &fakeNodeMetrics{
+		err: apierrors.NewForbidden(schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "", errors.New("nope")),
+	}})
+	fresh.SetSize(120, 36)
+	fresh = step(t, fresh, fresh.Init()())
+	fresh = step(t, fresh, fresh.loadMetrics()())
+	if view := plain(fresh.Render()); !strings.Contains(view, "not permitted to read metrics-server") {
+		t.Fatalf("a Forbidden read didn't say so:\n%s", view)
 	}
 }
 

@@ -1,11 +1,27 @@
 package kube
 
 import (
+	"errors"
 	"math"
 	"strconv"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	resource "k8s.io/apimachinery/pkg/api/resource"
 )
+
+// ErrMetricsNotConfigured is what the metrics readers return when no
+// metrics client was built — wrapped, so test with errors.Is or
+// IsMetricsServerMissing.
+var ErrMetricsNotConfigured = errors.New("metrics client is not configured")
+
+// IsMetricsServerMissing reports whether err means there is no
+// metrics-server to ask — no client, or the metrics.k8s.io API not served
+// (a 404) — as opposed to one that exists but failed this read (Forbidden,
+// a timeout, a 503 from an unhealthy APIService backend). Only the former
+// justifies saying "no metrics-server installed".
+func IsMetricsServerMissing(err error) bool {
+	return errors.Is(err, ErrMetricsNotConfigured) || apierrors.IsNotFound(err)
+}
 
 type PodMetrics struct {
 	CPU string

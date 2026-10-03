@@ -1391,7 +1391,7 @@ func (c *Cluster) CountInstances(kind ResourceKind) (int, bool) {
 // otherwise overwrite each other and show one pod the other's usage.
 func (c *Cluster) PodMetricsByNamespace(ctx context.Context, namespace string) (map[string]PodMetrics, error) {
 	if c.metrics == nil {
-		return nil, fmt.Errorf("pod metrics client is not configured")
+		return nil, fmt.Errorf("pod %w", ErrMetricsNotConfigured)
 	}
 	list, err := c.metrics.MetricsV1beta1().PodMetricses(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -1423,7 +1423,7 @@ func (c *Cluster) PodMetricsByNamespace(ctx context.Context, namespace string) (
 // caller today, so the namespace in the key is uniformity, not a fix.
 func (c *Cluster) ContainerMetricsByNamespace(ctx context.Context, namespace string) (map[string]map[string]PodMetrics, error) {
 	if c.metrics == nil {
-		return nil, fmt.Errorf("pod metrics client is not configured")
+		return nil, fmt.Errorf("pod %w", ErrMetricsNotConfigured)
 	}
 	list, err := c.metrics.MetricsV1beta1().PodMetricses(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -1452,7 +1452,7 @@ func (c *Cluster) ContainerMetricsByNamespace(ctx context.Context, namespace str
 // PodMetricsByNamespace does, so callers degrade identically either way.
 func (c *Cluster) NodeMetrics(ctx context.Context) (map[string]NodeMetric, error) {
 	if c.metrics == nil {
-		return nil, fmt.Errorf("node metrics client is not configured")
+		return nil, fmt.Errorf("node %w", ErrMetricsNotConfigured)
 	}
 	list, err := c.metrics.MetricsV1beta1().NodeMetricses().List(ctx, metav1.ListOptions{})
 	if err != nil {

@@ -106,7 +106,7 @@ func (m Model) loadMetrics() tea.Cmd {
 		ctx, cancel := context.WithTimeout(parent, timeout)
 		defer cancel()
 		msg := metricsLoadedMsg{epoch: epoch}
-		msg.available, msg.cpuUsed, msg.memUsed = readClusterUsage(ctx, src)
+		msg.available, msg.cpuUsed, msg.memUsed, msg.err = readClusterUsage(ctx, src)
 		return msg
 	}
 }
@@ -138,10 +138,10 @@ func (m Model) pollsMetrics() bool {
 }
 
 // readClusterUsage sums every node's live usage from one NodeMetrics poll.
-func readClusterUsage(ctx context.Context, src NodeMetricsReader) (available bool, cpuUsed, memUsed int64) {
+func readClusterUsage(ctx context.Context, src NodeMetricsReader) (available bool, cpuUsed, memUsed int64, err error) {
 	metrics, err := src.NodeMetrics(ctx)
 	if err != nil {
-		return false, 0, 0
+		return false, 0, 0, err
 	}
 	for _, nm := range metrics {
 		// "n/a"/"" is kube.NodeMetric's own no-metrics-server sentinel
@@ -157,7 +157,7 @@ func readClusterUsage(ctx context.Context, src NodeMetricsReader) (available boo
 		cpuUsed += nm.CPUMilli
 		memUsed += nm.MemBytes
 	}
-	return available, cpuUsed, memUsed
+	return available, cpuUsed, memUsed, nil
 }
 
 func loadOverview(ctx context.Context, lister resources.RawLister, registry resources.Registry) (loadedData, error) {

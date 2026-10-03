@@ -1,12 +1,19 @@
 package nodedetail
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+// metricsGone is what the metrics client returns when the metrics.k8s.io
+// API isn't served at all — a 404, i.e. no metrics-server.
+var metricsGone = apierrors.NewNotFound(schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "")
 
 // allocationModel is a ready 11b model with both bar groups populated.
 func allocationModel(t *testing.T, usedOK bool) Model {
@@ -20,11 +27,56 @@ func allocationModel(t *testing.T, usedOK bool) Model {
 		capacity:    allocation{cpuMilli: 4000, memBytes: 16 * giByte},
 		pods:        goldenNodePods(),
 	})
-	return step(t, m, metricsLoadedMsg{
-		epoch:  m.metricsEpoch,
-		used:   allocation{cpuMilli: 940, memBytes: 8 * giByte},
-		usedOK: usedOK,
-	})
+	msg := metricsLoadedMsg{epoch: m.metricsEpoch, used: allocation{cpuMilli: 940, memBytes: 8 * giByte}, usedOK: true}
+	if !usedOK {
+		msg = metricsLoadedMsg{epoch: m.metricsEpoch, usedErr: metricsGone}
+	}
+	return step(t, m, msg)
+}
+
+// TestUsedBlockKeepsLastReadingOnFailedPoll: one timed-out or 503'd poll
+// says nothing about the node's usage, so the bars it last drew stay up —
+// they used to flip to "no metrics-server installed" until the next poll.
+func TestUsedBlockKeepsLastReadingOnFailedPoll(t *testing.T) {
+	m := allocationModel(t, true)
+	m = step(t, m, metricsLoadedMsg{epoch: m.metricsEpoch, usedErr: context.DeadlineExceeded})
+
+	view := ansi.Strip(m.Render())
+	if !strings.Contains(view, "940m / 4000m") {
+		t.Errorf("a failed poll dropped the last good reading:\n%s", view)
+	}
+	if strings.Contains(view, "no metrics-server installed") {
+		t.Errorf("a failed poll claimed metrics-server isn't installed:\n%s", view)
+	}
+}
+
+// TestUsedBlockNamesWhyThereIsNoReading: only a missing metrics.k8s.io API
+// is "not installed" — Forbidden, a transient failure and a node
+// metrics-server simply hasn't scraped each say what actually happened.
+func TestUsedBlockNamesWhyThereIsNoReading(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "", nil)
+	tests := []struct {
+		name string
+		msg  metricsLoadedMsg
+		want string
+	}{
+		{"api not served", metricsLoadedMsg{usedErr: metricsGone}, "no metrics-server installed"},
+		{"forbidden", metricsLoadedMsg{usedErr: forbidden}, "not permitted to read metrics-server"},
+		{"timeout", metricsLoadedMsg{usedErr: context.DeadlineExceeded}, "metrics-server unavailable"},
+		{"node not scraped", metricsLoadedMsg{}, "no reading for this node yet"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New(Config{Session: newSession(), Lister: fakeLister{}, NodeName: "worker-01"})
+			m.SetSize(120, 36)
+			m = step(t, m, loadedMsg{node: goldenNode(), capacity: allocation{cpuMilli: 4000, memBytes: 16 * giByte}, pods: goldenNodePods()})
+			tt.msg.epoch = m.metricsEpoch
+			view := ansi.Strip(step(t, m, tt.msg).Render())
+			if !strings.Contains(view, "cpu / mem — "+tt.want) {
+				t.Errorf("view missing %q:\n%s", tt.want, view)
+			}
+		})
+	}
 }
 
 // TestBothAllocationGroupsRender is the fix for the report that started

@@ -261,7 +261,18 @@ func (m *Model) applyMetrics(msg metricsLoadedMsg) (tea.Model, tea.Cmd) {
 	if msg.epoch != m.metricsEpoch {
 		return m, nil
 	}
-	m.used, m.usedOK = msg.used, msg.usedOK
+	switch {
+	case msg.usedOK:
+		m.used, m.usedOK, m.usedErr = msg.used, true, nil
+	case msg.usedErr != nil && m.usedOK && !kube.IsMetricsServerMissing(msg.usedErr):
+		// A failed poll (timeout, Forbidden, a transient 503) says nothing
+		// about the node's usage: keep the last good reading, as the disk
+		// row does, rather than flipping the block to a note until the
+		// next poll lands.
+		m.usedErr = msg.usedErr
+	default:
+		m.used, m.usedOK, m.usedErr = allocation{}, false, msg.usedErr
+	}
 	m.usagePolled = true
 	if msg.podMetrics != nil {
 		m.podMetrics = msg.podMetrics

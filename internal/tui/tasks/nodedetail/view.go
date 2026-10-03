@@ -371,11 +371,15 @@ func (m Model) allocationBlock(theme tui.Theme, compact bool) []string {
 	} else if m.nodeMetrics != nil && !m.usagePolled {
 		// The first poll is still in flight — not yet a claim either way.
 		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — reading metrics-server…"))
-	} else {
+	} else if m.usedErr != nil {
 		// A zeroed bar would claim the node is idle. Say why there's no
 		// reading instead — the same degradation overview's capacityLines
 		// and browse's nodeSummaryText already apply.
-		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — no metrics-server installed"))
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render(tui.MetricsUnavailableNote(m.usedErr)))
+	} else {
+		// metrics-server answered, but not for this node — a NotReady or
+		// just-joined node it hasn't scraped yet.
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — no reading for this node yet"))
 	}
 	if line, ok := m.diskLine(theme); ok {
 		lines = append(lines, line)

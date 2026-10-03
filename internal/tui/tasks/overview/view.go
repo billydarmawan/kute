@@ -227,8 +227,15 @@ func (m Model) capacityLines(theme tui.Theme) []string {
 	} else if m.nodeMetrics != nil && !m.metricsPolled {
 		// The first poll is still in flight — not yet a claim either way.
 		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — reading metrics-server…"))
+	} else if m.metricsErr != nil || m.nodeMetrics == nil {
+		err := m.metricsErr
+		if err == nil {
+			err = kube.ErrMetricsNotConfigured
+		}
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render(tui.MetricsUnavailableNote(err)))
 	} else {
-		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — no metrics-server installed"))
+		// metrics-server answered, but no node has a reading yet.
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextDim).Render("cpu / mem — no node metrics reported yet"))
 	}
 	if m.capPodsTotal > 0 {
 		lines = append(lines, allocationBarLine("pods", m.capPodsUsed, m.capPodsTotal, theme, func(v int64) string { return strconv.FormatInt(v, 10) }))
