@@ -2,6 +2,7 @@ package objectdetail
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -377,5 +378,19 @@ func TestArrowKeysMoveSiblings(t *testing.T) {
 	m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if m.name != "a" {
 		t.Fatalf("↑ moved to %q, want a", m.name)
+	}
+}
+
+// TestEventAgeRendersFromStampedNow: render is pure — ages come from the
+// model's own now (stamped on load), not the wall clock.
+func TestEventAgeRendersFromStampedNow(t *testing.T) {
+	m := New(Config{Session: testSession(), Lister: fakeLister{}, Events: fakeEvents{}, Kind: certificateKind(), Namespace: "default", Name: "a"})
+	m.SetSize(120, 36)
+	m.now = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	m.state = tui.TaskStateReady
+	m.found = true
+	m.eventRows = []kube.Event{{Type: "Normal", Reason: "Issuing", Message: "x", LastSeen: m.now.Add(-7 * time.Minute)}}
+	if out := m.Render(); !strings.Contains(out, "7m") {
+		t.Fatalf("event age should render from m.now (7m):\n%s", out)
 	}
 }

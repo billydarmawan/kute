@@ -234,7 +234,7 @@ func (m Model) conditionsBlock(theme tui.Theme) string {
 		}
 		age := ""
 		if !c.LastTransition.IsZero() {
-			age = shortAge(c.LastTransition)
+			age = shortAge(m.now, c.LastTransition)
 		}
 		lines = append(lines, fmt.Sprintf("%s  %s  %s  %s  %s",
 			style.Render(glyph),
@@ -270,7 +270,7 @@ func (m Model) eventsBlock(theme tui.Theme, width int) string {
 		if e.Type == "Warning" {
 			typeStyle = warn
 		}
-		age := shortAge(e.LastSeen)
+		age := shortAge(m.now, e.LastSeen)
 		msg := ellipsize(e.Message, max(width-40, 10))
 		lines = append(lines, fmt.Sprintf("%s  %s  %s  %s",
 			typeStyle.Render(padTo(e.Type, 8)),
@@ -324,8 +324,8 @@ func padTo(s string, width int) string {
 // shortAge/shortDur/ellipsize mirror poddetail's own copies (that package's
 // versions are unexported too), duplicated per the repo's
 // package-local-seam convention.
-func shortAge(t time.Time) string {
-	return shortDur(time.Since(t))
+func shortAge(now, t time.Time) string {
+	return shortDur(now.Sub(t))
 }
 
 func shortDur(d time.Duration) string {

@@ -2,6 +2,7 @@ package objectdetail
 
 import (
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -120,6 +121,8 @@ func (m *Model) Transient() bool { return m.redirected }
 // error is a distinct, non-empty state (unknown, not "no events") and never
 // triggers the redirect.
 func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
+	// Ages render against this stamp, never the clock (pure render).
+	m.now = time.Now()
 	if msg.err != nil {
 		m.state = tui.TaskStateError
 		if kube.IsPermissionError(msg.err) {

@@ -127,6 +127,10 @@ type Model struct {
 
 	conn kube.ConnState
 
+	// now is the clock as of the last load — condition and event ages
+	// render from it so View stays a pure function of the model.
+	now time.Time
+
 	state    tui.TaskState
 	feedback string
 	spinner  spinner.Model
