@@ -134,7 +134,8 @@ func (a *App) selectAPIPod(t *testing.T) string {
 // typing mode so ordinary keys work again.
 func (a *App) filterTo(t *testing.T, term string) {
 	t.Helper()
-	// Browse accepts '/' only once the destination kind's rows are ready.
+	// Browse accepts '/' only once the destination kind's rows (or 15a's cached
+	// snapshot of them) are on screen.
 	// A goto fences on the new title, which can render while its lazy informer
 	// is still loading; typing immediately after an ignored '/' would route
 	// ordinary letters as browse shortcuts (notably 'a' = all namespaces).

@@ -100,6 +100,48 @@ func TestRevisitingKindShowsCachedRowsDimmedInsteadOfSkeleton(t *testing.T) {
 	}
 }
 
+// TestFilterOpensOverCachedRowsBeforeReloadLands: 15a's dimmed cached rows
+// are on screen, so '/' must open the filter over them rather than be
+// dropped — otherwise the query typed next runs as shortcuts ('a' flipped
+// the list to all namespaces), and the filter has to survive the fresh
+// reload landing.
+func TestFilterOpensOverCachedRowsBeforeReloadLands(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod:       {pod("default", "api-1"), pod("default", "web-1")},
+		kube.KindConfigMap: {configMap("default", "app-config")},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	m = step(t, m, tui.GotoKindMsg{Kind: kube.KindConfigMap})
+
+	updated, load := m.Update(tui.GotoKindMsg{Kind: kube.KindPod})
+	m = *updated.(*Model)
+	if !m.cachedView || m.state != tui.TaskStateLoading {
+		t.Fatalf("precondition: want the cached loading view, got state=%s cachedView=%v", m.state, m.cachedView)
+	}
+	namespace := m.namespace
+
+	for _, k := range []tea.KeyPressMsg{{Code: '/', Text: "/"}, {Code: 'a', Text: "a"}, {Code: 'p', Text: "p"}, {Code: 'i', Text: "i"}} {
+		updated, _ = m.Update(k)
+		m = *updated.(*Model)
+	}
+	if m.namespace != namespace {
+		t.Fatalf("namespace = %q, want %q — the typed query ran as shortcuts", m.namespace, namespace)
+	}
+	if !m.filterActive || m.filterInput.Value() != "api" {
+		t.Fatalf("filterActive=%v query=%q, want the filter open with %q", m.filterActive, m.filterInput.Value(), "api")
+	}
+
+	m = step(t, m, load())
+	if m.state != tui.TaskStateReady || !m.filterActive || m.filterInput.Value() != "api" {
+		t.Fatalf("after reload: state=%s filterActive=%v query=%q, want ready with the filter kept", m.state, m.filterActive, m.filterInput.Value())
+	}
+	if view := plain(m.Render()); strings.Contains(view, "web-1") {
+		t.Fatalf("filter not applied after reload:\n%s", view)
+	}
+}
+
 // TestFreshKindNeverSeenBeforeStillShowsSkeletonNotCache pins the converse
 // of the above: a kind that's never been loaded this session (no rowCache
 // hit) still gets 15a's plain skeleton-rows loading state.

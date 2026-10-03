@@ -697,7 +697,10 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.handleSortKey(int(msg.String()[0] - '0'))
 		}
 	case verbs.Filter.Key:
-		if m.state == tui.TaskStateReady {
+		// 15a's dimmed cached rows are real rows on screen: a '/' dropped
+		// there turns the query typed next into shortcuts ('a' = all
+		// namespaces). applyRowsLoaded keeps the filter when they're replaced.
+		if m.state == tui.TaskStateReady || (m.cachedView && len(m.rows) > 0) {
 			m.filterActive = true
 			m.filterListFocused = false
 			m.filterInput.Focus()
