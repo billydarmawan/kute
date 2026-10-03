@@ -221,7 +221,7 @@ func (m *Model) selectSetImageContainer(idx int) {
 // resetSetImageBuffer parks t's buffer back on the active container's real
 // current image — the tag-only, non-fullRef prefill selectSetImageContainer
 // uses for a fresh container tab, and also what cancelling a PROD confirm
-// (update.go's cancelInlineConfirm) reverts to, discarding whatever was typed
+// (update.go's revertConfirmedEditor) reverts to, discarding whatever was typed
 // — the same "esc backs out without keeping the typed change" contract
 // meta.go's own cancel path has for a joined-label edit.
 func resetSetImageBuffer(t *setImageTarget) {

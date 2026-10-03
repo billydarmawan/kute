@@ -1079,35 +1079,26 @@ func (m *Model) openSelectedEnter() (tea.Model, tea.Cmd, bool) {
 }
 
 // updateConfirmKey routes keys while a mutating action's confirmation is
-// showing: a verb requiresTypeNameConfirm at TierModal — delete/force-delete
-// or 9a's rollout-restart (8b/9a's type-the-name PROD modal) — gets its own
-// key handling; every other confirming case — TierNone/TierInline, and
-// Drain's TierModal (nodes.go's beginDrain, still Phase 9's plain
-// ConfirmCard, deliberately not upgraded — see mvp-tasks.md's Phase 5/8b
-// exit notes) — stays the simple y/n/esc prompt, plus verbs.ForceDelete.Key
-// on a pending inline Pod delete, which escalates it to force-delete at
-// ForceDelete's own TierModal (Controller.EscalateForceDelete): the confirm
-// becomes the type-the-name modal, never a second inline "y" (CLAUDE.md:
-// "drain/force-delete always modal"). Everything else is swallowed so
-// movement/filter can't act underneath.
+// showing, through the controller's one router (actions.HandleConfirmKey:
+// y/N, the type-the-name and type-the-count modals, and verbs.ForceDelete.Key
+// escalating a pending Pod delete to force delete — never a second inline
+// "y", CLAUDE.md: "drain/force-delete always modal"). Every key is the
+// confirm's, so movement/filter can't act underneath. The one browse-only
+// step: cancelling a y/N whose editor panel (26a/24a/25a) stays open under
+// it reverts that panel's buffer.
 func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.typingConfirmName() {
-		return m.updateModalConfirmKey(msg)
+	typed := m.actions.TypeToConfirm()
+	cmd, outcome := m.actions.HandleConfirmKey(msg)
+	if outcome == actions.ConfirmCancelled && !typed {
+		m.revertConfirmedEditor()
 	}
-	switch msg.String() {
-	case "y":
-		return m, m.actions.Confirm()
-	case verbs.ForceDelete.Key:
-		m.actions.EscalateForceDelete(m.isProd())
-	case "n", "esc":
-		m.cancelInlineConfirm()
-	}
-	return m, nil
+	return m, cmd
 }
 
-// cancelInlineConfirm is updateConfirmKey's shared "actually cancel" path
-// for n and esc.
-func (m *Model) cancelInlineConfirm() {
+// revertConfirmedEditor is updateConfirmKey's post-cancel step: a y/N
+// cancelled under an open 26a/24a/25a panel walks that panel back to the
+// buffer it had before the commit.
+func (m *Model) revertConfirmedEditor() {
 	if m.pendingMeta != nil {
 		// The panel stayed open under this confirm (metapanel's doc comment)
 		// with the row's edit already applied to its buffer — cancelling
@@ -1130,7 +1121,6 @@ func (m *Model) cancelInlineConfirm() {
 		m.pendingSetResources.pendingCommit = nil
 		m.selectSetResourcesContainer(m.pendingSetResources.containerIdx)
 	}
-	m.actions.Cancel()
 }
 
 // isSetImageActionID reports whether id names a 24a set-image action
@@ -1143,40 +1133,6 @@ func isSetImageActionID(id string) bool {
 
 func isSetResourcesActionID(id string) bool {
 	return strings.HasPrefix(id, "set-resources-")
-}
-
-// updateModalConfirmKey drives the 8b type-the-name modal: enter executes
-// only once Controller.NameMatches ("↵ stays dead until the typed name
-// matches"), backspace/typing edit the buffer, verbs.ForceDelete.Key
-// escalates a pending Pod delete to force-delete (the same chord the modal's
-// detail line advertises, verbs.ForceDeleteModalHint), esc cancels.
-//
-// A marked-set confirm (pendingBulkCount: 20a's delete or §36c's
-// cronjob-suspend) reuses this same routing but against the count grammar
-// instead: enter's gate is still Controller.Confirm's own, which for a marked
-// set compares the typed digits with the marked count, and typing is
-// digit-filtered (bulkCountKeyIsDigit). ForceDelete.Key never escalates a
-// marked set (Controller.EscalateForceDelete refuses bulk targets), so it
-// reaches the count buffer like any other key.
-func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	bulk := m.pendingBulkCount()
-	switch msg.String() {
-	case "esc":
-		m.actions.Cancel()
-	case "enter":
-		return m, m.actions.Confirm()
-	case verbs.ForceDelete.Key:
-		if m.actions.EscalateForceDelete(m.isProd()) {
-			return m, nil
-		}
-		return m, m.actions.HandleTypeKey(msg)
-	default:
-		if bulk && msg.Text != "" && !bulkCountKeyIsDigit(msg) {
-			return m, nil
-		}
-		return m, m.actions.HandleTypeKey(msg)
-	}
-	return m, nil
 }
 
 func (m *Model) updateFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

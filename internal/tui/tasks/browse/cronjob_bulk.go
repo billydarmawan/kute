@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/kute-dev/kute/internal/tui"
@@ -110,22 +109,9 @@ func (m *Model) bulkCountPasteTarget() tui.PasteTarget {
 
 // pendingBulkCronJobSuspend reports whether the active confirm is a
 // marked-set "cronjob-suspend" — the one condition that routes Body()'s
-// TierModal branch, updateModalConfirmKey's enter/typing, and pasteTarget to
+// TierModal branch and pasteTarget to
 // this file's bulk count modal instead of delete.go's type-the-name one.
 func (m Model) pendingBulkCronJobSuspend() bool {
 	pending := m.actions.Pending()
 	return pending != nil && pending.Scope.Verb == "cronjob-suspend" && len(pending.Scope.BulkTargets) > 0
-}
-
-// bulkCountKeyIsDigit reports whether msg's Text is safe to forward into the
-// count buffer — digits only, matching the field's count semantics.
-// Non-text control keys (backspace, arrows, Home/End) carry no Text and are
-// always allowed through.
-func bulkCountKeyIsDigit(msg tea.KeyPressMsg) bool {
-	for _, r := range msg.Text {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }

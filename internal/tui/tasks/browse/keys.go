@@ -20,7 +20,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeConfirm,
 			PillText:  "CONFIRM",
-			Groups:    [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}},
+			Groups:    [][]tui.KeyHint{verbs.ConfirmHints()},
 			RightNote: m.editConfirmPrompt(),
 		}
 	}
@@ -28,7 +28,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeConfirm,
 			PillText:  "CONFIRM",
-			Groups:    [][]tui.KeyHint{{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}},
+			Groups:    [][]tui.KeyHint{verbs.ConfirmHints()},
 			RightNote: m.stopAllForwardsPrompt(),
 		}
 	}
@@ -112,7 +112,7 @@ func (m Model) Keybar() tui.Keybar {
 	if m.actions.Active() {
 		if m.actions.Tier() == actions.TierInline {
 			note, shortNote := m.actions.Prompt(), ""
-			hints := []tui.KeyHint{{Key: "y", Label: "confirm"}, {Key: "esc", Label: "cancel"}}
+			hints := m.actions.ConfirmHints()
 			if pending := m.actions.Pending(); pending != nil {
 				switch pending.Scope.Verb {
 				case "rollback":
@@ -133,9 +133,6 @@ func (m Model) Keybar() tui.Keybar {
 						break
 					}
 					note = deleteWillRunLine(pending.Scope)
-					if verbs.ForceDelete.AppliesTo(kube.ResourceKind(pending.Scope.ResourceKind)) {
-						hints = append(hints, verbs.ForceDelete.Hint())
-					}
 				case "set-image":
 					// 24a: the exact "will run: kubectl set image ..." line, same
 					// idiom as rollback/delete above.

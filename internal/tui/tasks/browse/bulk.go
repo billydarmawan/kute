@@ -169,8 +169,8 @@ func (m Model) pendingBulkDelete() bool {
 
 // pendingBulkCount reports whether the active confirm is a marked-set
 // TierModal confirm (delete or cronjob-suspend), which types the marked
-// count rather than a name: updateModalConfirmKey's enter gate and digit
-// filter and pasteTarget's digit-only paste all key off it.
+// count rather than a name: pasteTarget's digit-only paste keys off it (the
+// enter gate and the typed digit filter are actions.HandleConfirmKey's own).
 func (m Model) pendingBulkCount() bool {
 	return m.pendingBulkDelete() || m.pendingBulkCronJobSuspend()
 }

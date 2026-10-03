@@ -152,7 +152,7 @@ func TestCtrlDProdOpensTypeNameModal(t *testing.T) {
 
 // TestProdModalCaretFollowsArrowKeys is the regression test for the caret
 // that never moved: left/right/Home/End always reached the type-ahead
-// buffer (updateModalConfirmKey routes every unclaimed key to
+// buffer (actions.HandleConfirmKey routes every unclaimed key to
 // HandleTypeKey), but the modal drew "█" pinned to the end of the string, so
 // the motion was invisible. Asserted through the real key path rather than
 // on the controller, since the modal's own key routing is what has to leave

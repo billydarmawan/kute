@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kute-dev/kute/internal/kube"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // openSelectedForward pushes 13a for the selected Pod/Service/Deployment
@@ -88,12 +89,12 @@ func (m *Model) beginStopAllForwards() {
 // reason (not a kube.Mutator/actions.Controller operation).
 func (m *Model) updateStopAllForwardsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "y":
+	case verbs.ConfirmAccept.Key:
 		m.pendingStopAllForwards = false
 		if m.forwards != nil {
 			m.forwards.StopAll()
 		}
-	case "n", "esc":
+	case verbs.ConfirmDecline.Key, verbs.ConfirmCancel.Key:
 		m.pendingStopAllForwards = false
 	}
 	return m, nil
