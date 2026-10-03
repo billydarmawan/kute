@@ -638,6 +638,20 @@ func (m *Model) replayConn() tea.Cmd {
 	return ownCmd(m.taskID, cmd)
 }
 
+// gotoOpensScreen reports whether a GotoKindMsg for kind opens its own
+// pushed screen rather than switching browse's list: the synthetic kinds
+// (who-can, overview, the Flux tree) and Events, which 9b's feed replaces.
+// Browse keeps showing the kind it had underneath, so Session.Location.Kind
+// must keep naming it — otherwise the breadcrumb, the per-context restore
+// and the goto palette's "current" all read a kind nothing is listing.
+func gotoOpensScreen(kind kube.ResourceKind) bool {
+	switch kind {
+	case kube.KindWhoCan, kube.KindOverview, kube.KindFluxTree, kube.KindEvent:
+		return true
+	}
+	return false
+}
+
 // routeGoto is what makes a jump "fire the same goto machinery as g": when
 // the active task is already the resting browse view (empty stack), it
 // reports ok=false and the caller falls through to the existing
@@ -793,7 +807,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// stays the single source of truth for the breadcrumb ahead of
 		// browse's own Update forwarding it (mvp-plan.md Phase 2).
 		cmd, pushed := m.routeGoto(msg)
-		if m.session != nil {
+		if m.session != nil && !gotoOpensScreen(msg.Kind) {
 			m.session.Location.Kind = msg.Kind
 		}
 		if pushed {

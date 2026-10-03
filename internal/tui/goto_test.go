@@ -522,6 +522,24 @@ func TestGotoClusterScopedResourceKeepsSessionNamespace(t *testing.T) {
 	}
 }
 
+// A goto to a kind that opens its own pushed screen (overview, who-can, the
+// Flux tree, Events' 9b feed) leaves browse listing the kind it had, so
+// Session.Location.Kind must keep naming that kind rather than a synthetic
+// one nothing lists — it's persisted per context and read back as the goto
+// palette's "current".
+func TestGotoKindToPushedScreenKeepsLocationKind(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []kube.ResourceKind{kube.KindOverview, kube.KindWhoCan, kube.KindFluxTree, kube.KindEvent} {
+		sess := &tui.Session{Theme: tui.Dark(), Registry: resources.DefaultRegistry(), Location: tui.Location{Context: "c", Kind: kube.KindDeployment}}
+		model := tui.NewWithSession(&screenTask{name: "browse"}, sess)
+		updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+		_, _ = updated.(tui.Model).Update(tui.GotoKindMsg{Kind: kind})
+		if sess.Location.Kind != kube.KindDeployment {
+			t.Fatalf("GotoKindMsg{%s}: Location.Kind = %q, want Deployment kept", kind, sess.Location.Kind)
+		}
+	}
+}
+
 // TestRootModelGotoFromPushedScreenPushesFreshBrowseAndPreservesHistory pins
 // the fix for the goto palette discarding history from a pushed detail
 // screen (e.g. poddetail): GotoKindMsg/GotoResourceMsg are only handled by
