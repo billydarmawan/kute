@@ -208,7 +208,7 @@ func (s State) UpdateSeen(version string) bool {
 // beside a release, or a downgrade).
 var ErrNewerVersion = errors.New("state file was written by a newer kute; not overwriting it")
 
-// Save atomically writes s to Path() (temp file + rename, so a crash mid
+// Save atomically writes s to Path() (temp file + fsync + rename, so a crash mid
 // write never corrupts the previous state), stamping Version. It refuses
 // with ErrNewerVersion, leaving the file untouched, when the file on disk
 // carries a newer Version. A State from Load is merged onto whatever is on
@@ -247,6 +247,13 @@ func (s State) saveTo(path string) error {
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	// Flush before the rename: otherwise a power loss can leave the rename
+	// durable but the data not, and an empty state.json loads as zero().
+	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)
 		return err
