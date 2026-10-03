@@ -665,12 +665,18 @@ func (c *Cluster) linkProvenLocked() bool {
 	return c.reached || (c.authGate != nil && c.authGate.hasResponded())
 }
 
-// noteReached latches Reached. Called from the informer event callbacks, where
-// the generation check has already passed.
-func (c *Cluster) noteReached() {
+// noteReachedIfGen latches Reached when gen is still the active generation,
+// and reports whether it was. Called from the informer event callbacks: the
+// check and the latch are one critical section, since a SwitchContext landing
+// between them would let the old context's event prove the new one reachable.
+func (c *Cluster) noteReachedIfGen(gen int) bool {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.generation != gen {
+		return false
+	}
 	c.reached = true
-	c.mu.Unlock()
+	return true
 }
 
 // scopeKeyForLocked resolves kind/namespace to the exact cache key

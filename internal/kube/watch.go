@@ -341,14 +341,15 @@ func (c *Cluster) notify(gen int, kind ResourceKind) {
 // notifyScope is notify with the informer cache key retained, so recovery of
 // one namespace cannot clear another scope's outstanding watch failure.
 func (c *Cluster) notifyScope(gen int, kind ResourceKind, scope string) {
-	if !c.generationCurrent(gen) {
-		return
-	}
 	// Latch before the send, not after, and regardless of whether the send
 	// lands: an object came out of this apiserver, which is the fact Reached
 	// reports. The message below may be dropped here or arrive before the
-	// event loop is consuming; the latch survives both.
-	c.noteReached()
+	// event loop is consuming; the latch survives both. The generation check
+	// and the latch share one critical section, so a late event from a
+	// context SwitchContext just replaced can't latch Reached for the new one.
+	if !c.noteReachedIfGen(gen) {
+		return
+	}
 	select {
 	case c.events <- ResourceChangedMsg{Kind: kind}:
 	default:

@@ -112,7 +112,7 @@ func TestPingTimeoutAgainstNeverReachedClusterGoesOffline(t *testing.T) {
 func TestPingTimeoutAfterReachedKeepsGrace(t *testing.T) {
 	t.Parallel()
 	c, probe := graceCluster(t, livezTimesOut)
-	c.noteReached() // e.g. a /livez success or a cache event earlier this session
+	c.noteReachedIfGen(c.generation) // e.g. a /livez success or a cache event earlier this session
 	c.ping(probe)
 
 	if got := c.ConnState(); got.Phase != ConnConnected {
@@ -171,7 +171,7 @@ func TestSwitchContextResetsReachedForConnectGrace(t *testing.T) {
 	}
 	t.Cleanup(c.Stop)
 	// Context a was reachable: both kinds of evidence are latched.
-	c.noteReached()
+	c.noteReachedIfGen(c.generation)
 	c.authGate.responded.Store(true)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
