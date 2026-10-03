@@ -148,6 +148,12 @@ type Model struct {
 	// now is the clock read the retry countdown renders from, refreshed on
 	// a tick rather than read inside View — render functions are pure.
 	now time.Time
+	// tickGen identifies the live 1 Hz tick chain. The tick only runs while
+	// the failure card (the one thing it refreshes) is up; a parked screen
+	// loses its tick to whichever task is on top, so Reload starts a fresh
+	// chain under a new generation and any stale one still in flight dies.
+	tickGen    int
+	tickActive bool
 }
 
 type loadedMsg struct {
@@ -166,8 +172,11 @@ type loadedMsg struct {
 	err        error
 }
 
-// tickMsg refreshes the retry countdown.
-type tickMsg time.Time
+// tickMsg refreshes the retry countdown; gen is the chain it belongs to.
+type tickMsg struct {
+	at  time.Time
+	gen int
+}
 
 // New builds the screen, filling defaults for zero values per repo
 // convention.
@@ -203,11 +212,22 @@ func New(cfg Config) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.load(), m.spinner.Tick, tickCmd())
+	return tea.Batch(m.load(), m.spinner.Tick)
 }
 
-func tickCmd() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+func tickCmd(gen int) tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{at: t, gen: gen} })
+}
+
+// ensureTick starts the countdown tick if the failure card is up and no
+// chain is running.
+func (m *Model) ensureTick() tea.Cmd {
+	if m.fail == nil || m.tickActive {
+		return nil
+	}
+	m.tickActive = true
+	m.tickGen++
+	return tickCmd(m.tickGen)
 }
 
 func (m *Model) SetSize(w, h int) { m.width, m.height = w, h }

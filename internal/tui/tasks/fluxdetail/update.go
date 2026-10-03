@@ -18,8 +18,17 @@ import (
 // every kube.ResourceChangedMsg while parked in the stack, so BackMsg
 // restoring it asks it to catch up immediately rather than showing stale
 // data until an unrelated change happens to land while it's active again.
+//
+// The tick and spinner chains died while another task was on top (their
+// messages went to it), so both are restarted here.
 func (m *Model) Reload() tea.Cmd {
-	return m.load()
+	m.now = time.Now()
+	m.tickActive = false
+	cmds := []tea.Cmd{m.load(), m.ensureTick()}
+	if m.state == tui.TaskStateLoading {
+		cmds = append(cmds, m.spinner.Tick)
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -38,10 +47,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.actions.SetOffline(m.conn.Offline())
 	case tickMsg:
 		// The retry countdown's clock lives here, not in View — render
-		// functions stay pure.
-		m.now = time.Time(msg)
-		return m, tickCmd()
+		// functions stay pure. A stale chain, or one outliving the failure
+		// card, stops.
+		if msg.gen != m.tickGen || !m.tickActive {
+			return m, nil
+		}
+		if m.fail == nil {
+			m.tickActive = false
+			return m, nil
+		}
+		m.now = msg.at
+		return m, tickCmd(m.tickGen)
 	case spinner.TickMsg:
+		// The spinner only renders while loading; let its chain end after.
+		if m.state != tui.TaskStateLoading {
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
@@ -113,14 +134,15 @@ func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
 		m.feedback = ""
 	}
 	m.clampOffset(m.inventoryViewportRows())
+	tick := m.ensureTick()
 	if msg.invPending {
 		// The inventory's unresolved rows are unread, not unknowable: say
 		// so, and reload once their caches settle — a kind with nothing in
 		// it fills without a change event to trigger one.
 		m.feedback = "loading inventory…"
-		return tui.ScheduleCacheSyncRetry(m.loadEpoch)
+		return tea.Batch(tick, tui.ScheduleCacheSyncRetry(m.loadEpoch))
 	}
-	return nil
+	return tick
 }
 
 func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

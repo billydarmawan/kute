@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	appsv1 "k8s.io/api/apps/v1"
@@ -341,5 +342,37 @@ func TestCrossNamespaceSourceResolves(t *testing.T) {
 	msg, ok := cmd().(tui.GotoResourceMsg)
 	if !ok || msg.Namespace != "flux-system" {
 		t.Errorf("o navigated to %#v, want the source's own namespace", msg)
+	}
+}
+
+// TestCountdownTickRunsOnlyWithTheFailureCardAndSurvivesParking: the 1 Hz
+// tick refreshes only the failure card's "Xm ago · retry in", so a healthy
+// reconciler runs none; and since a parked screen loses its tick to the task
+// on top, Reload restarts it — with any stale chain dying on arrival rather
+// than doubling the rate.
+func TestCountdownTickRunsOnlyWithTheFailureCardAndSurvivesParking(t *testing.T) {
+	healthy := demoModel(t, "flux-system")
+	if healthy.tickActive {
+		t.Error("a reconciler with no failure card must not tick")
+	}
+
+	m := demoModel(t, "nebula-workers")
+	if !m.tickActive {
+		t.Fatal("the failure card's countdown must tick")
+	}
+	stale := m.tickGen
+	m.tickActive = false // the chain died while another screen was on top
+	if m.Reload() == nil {
+		t.Fatal("Reload must restart the countdown")
+	}
+	if !m.tickActive || m.tickGen == stale {
+		t.Fatalf("Reload must start a fresh chain, got active=%v gen=%d", m.tickActive, m.tickGen)
+	}
+	before := m.now
+	if _, cmd := m.Update(tickMsg{at: before.Add(time.Hour), gen: stale}); cmd != nil || !m.now.Equal(before) {
+		t.Error("a stale chain's tick must be dropped")
+	}
+	if _, cmd := m.Update(tickMsg{at: before.Add(time.Hour), gen: m.tickGen}); cmd == nil || m.now.Equal(before) {
+		t.Error("the live chain's tick must advance the clock and continue")
 	}
 }
