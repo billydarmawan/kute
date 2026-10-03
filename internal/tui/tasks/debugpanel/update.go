@@ -120,7 +120,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.beginLaunch()
-	case "m":
+	case verbs.DebugMode.Key:
 		if m.tgt == targetPod {
 			before := m.mode
 			m.cycleMode()
@@ -128,17 +128,17 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, m.startAccessReview()
 			}
 		}
-	case "i":
+	case verbs.DebugImage.Key, verbs.DebugCopyName.Key:
 		m.beginImageOrCopyNameEdit()
-	case "t":
+	case verbs.DebugTarget.Key, verbs.DebugContainer.Key:
 		m.cycleTargetOrContainer()
-	case "p":
+	case verbs.DebugProfile.Key:
 		m.cycleProfile()
-	case "e":
+	case verbs.DebugEntrypoint.Key:
 		if m.tgt == targetPod && m.mode == modeCopy {
 			m.beginEntrypointEdit()
 		}
-	case "s":
+	case verbs.DebugProcesses.Key:
 		if m.tgt == targetPod && m.mode == modeCopy {
 			m.copyShareProcesses = !m.copyShareProcesses
 		}
@@ -146,7 +146,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.cleanup != nil {
 			return m, m.beginCleanupDelete()
 		}
-	case "w":
+	case verbs.WhoCan.Key:
 		if m.accessState == accessDenied && m.openWhoCan != nil {
 			q := m.accessQuery()
 			task, cmd := m.openWhoCan(q.Verb, q.Resource, q.Namespace, m.width, m.height)
@@ -193,7 +193,7 @@ func (m *Model) updateEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.commitFieldEdit()
 		return m, nil
-	case "tab":
+	case verbs.DebugRecents.Key:
 		// Recents only ever apply to the image field (state schema v3,
 		// PerContext.RecentDebugImages) — copy name and entrypoint don't
 		// get them, per that field's own doc comment. A non-image field

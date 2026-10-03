@@ -15,9 +15,9 @@ import (
 // per-target/mode hints.
 func (m Model) Keybar() tui.Keybar {
 	if m.editingField != fieldNone {
-		hints := []tui.KeyHint{{Key: "↵", Label: "apply"}, {Key: "esc", Label: "cancel"}}
+		hints := []tui.KeyHint{verbs.Open.HintAs("apply"), verbs.Back.HintAs("cancel")}
 		if m.editingField == fieldImage && len(m.recentImages()) > 0 {
-			hints = append(hints, tui.KeyHint{Key: "tab", Label: "recents"})
+			hints = append(hints, verbs.DebugRecents.Hint())
 		}
 		return tui.Keybar{
 			Pill:       tui.ModeConfirm,
@@ -49,7 +49,7 @@ func (m Model) Keybar() tui.Keybar {
 		}
 	}
 	if m.cleanup != nil {
-		hints := []tui.KeyHint{verbs.DebugCleanup.Hint(), {Key: "esc", Label: "keep"}}
+		hints := []tui.KeyHint{verbs.DebugCleanup.Hint(), verbs.Back.HintAs("keep")}
 		if verbs.DebugCleanup.HiddenWhileOffline(m.conn.Offline()) {
 			hints = hints[1:]
 		}
@@ -84,7 +84,7 @@ func (m Model) readyKeybar() tui.Keybar {
 			Pill:       tui.ModeBrowse,
 			PillText:   "DEBUG",
 			RightNote:  m.accessFeedback(),
-			RightHints: []tui.KeyHint{{Key: "esc", Label: "cancel"}},
+			RightHints: []tui.KeyHint{verbs.Back.HintAs("cancel")},
 		}
 	}
 	if m.accessState == accessDenied {
@@ -93,28 +93,28 @@ func (m Model) readyKeybar() tui.Keybar {
 			PillText:   "DEBUG",
 			Groups:     [][]tui.KeyHint{{verbs.WhoCan.Hint()}},
 			RightNote:  m.accessFeedback(),
-			RightHints: []tui.KeyHint{{Key: "esc", Label: "cancel"}},
+			RightHints: []tui.KeyHint{verbs.Back.HintAs("cancel")},
 		}
 	}
 	group := []tui.KeyHint{verbs.PodDebug.Hint()}
 	switch {
 	case m.tgt == targetNode:
-		group = []tui.KeyHint{{Key: "↵", Label: "start"}, {Key: "i", Label: "image"}, {Key: "p", Label: "profile"}}
+		group = []tui.KeyHint{verbs.Open.HintAs("start"), verbs.DebugImage.Hint(), verbs.DebugProfile.Hint()}
 	case m.mode == modeAttach:
 		group = append(group,
-			tui.KeyHint{Key: "m", Label: "mode"},
-			tui.KeyHint{Key: "i", Label: "image"},
-			tui.KeyHint{Key: "t", Label: "target"},
-			tui.KeyHint{Key: "p", Label: "profile"},
+			verbs.DebugMode.Hint(),
+			verbs.DebugImage.Hint(),
+			verbs.DebugTarget.Hint(),
+			verbs.DebugProfile.Hint(),
 		)
 	default:
 		group = append(group,
-			tui.KeyHint{Key: "m", Label: "mode"},
-			tui.KeyHint{Key: "i", Label: "copy name"},
-			tui.KeyHint{Key: "t", Label: "container"},
-			tui.KeyHint{Key: "p", Label: "profile"},
-			tui.KeyHint{Key: "e", Label: "entrypoint"},
-			tui.KeyHint{Key: "s", Label: "processes"},
+			verbs.DebugMode.Hint(),
+			verbs.DebugCopyName.Hint(),
+			verbs.DebugContainer.Hint(),
+			verbs.DebugProfile.Hint(),
+			verbs.DebugEntrypoint.Hint(),
+			verbs.DebugProcesses.Hint(),
 		)
 	}
 	pill, pillText, rightNote := tui.ModeBrowse, "DEBUG", m.accessFeedback()
@@ -129,7 +129,7 @@ func (m Model) readyKeybar() tui.Keybar {
 		PillText:   pillText,
 		Groups:     [][]tui.KeyHint{group},
 		RightNote:  rightNote,
-		RightHints: []tui.KeyHint{{Key: "esc", Label: "cancel"}},
+		RightHints: []tui.KeyHint{verbs.Back.HintAs("cancel")},
 	}
 }
 
