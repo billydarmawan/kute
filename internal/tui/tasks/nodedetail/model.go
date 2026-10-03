@@ -195,12 +195,12 @@ type Model struct {
 	diskState diskState
 	diskTicks int
 	allPods   []nodePodRow // every pod load() found on this node, before the filter
-	// evictable is how many of allPods a drain would evict
-	// (kube.DrainEvicts) — the drain confirm's count.
-	evictable int
-	pods      []nodePodRow // allPods after filterQuery — what's selectable/rendered
-	selected  int
-	offset    int
+	// drainImpact is what a drain would do to allPods (kube.DrainImpact)
+	// — the drain confirm's consequence line.
+	drainImpact kube.DrainImpact
+	pods        []nodePodRow // allPods after filterQuery — what's selectable/rendered
+	selected    int
+	offset      int
 
 	filterActive bool
 	filterInput  textfield.Model
@@ -267,7 +267,7 @@ type loadedMsg struct {
 	allocatable allocation
 	capacity    allocation
 	pods        []nodePodRow
-	evictable   int
+	drainImpact kube.DrainImpact
 	err         error
 }
 

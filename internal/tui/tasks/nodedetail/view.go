@@ -760,8 +760,12 @@ func (m Model) podsPanel(width, height int) string {
 func (m Model) confirmBody(width, height int) string {
 	theme := m.Theme()
 	title := "Confirm"
+	detail := ""
 	if pending := m.actions.Pending(); pending != nil {
 		title = pending.Label
+		if pending.Scope.Verb == "drain" {
+			detail = tui.DrainImpactLine(m.drainImpact, theme)
+		}
 	}
 	styles := components.ConfirmStyles{
 		Border: lipgloss.NewStyle().BorderForeground(theme.ConfirmBorder).Background(theme.ConfirmHeaderBg),
@@ -771,7 +775,7 @@ func (m Model) confirmBody(width, height int) string {
 		Key:    lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.ConfirmHeaderBg),
 		Label:  lipgloss.NewStyle().Foreground(theme.TextDim).Background(theme.ConfirmHeaderBg),
 	}
-	return components.ConfirmCard(title, "", styles, width, height)
+	return components.ConfirmCard(title, detail, styles, width, height)
 }
 
 // shortAge renders a duration as a compact "12m"/"3h"/"5d" string — the same

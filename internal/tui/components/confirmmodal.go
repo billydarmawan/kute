@@ -31,15 +31,29 @@ type ConfirmStyles struct {
 }
 
 // ConfirmCard renders a y/N confirmation prompt centered within width×height:
-// title line, an optional detail line (e.g. "3 pods will be evicted"), a
+// title line, an optional detail line (e.g. drain's "3 evictable · …"), a
 // rule, and a key-hint row (mirroring palette.Model.Render's own divider
 // above its key row). This is the minimal inline shape Phase 9's drain
 // confirm needs — the full type-the-name PROD modal (mvp-plan.md §8b) is a
 // later addition to this same file.
+//
+// title and detail are each one line: both are ellipsized to the card's
+// inner width (width less the border and padding) so a long node name or a
+// narrow terminal shortens the line instead of overflowing the screen.
+// detail may already carry its own styling (tui.DrainImpactLine) —
+// truncation is ANSI-aware.
 func ConfirmCard(title, detail string, styles ConfirmStyles, width, height int) string {
+	if inner := width - confirmChrome; inner > 0 {
+		title = Truncate(title, inner)
+		detail = Truncate(detail, inner)
+	}
 	box := ConfirmBox(title, detail, styles)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
+
+// confirmChrome is the cells ConfirmBox's frame takes from each line: a
+// one-cell rounded border and three cells of padding on each side.
+const confirmChrome = 2 + 2*3
 
 // ConfirmBox renders ConfirmCard's bordered content only, without the
 // width×height Place wrapper — for callers that composite it themselves

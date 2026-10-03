@@ -1790,6 +1790,41 @@ func TestDrainEvicts(t *testing.T) {
 	}
 }
 
+func TestDrainImpact(t *testing.T) {
+	t.Parallel()
+	ctrl := true
+	owned := func(kind string) []metav1.OwnerReference {
+		return []metav1.OwnerReference{{Kind: kind, Name: "x", Controller: &ctrl}}
+	}
+	emptyDir := []corev1.Volume{{Name: "scratch", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
+	configMap := []corev1.Volume{{Name: "cfg", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{}}}}
+	tests := []struct {
+		name string
+		pod  corev1.Pod
+		want DrainImpact
+	}{
+		{name: "daemonset", pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: owned("DaemonSet")}, Spec: corev1.PodSpec{Volumes: emptyDir}}, want: DrainImpact{}},
+		{name: "mirror", pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{corev1.MirrorPodAnnotationKey: "x"}}, Spec: corev1.PodSpec{Volumes: emptyDir}}, want: DrainImpact{}},
+		{name: "replicaset-owned", pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: owned("ReplicaSet")}, Spec: corev1.PodSpec{Volumes: configMap}}, want: DrainImpact{Evict: 1}},
+		{name: "bare", pod: corev1.Pod{}, want: DrainImpact{Evict: 1, Unmanaged: 1}},
+		{name: "non-controller ownerRef", pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "x"}}}}, want: DrainImpact{Evict: 1, Unmanaged: 1}},
+		{name: "replicaset-owned with emptyDir", pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: owned("ReplicaSet")}, Spec: corev1.PodSpec{Volumes: emptyDir}}, want: DrainImpact{Evict: 1, EmptyDir: 1}},
+		{name: "bare with emptyDir", pod: corev1.Pod{Spec: corev1.PodSpec{Volumes: append(append([]corev1.Volume{}, configMap...), emptyDir...)}}, want: DrainImpact{Evict: 1, Unmanaged: 1, EmptyDir: 1}},
+	}
+	all := make([]*corev1.Pod, 0, len(tests))
+	for _, tt := range tests {
+		var got DrainImpact
+		got.Add(&tt.pod)
+		if got != tt.want {
+			t.Errorf("DrainImpact.Add(%s) = %+v, want %+v", tt.name, got, tt.want)
+		}
+		all = append(all, &tt.pod)
+	}
+	if got, want := DrainImpactOf(all), (DrainImpact{Evict: 5, Unmanaged: 3, EmptyDir: 2}); got != want {
+		t.Errorf("DrainImpactOf(all) = %+v, want %+v", got, want)
+	}
+}
+
 // TestSetFluxSuspendPatchesSpecSuspend asserts the recorded dynamic-client
 // action, not just the absence of an error: the patch has to reach the
 // right GVR with the right body, on a kind whose informer never started.

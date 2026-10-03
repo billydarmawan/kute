@@ -1594,3 +1594,47 @@ func DrainEvicts(pod *corev1.Pod) bool {
 		return ref.Kind == "DaemonSet"
 	})
 }
+
+// DrainImpact is what a drain would do to a node's pods — the drain
+// confirm's consequence line ("4 evictable · 1 unmanaged (will be lost) · 1
+// emptyDir (data lost)"). kubectl drain refuses the two risk buckets unless
+// forced; kute evicts them, so the confirm has to say so before `y`.
+//
+//   - Evict counts every pod DrainEvicts says Drain evicts.
+//   - Unmanaged is the subset of Evict with no controller ownerRef
+//     (metav1.GetControllerOf — kubectl drain's own test): nothing
+//     recreates it, so the pod is gone for good.
+//   - EmptyDir is the subset of Evict mounting an emptyDir volume, whose
+//     contents are deleted with the pod even when a controller recreates it.
+//
+// The risk buckets are independent, not a partition: a bare pod with an
+// emptyDir counts once in each, since it loses both the pod and its scratch
+// data, and each bucket must read as "how many pods have this problem".
+// Neither ever counts a pod Drain leaves in place (DaemonSet, mirror).
+type DrainImpact struct {
+	Evict, Unmanaged, EmptyDir int
+}
+
+// Add tallies pod into d. Callers filter out terminal pods and pods on other
+// nodes themselves, the same as for DrainEvicts.
+func (d *DrainImpact) Add(pod *corev1.Pod) {
+	if !DrainEvicts(pod) {
+		return
+	}
+	d.Evict++
+	if metav1.GetControllerOf(pod) == nil {
+		d.Unmanaged++
+	}
+	if slices.ContainsFunc(pod.Spec.Volumes, func(v corev1.Volume) bool { return v.EmptyDir != nil }) {
+		d.EmptyDir++
+	}
+}
+
+// DrainImpactOf tallies every pod in pods — DrainImpact.Add over a slice.
+func DrainImpactOf(pods []*corev1.Pod) DrainImpact {
+	var d DrainImpact
+	for _, p := range pods {
+		d.Add(p)
+	}
+	return d
+}

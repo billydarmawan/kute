@@ -344,9 +344,13 @@ func TestDKeyConfirmsThenDrains(t *testing.T) {
 	ds.OwnerReferences = []metav1.OwnerReference{{Kind: "DaemonSet", Name: "kube-proxy"}}
 	mirror := schedPod("kube-system", "etcd-node-a", "node-a", "64Mi")
 	mirror.Annotations = map[string]string{corev1.MirrorPodAnnotationKey: "x"}
+	// big is a bare pod with an emptyDir: evicted, never recreated, and its
+	// scratch data goes with it — the confirm must say all three.
+	big := schedPod("default", "big", "node-a", "1Gi")
+	big.Spec.Volumes = []corev1.Volume{{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindNode: {testNode("node-a")},
-		kube.KindPod:  {schedPod("default", "big", "node-a", "1Gi"), ds, mirror},
+		kube.KindPod:  {big, ds, mirror},
 	}}
 	mut := &fakeMutator{}
 	m := New(Config{Session: newSession(), Lister: lister, NodeName: "node-a", Mutator: mut})
@@ -357,8 +361,9 @@ func TestDKeyConfirmsThenDrains(t *testing.T) {
 	if !m.actions.Active() {
 		t.Fatal("expected D to open a drain confirmation")
 	}
-	if !strings.Contains(plain(m.Render()), "1 pods will be evicted.") {
-		t.Fatalf("expected evicted-pod count in confirm body:\n%s", plain(m.Render()))
+	if view := plain(m.Render()); !strings.Contains(view, "Drain node-a?") ||
+		!strings.Contains(view, "1 evictable · 1 unmanaged (will be lost) · 1 emptyDir (data lost)") {
+		t.Fatalf("expected the drain consequence line in the confirm body:\n%s", view)
 	}
 
 	m = step(t, m, tea.KeyPressMsg{Text: "y"})

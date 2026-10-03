@@ -506,10 +506,17 @@ func TestDKeyShowsDrainConfirmAndYExecutes(t *testing.T) {
 	ds.OwnerReferences = []metav1.OwnerReference{{Kind: "DaemonSet", Name: "kube-proxy"}}
 	mirror := schedPod("kube-system", "etcd-node-a", "node-a")
 	mirror.Annotations = map[string]string{corev1.MirrorPodAnnotationKey: "x"}
+	// p1 is ReplicaSet-managed with an emptyDir, p2 is bare: the confirm
+	// must say both are evicted, that p2 won't come back, and that p1's
+	// scratch data won't either (kubectl drain refuses both without flags).
+	ctrl := true
+	p1 := schedPod("default", "p1", "node-a")
+	p1.OwnerReferences = []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "web", Controller: &ctrl}}
+	p1.Spec.Volumes = []corev1.Volume{{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
 	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
 		kube.KindNode: {nodeObj("node-a", true, false)},
 		kube.KindPod: {
-			schedPod("default", "p1", "node-a"), schedPod("default", "p2", "node-a"), ds, mirror,
+			p1, schedPod("default", "p2", "node-a"), ds, mirror,
 		},
 	}}
 	mut := &fakeMutator{}
@@ -524,14 +531,69 @@ func TestDKeyShowsDrainConfirmAndYExecutes(t *testing.T) {
 		t.Fatal("expected D to open a drain confirmation")
 	}
 	view := plain(m.Render())
-	if !strings.Contains(view, "node-a") || !strings.Contains(view, "2 pods will be evicted.") {
-		t.Fatalf("drain confirm missing evicted-pod count:\n%s", view)
+	if !strings.Contains(view, "Drain node-a?") ||
+		!strings.Contains(view, "2 evictable · 1 unmanaged (will be lost) · 1 emptyDir (data lost)") {
+		t.Fatalf("drain confirm missing its consequence line:\n%s", view)
 	}
 
 	m = step(t, m, tea.KeyPressMsg{Text: "y"})
 	if len(mut.drained) != 1 || mut.drained[0] != "node-a" {
 		t.Fatalf("expected node-a drained, got %v", mut.drained)
 	}
+}
+
+// TestDrainConfirmOmitsZeroRiskSegments: a node whose evictable pods are
+// all controller-managed with no emptyDir gets just the count — no
+// "0 unmanaged" noise.
+func TestDrainConfirmOmitsZeroRiskSegments(t *testing.T) {
+	ctrl := true
+	p := schedPod("default", "p1", "node-a")
+	p.OwnerReferences = []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "web", Controller: &ctrl}}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {nodeObj("node-a", true, false)},
+		kube.KindPod:  {p},
+	}}
+	session := newSession()
+	session.Location.Kind = kube.KindNode
+	m := New(Config{Session: session, Lister: lister, Mutator: &fakeMutator{}})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	m = step(t, m, tea.KeyPressMsg{Text: "ctrl+d"})
+	view := plain(m.Render())
+	if !strings.Contains(view, "1 evictable") || strings.Contains(view, "unmanaged") || strings.Contains(view, "emptyDir") {
+		t.Fatalf("want a bare evictable count:\n%s", view)
+	}
+}
+
+// TestDrainConfirmFitsNarrowTerminal: a long node name and the full
+// consequence line are ellipsized to the card rather than overflowing an
+// 80-column screen.
+func TestDrainConfirmFitsNarrowTerminal(t *testing.T) {
+	name := "ip-10-0-123-45.eu-west-1.compute.internal-with-a-very-long-suffix"
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {nodeObj(name, true, false)},
+		kube.KindPod:  {withEmptyDir(schedPod("default", "p1", name))},
+	}}
+	session := newSession()
+	session.Location.Kind = kube.KindNode
+	m := New(Config{Session: session, Lister: lister, Mutator: &fakeMutator{}})
+	m.SetSize(60, 24)
+	m = step(t, m, m.Init()())
+	m = step(t, m, tea.KeyPressMsg{Text: "ctrl+d"})
+	view := plain(m.Render())
+	if !strings.Contains(view, "1 evictable") || !strings.Contains(view, "…") {
+		t.Fatalf("want the consequence line ellipsized:\n%s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w > 60 {
+			t.Fatalf("line is %d cells wide on a 60-cell screen: %q", w, line)
+		}
+	}
+}
+
+func withEmptyDir(p *corev1.Pod) *corev1.Pod {
+	p.Spec.Volumes = []corev1.Volume{{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
+	return p
 }
 
 func TestDKeyThenNCancelsWithoutDraining(t *testing.T) {

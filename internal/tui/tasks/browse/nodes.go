@@ -85,10 +85,10 @@ func (m Model) loadNodeMetrics(epoch int) tea.Cmd {
 // a node's tally always agrees with what browse would show if you jumped
 // into that node's pods.
 //
-// drainCount is the subset of each node's pods a drain would evict
-// (kube.DrainEvicts) — the drain confirm's count, which must not include the
-// DaemonSet and static pods Drain leaves in place.
-func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod func(runtime.Object) resources.Row) (capacity map[string]nodeCapacity, podCount map[string]int, total int, podHealth map[string]resources.HealthCounts, drainCount map[string]int) {
+// drainImpact is what a drain would do to each node's pods (kube.DrainImpact)
+// — the drain confirm's consequence line, which must not count the DaemonSet
+// and static pods Drain leaves in place.
+func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod func(runtime.Object) resources.Row) (capacity map[string]nodeCapacity, podCount map[string]int, total int, podHealth map[string]resources.HealthCounts, drainImpact map[string]kube.DrainImpact) {
 	capacity = map[string]nodeCapacity{}
 	if objs, err := lister.ListRaw(ctx, kube.KindNode, ""); err == nil {
 		for _, obj := range objs {
@@ -105,7 +105,7 @@ func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod 
 
 	podCount = map[string]int{}
 	podHealth = map[string]resources.HealthCounts{}
-	drainCount = map[string]int{}
+	drainImpact = map[string]kube.DrainImpact{}
 	if objs, err := lister.ListRaw(ctx, kube.KindPod, ""); err == nil {
 		for _, obj := range objs {
 			p, ok := obj.(*corev1.Pod)
@@ -114,9 +114,9 @@ func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod 
 			}
 			podCount[p.Spec.NodeName]++
 			total++
-			if kube.DrainEvicts(p) {
-				drainCount[p.Spec.NodeName]++
-			}
+			impact := drainImpact[p.Spec.NodeName]
+			impact.Add(p)
+			drainImpact[p.Spec.NodeName] = impact
 			if projectPod != nil {
 				h := podHealth[p.Spec.NodeName]
 				switch projectPod(obj).Status {
@@ -133,7 +133,7 @@ func loadNodeExtras(ctx context.Context, lister resources.RawLister, projectPod 
 			}
 		}
 	}
-	return capacity, podCount, total, podHealth, drainCount
+	return capacity, podCount, total, podHealth, drainImpact
 }
 
 func nodeTerminalPod(p *corev1.Pod) bool {
@@ -295,12 +295,14 @@ func (m *Model) beginCordon(row resources.Row) tea.Cmd {
 	})
 }
 
-// beginDrain confirms draining row — TierModal (verbs.Drain) — showing how
-// many pods the cache says will be evicted.
+// beginDrain confirms draining row — TierModal (verbs.Drain). The title is
+// just the question; confirmBody states the consequences (how many pods the
+// cache says will be evicted, and which of them won't come back) on its own
+// line under it, so a long node name can't push them off the card.
 func (m *Model) beginDrain(row resources.Row) tea.Cmd {
 	return m.actions.Begin(verbs.Drain.Tier, tui.TaskAction{
 		ID:    "node-drain-" + row.Name,
-		Label: fmt.Sprintf("Drain %s? %d pods will be evicted.", row.Name, m.drainCountByNode[row.Name]),
+		Label: fmt.Sprintf("Drain %s?", row.Name),
 		Scope: tui.TaskScope{ResourceKind: string(kube.KindNode), ResourceName: row.Name, Verb: "drain", IsMutating: true},
 	})
 }
@@ -315,6 +317,9 @@ func (m Model) confirmBody(width, height int) string {
 	detail := ""
 	if pending := m.actions.Pending(); pending != nil {
 		title = pending.Label
+		if pending.Scope.Verb == "drain" {
+			detail = tui.DrainImpactLine(m.drainImpactByNode[pending.Scope.ResourceName], theme)
+		}
 	}
 	styles := components.ConfirmStyles{
 		Border: lipgloss.NewStyle().BorderForeground(theme.ConfirmBorder).Background(theme.ConfirmHeaderBg),
