@@ -121,6 +121,14 @@ type Cluster struct {
 	// via SetTimeZoneCapability to exercise the Unknown/Unsupported
 	// read-only paths without a real cluster.
 	tzCapability kube.TimeZoneCapability
+
+	// evictionBlocked names the pods ("namespace/name") Drain must fail to
+	// evict, the fake's stand-in for a PodDisruptionBudget refusing an
+	// eviction — so a partial drain is expressible in tests and --demo.
+	// forcedDeletes records every DeleteResourceForced call in order, so a
+	// test can tell a force delete from a graceful one.
+	evictionBlocked map[string]bool
+	forcedDeletes   []string
 }
 
 // TimeZoneCapability returns the fake cluster's own tri-state answer — the
@@ -197,19 +205,20 @@ func (c *Cluster) SeedContainerLogs(namespace, pod, container string, lines []st
 func (c *Cluster) ListRaw(_ context.Context, kind kube.ResourceKind, namespace string) ([]runtime.Object, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Every object is handed out as a deep copy, as an informer cache's
+	// reader would never share its storage with a mutator: the fake's
+	// mutators write in place under c.mu, and a reader holding the stored
+	// pointer would race them outside it.
 	all := c.objects[kind]
-	if namespace == "" {
-		return slices.Clone(all), nil
-	}
 	out := make([]runtime.Object, 0, len(all))
 	for _, obj := range all {
-		accessor, err := apimeta.Accessor(obj)
-		if err != nil {
-			continue
+		if namespace != "" {
+			accessor, err := apimeta.Accessor(obj)
+			if err != nil || accessor.GetNamespace() != namespace {
+				continue
+			}
 		}
-		if accessor.GetNamespace() == namespace {
-			out = append(out, obj)
-		}
+		out = append(out, obj.DeepCopyObject())
 	}
 	return out, nil
 }
@@ -412,7 +421,22 @@ func (c *Cluster) DeleteResource(_ context.Context, kind kube.ResourceKind, name
 }
 
 func (c *Cluster) DeleteResourceForced(ctx context.Context, kind kube.ResourceKind, namespace, name string) error {
-	return c.DeleteResource(ctx, kind, namespace, name)
+	if err := c.DeleteResource(ctx, kind, namespace, name); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.forcedDeletes = append(c.forcedDeletes, string(kind)+" "+namespace+"/"+name)
+	return nil
+}
+
+// ForcedDeletes reports every successful DeleteResourceForced call, in
+// order, as "<kind> <namespace>/<name>" — the only way a test can tell a
+// force delete from DeleteResource, since both remove the object.
+func (c *Cluster) ForcedDeletes() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.forcedDeletes)
 }
 
 // RolloutRestart stamps kind's pod template with a fresh restartedAt
@@ -736,6 +760,7 @@ func (c *Cluster) Drain(ctx context.Context, node string) (int, error) {
 	c.mu.Unlock()
 
 	evicted := 0
+	var errs []error
 	for _, obj := range pods {
 		pod, ok := obj.(*corev1.Pod)
 		if !ok || pod.Spec.NodeName != node {
@@ -744,12 +769,37 @@ func (c *Cluster) Drain(ctx context.Context, node string) (int, error) {
 		if !kube.DrainEvicts(pod) {
 			continue
 		}
-		if err := c.DeleteResource(ctx, kube.KindPod, pod.Namespace, pod.Name); err != nil {
+		// Joined per pod exactly as kube.Cluster.Drain does, so a partial
+		// drain reaches the UI's error path against the fake too.
+		if err := c.evict(ctx, pod.Namespace, pod.Name); err != nil {
+			errs = append(errs, fmt.Errorf("evict %s/%s: %w", pod.Namespace, pod.Name, err))
 			continue
 		}
 		evicted++
 	}
-	return evicted, nil
+	return evicted, errors.Join(errs...)
+}
+
+func (c *Cluster) evict(ctx context.Context, namespace, name string) error {
+	c.mu.Lock()
+	blocked := c.evictionBlocked[namespace+"/"+name]
+	c.mu.Unlock()
+	if blocked {
+		return apierrors.NewTooManyRequests("Cannot evict pod as it would violate the pod's disruption budget.", 0)
+	}
+	return c.DeleteResource(ctx, kube.KindPod, namespace, name)
+}
+
+// BlockEviction makes Drain fail to evict namespace/name with the 429 a
+// PodDisruptionBudget answers, leaving the pod in place (tests and --demo
+// only — a real Cluster's refusals come from the API server).
+func (c *Cluster) BlockEviction(namespace, name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.evictionBlocked == nil {
+		c.evictionBlocked = map[string]bool{}
+	}
+	c.evictionBlocked[namespace+"/"+name] = true
 }
 
 // Scale sets Deployment/StatefulSet spec.Replicas in place — 17b's +/−

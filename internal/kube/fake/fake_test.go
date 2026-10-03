@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1347,5 +1348,76 @@ func TestHelmRollbackMatchesHelm(t *testing.T) {
 	solo.Seed(kube.KindSecret, rel(1, "deployed"))
 	if err := solo.HelmRollback(t.Context(), "default", "web", 0); err == nil {
 		t.Fatal("rolling back a release's only revision should fail like helm's \"no 0 version\"")
+	}
+}
+
+// TestDrainReportsBlockedEvictions pins the fake's partial drain: a pod whose
+// eviction is blocked survives, the rest are evicted, and the error names
+// the blocked pod — the same joined shape kube.Cluster.Drain returns.
+func TestDrainReportsBlockedEvictions(t *testing.T) {
+	t.Parallel()
+	c := New("default", "dev")
+	c.Seed(kube.KindNode, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}})
+	c.Seed(kube.KindPod,
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"}, Spec: corev1.PodSpec{NodeName: "node-1"}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "default"}, Spec: corev1.PodSpec{NodeName: "node-1"}},
+	)
+	c.BlockEviction("default", "db")
+
+	evicted, err := c.Drain(t.Context(), "node-1")
+	if evicted != 1 {
+		t.Fatalf("evicted = %d, want 1", evicted)
+	}
+	if err == nil || !strings.Contains(err.Error(), "default/db") || !apierrors.IsTooManyRequests(err) {
+		t.Fatalf("Drain err = %v, want a joined 429 naming default/db", err)
+	}
+	remaining, _ := c.ListRaw(t.Context(), kube.KindPod, "default")
+	if len(remaining) != 1 {
+		t.Fatalf("expected the blocked pod to survive, got %d pods remaining", len(remaining))
+	}
+}
+
+func TestDeleteResourceForcedIsRecorded(t *testing.T) {
+	t.Parallel()
+	c := New("default", "dev")
+	c.Seed(kube.KindPod,
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "default"}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "default"}},
+	)
+	if err := c.DeleteResource(t.Context(), kube.KindPod, "default", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeleteResourceForced(t.Context(), kube.KindPod, "default", "b"); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.ForcedDeletes(); !slices.Equal(got, []string{"Pod default/b"}) {
+		t.Fatalf("ForcedDeletes = %v, want only the forced delete", got)
+	}
+}
+
+// TestListRawDoesNotShareStorageWithMutators pins that a reader holding a
+// listed object never sees (or races) a later in-place mutation — run under
+// -race, the read below races Cordon's write if ListRaw hands out the
+// stored pointer.
+func TestListRawDoesNotShareStorageWithMutators(t *testing.T) {
+	t.Parallel()
+	c := New("default", "dev")
+	c.Seed(kube.KindNode, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}})
+	listed, _ := c.ListRaw(t.Context(), kube.KindNode, "")
+	node := listed[0].(*corev1.Node)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = c.Cordon(t.Context(), "node-1", true)
+	}()
+	unschedulable := node.Spec.Unschedulable
+	<-done
+	if unschedulable || node.Spec.Unschedulable {
+		t.Fatalf("a listed Node changed under its reader")
+	}
+	again, _ := c.ListRaw(t.Context(), kube.KindNode, "")
+	if !again[0].(*corev1.Node).Spec.Unschedulable {
+		t.Fatalf("Cordon did not reach the next list")
 	}
 }
