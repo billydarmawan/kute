@@ -19,6 +19,7 @@ import (
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/components"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 type EventsReader interface {
@@ -488,14 +489,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if row, ok := m.selectedRow(); ok && row.live && row.kind != "" {
 				return m, tui.GotoResource(m.session, row.kind, row.ref.Namespace, row.ref.Name)
 			}
-		case "e":
+		case verbs.Events.Key:
 			if row, ok := m.selectedRow(); ok && m.openEvents != nil && row.kind != "" {
 				task, cmd := m.openEvents(row.kind, row.ref.Namespace, row.ref.Name, m.width, m.height)
 				if task != nil {
 					return task, cmd
 				}
 			}
-		case "y":
+		case verbs.YAML.Key:
 			if row, ok := m.selectedRow(); ok && m.openYAML != nil {
 				task, cmd := m.openYAML(row.ref, m.width, m.height)
 				if task != nil {
