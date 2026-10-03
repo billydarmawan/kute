@@ -33,10 +33,17 @@ func TestDetectInstall(t *testing.T) {
 		// only on Windows — but this stays deliberately goos-independent
 		// so a WSL-visible scoop install isn't told to re-run curl.
 		{"scoop layout under wsl", "/mnt/c/Users/dev/scoop/apps/kute/current/kute.exe", "linux", "scoop", scoopCommand},
+
+		// go install puts the binary in GOBIN/GOPATH's bin; the install
+		// script would add a second kute elsewhere on PATH (14 L14).
+		{"go install default gopath", "/home/user/go/bin/kute", "linux", "go", goCommand},
+		{"go install custom gobin", "/opt/gobin/kute", "linux", "go", goCommand},
+		{"go install on windows", `C:\Users\dev\go\bin\kute.exe`, "windows", "go", goCommand},
+		{"a subdirectory of go bin is not go install", "/home/user/go/bin/sub/kute", "linux", "curl", curlCommand},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := detectInstall(tt.path, tt.goos)
+			got := detectInstall(tt.path, tt.goos, []string{"/home/user/go/bin", "/opt/gobin/", `C:\Users\dev\go\bin`})
 			if got.Manager != tt.manager || got.Command != tt.command {
 				t.Errorf("detectInstall(%q, %q) = %+v, want {%q %q}", tt.path, tt.goos, got, tt.manager, tt.command)
 			}
@@ -48,7 +55,7 @@ func TestDetectInstall(t *testing.T) {
 // the host's own GOOS, which is what app.buildUpdateFactory actually calls.
 func TestDetectInstallUsesHostGOOS(t *testing.T) {
 	const p = "/usr/local/bin/kute"
-	if got, want := DetectInstall(p), detectInstall(p, runtime.GOOS); got != want {
+	if got, want := DetectInstall(p), detectInstall(p, runtime.GOOS, goBinDirs()); got != want {
 		t.Errorf("DetectInstall(%q) = %+v, want %+v", p, got, want)
 	}
 }
