@@ -78,7 +78,12 @@ func (m Model) questionLine(theme tui.Theme, width int) string {
 	if m.namespace != "" {
 		left += dim.Render(" in ") + ns.Render(m.namespace)
 	} else {
-		left += dim.Render(" ") + lipgloss.NewStyle().Foreground(theme.Info).Render(tui.GlyphAllNS+" all namespaces")
+		// With no namespace, kube.ResolveWhoCan counts no RoleBinding (a
+		// grant there covers one namespace, not all of them), so the
+		// list holds cluster-wide grants only — say so rather than let a
+		// short list read as "almost nobody".
+		left += dim.Render(" ") + lipgloss.NewStyle().Foreground(theme.Info).Render(tui.GlyphAllNS+" all namespaces") +
+			dim.Render(" · cluster-wide grants only")
 	}
 	subjectWord := "subjects"
 	if len(m.result.Subjects) == 1 {

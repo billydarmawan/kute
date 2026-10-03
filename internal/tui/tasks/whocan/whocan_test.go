@@ -180,6 +180,19 @@ func TestGroupQualifiedResourceQueriesItsAPIGroup(t *testing.T) {
 	}
 }
 
+func TestAllNamespacesQuestionSaysOnlyClusterWideGrantsCount(t *testing.T) {
+	rbac := &fakeRBAC{result: kube.WhoCanResult{
+		Subjects: []kube.WhoCanSubject{{Name: "admin", Kind: "User", Via: "clusterrole/admin ← clusterrolebinding/admins", ClusterScope: true}},
+	}}
+	m := New(Config{Session: newSession(), RBAC: rbac, Verb: "list", Resource: "secrets", Namespace: ""})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if view := plain(m.Render()); !strings.Contains(view, "cluster-wide grants only") {
+		t.Fatalf("an all-namespaces query skips RoleBindings and must say so:\n%s", view)
+	}
+}
+
 func TestUnknownIdentityPinsANeutralRowNotADenial(t *testing.T) {
 	rbac := &fakeRBAC{result: kube.WhoCanResult{
 		CurrentUser:        "gke_proj_zone_c",
