@@ -62,34 +62,14 @@ func (m Model) loadIngress() tea.Cmd {
 			class = *ing.Spec.IngressClassName
 		}
 
-		httpsHosts := map[string]bool{}
-		for _, t := range ing.Spec.TLS {
-			if len(t.Hosts) == 0 {
-				httpsHosts[""] = true // no hosts named = covers every rule
-			}
-			for _, h := range t.Hosts {
-				httpsHosts[h] = true
-			}
-		}
-
-		// facts + hostFactIdx resolve every rule host to the TLS block that
-		// covers it — hostFactIdx feeds each row's compact TLS cell,
-		// wildcardFactIdx is the "no Hosts named" block that covers every
-		// rule (mirrors httpsHosts[""] above).
+		// facts carries one entry per Spec.TLS block, index-aligned with
+		// it, so tlsBlockFor's answer indexes straight into it.
 		var facts []tlsFact
 		certsPending := false
-		hostFactIdx := map[string]int{}
-		wildcardFactIdx := -1
-		for i, t := range ing.Spec.TLS {
+		for _, t := range ing.Spec.TLS {
 			expiry, ec, pending := resolveCertExpiry(ctx, lister, ns, t.SecretName)
 			certsPending = certsPending || pending
 			facts = append(facts, tlsFact{secretName: t.SecretName, hosts: t.Hosts, expiry: expiry, class: ec})
-			if len(t.Hosts) == 0 {
-				wildcardFactIdx = i
-			}
-			for _, h := range t.Hosts {
-				hostFactIdx[h] = i
-			}
 		}
 
 		var rows []routeRow
@@ -105,14 +85,10 @@ func (m Model) loadIngress() tea.Cmd {
 			}
 			hostSet[hostText] = struct{}{}
 			scheme := "http"
-			if httpsHosts[""] || httpsHosts[host] {
-				scheme = "https"
-			}
 			tlsText, tlsClass := "", resources.StatusNeutral
-			if idx, ok := hostFactIdx[host]; ok {
+			if idx := tlsBlockFor(ing.Spec.TLS, host); idx >= 0 {
+				scheme = "https"
 				tlsText, tlsClass = compactExpiry(facts[idx].expiry), facts[idx].class
-			} else if wildcardFactIdx >= 0 {
-				tlsText, tlsClass = compactExpiry(facts[wildcardFactIdx].expiry), facts[wildcardFactIdx].class
 			}
 			for _, p := range r.HTTP.Paths {
 				row, ok := ingressBackendRow(ctx, lister, ns, p.Backend)
@@ -140,6 +116,43 @@ func (m Model) loadIngress() tea.Cmd {
 			rows: rows, tlsFacts: facts, certsPending: certsPending,
 		}
 	}
+}
+
+// tlsBlockFor is the index of the Spec.TLS block that covers an Ingress
+// rule's host, or -1: a block naming the host exactly wins, then one naming
+// a single-label wildcard that matches it ("*.example.com" covers
+// "a.example.com", not "a.b.example.com" or "example.com"), then a block
+// naming no hosts at all, which covers every rule.
+func tlsBlockFor(tls []networkingv1.IngressTLS, host string) int {
+	wildcard, catchAll := -1, -1
+	for i, t := range tls {
+		if len(t.Hosts) == 0 && catchAll < 0 {
+			catchAll = i
+		}
+		for _, h := range t.Hosts {
+			if h == host {
+				return i
+			}
+			if wildcard < 0 && wildcardCovers(h, host) {
+				wildcard = i
+			}
+		}
+	}
+	if wildcard >= 0 {
+		return wildcard
+	}
+	return catchAll
+}
+
+// wildcardCovers reports whether a "*.suffix" TLS host matches host by
+// exactly one leading label, as TLS wildcard certificates do.
+func wildcardCovers(pattern, host string) bool {
+	suffix, ok := strings.CutPrefix(pattern, "*.")
+	if !ok || suffix == "" {
+		return false
+	}
+	label, ok := strings.CutSuffix(host, "."+suffix)
+	return ok && label != "" && !strings.Contains(label, ".")
 }
 
 // ingressBackendRow resolves one Ingress backend into a row's backend

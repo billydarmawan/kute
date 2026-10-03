@@ -147,6 +147,44 @@ func TestLoadIngressTLSExpiry(t *testing.T) {
 	}
 }
 
+// TestLoadIngressWildcardTLSCoversSubdomainRule pins that a "*.example.com"
+// TLS block covers a single-label subdomain rule host (https, TLS cell),
+// but neither the apex nor a two-label subdomain.
+func TestLoadIngressWildcardTLSCoversSubdomainRule(t *testing.T) {
+	backend := networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{Name: "web", Port: networkingv1.ServiceBackendPort{Number: 80}}}
+	rule := func(host string) networkingv1.IngressRule {
+		return networkingv1.IngressRule{Host: host, IngressRuleValue: networkingv1.IngressRuleValue{
+			HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{Path: "/", Backend: backend}}},
+		}}
+	}
+	ing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+		Spec: networkingv1.IngressSpec{
+			TLS:   []networkingv1.IngressTLS{{Hosts: []string{"*.example.com"}, SecretName: "wild-tls"}},
+			Rules: []networkingv1.IngressRule{rule("a.example.com"), rule("example.com"), rule("a.b.example.com")},
+		},
+	}
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindIngress: {ing},
+		kube.KindSecret:  {&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "wild-tls", Namespace: "default"}}},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.rows) != 3 {
+		t.Fatalf("rows = %d, want 3", len(m.rows))
+	}
+	if m.rows[0].url != "https://a.example.com/" || m.rows[0].tlsText != "no cert data" {
+		t.Fatalf("wildcard-covered row = url %q tls %q, want https + the block's TLS cell", m.rows[0].url, m.rows[0].tlsText)
+	}
+	for _, r := range m.rows[1:] {
+		if !strings.HasPrefix(r.url, "http://") || r.tlsText != "" {
+			t.Fatalf("uncovered row = url %q tls %q, want plain http and no TLS cell", r.url, r.tlsText)
+		}
+	}
+}
+
 // TestTabTogglesTLSFocusAndArrowsMoveWithinIt pins 23a's "tab" toggle
 // (docs/design README.md:285: "a strip above the keybar names each secret —
 // ↵ there jumps to it"): 'tab' moves focus onto the TLS strip instead of the
