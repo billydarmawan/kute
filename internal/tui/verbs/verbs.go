@@ -134,6 +134,10 @@ var (
 	// is a tea.ExecProcess handoff, never a Mutator call, so tasks/debugpanel
 	// applies its policy row itself — immediate outside PROD, one y/N in PROD.
 	PodDebug = Verb{ID: "pod-debug", Key: "↵", Label: "start", Mutating: true, Kinds: []kube.ResourceKind{kube.KindPod}}
+	// DebugCleanup is the debug panel's CLEAN UP 'ctrl+d delete it' (§41c
+	// copy pod, §41d node-debugger pod) — an ordinary pod delete through
+	// kube.Mutator, so it carries Delete's own friction (policy.go).
+	DebugCleanup = Verb{ID: "debug-cleanup", Key: "ctrl+d", Label: "delete it", Mutating: true, Kinds: []kube.ResourceKind{kube.KindPod}}
 	// Edit is 'E' on any row, any kind — kubectl edit (kube.EditSpec) over
 	// tea.ExecProcess, the same tty-handoff path as Exec/NodeShell, and
 	// Mutating for the plainest reason of the three: it applies whatever the
@@ -647,7 +651,7 @@ var (
 // All is every registered verb, for the help overlay's fixed SCOPE/GLOBAL
 // columns and for ByID lookups.
 var All = []Verb{
-	Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, PodDebug, Edit, Events,
+	Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, PodDebug, DebugCleanup, Edit, Events,
 	Namespace, Context, AllNamespaces, JumpNamespace, ToggleGroup, PageUp, PageDown, Help, Retry, WhoCan,
 	HelmValues, EnvMounts, HelmHistory, HelmPods, Mark, MarkAll,
 	LogPause, LogFollow, LogNextWarning, LogNextError, LogToggleWrap, LogToggleTime,

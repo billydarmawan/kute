@@ -2,6 +2,7 @@ package debugpanel
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/kute-dev/kute/internal/tui"
 	"github.com/kute-dev/kute/internal/tui/actions"
@@ -48,14 +49,18 @@ func (m Model) Keybar() tui.Keybar {
 		}
 	}
 	if m.cleanup != nil {
-		hints := []tui.KeyHint{{Key: "ctrl-d", Label: "delete it"}, {Key: "esc", Label: "keep"}}
-		if verbs.Delete.HiddenWhileOffline(m.conn.Offline()) {
+		hints := []tui.KeyHint{verbs.DebugCleanup.Hint(), {Key: "esc", Label: "keep"}}
+		if verbs.DebugCleanup.HiddenWhileOffline(m.conn.Offline()) {
 			hints = hints[1:]
+		}
+		note := m.cleanup.name + " still running"
+		if !m.cleanup.startedAt.IsZero() && !m.now.IsZero() {
+			note += " · " + shortDur(m.now.Sub(m.cleanup.startedAt))
 		}
 		return tui.Keybar{
 			Pill:       tui.ModeBrowse,
 			PillText:   "CLEAN UP",
-			RightNote:  m.cleanup.name + " still running",
+			RightNote:  note,
 			RightHints: hints,
 		}
 	}
@@ -147,3 +152,20 @@ func (m Model) BackOnEscape() bool {
 // successful delete, drain, cordon, restart, … — on the keybar
 // (tui.ActionResulter, rendered by tui.Frame).
 func (m Model) ActionResult() tui.ResultLine { return m.actions.Result() }
+
+// shortDur renders CLEAN UP's age in the app's compact "45s"/"4m"/"2h"/"3d"
+// shape — duplicated per the repo's package-local-seam convention.
+func shortDur(d time.Duration) string {
+	switch {
+	case d <= 0:
+		return "0s"
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}

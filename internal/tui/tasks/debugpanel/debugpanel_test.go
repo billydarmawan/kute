@@ -16,6 +16,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/state"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // fakePodLister is a minimal resources.RawLister test double for §41d's
@@ -569,6 +570,24 @@ func TestCleanUpKeybarShowsWhilePending(t *testing.T) {
 	kb := m.Keybar()
 	if kb.PillText != "CLEAN UP" {
 		t.Errorf("PillText = %q, want CLEAN UP", kb.PillText)
+	}
+}
+
+// TestCleanUpKeybarShowsCopyAge pins L9: §41c's "still running · 4m" reads
+// the copy's age from its start against the model's stamped now, and the
+// delete hint renders from the registered verb.
+func TestCleanUpKeybarShowsCopyAge(t *testing.T) {
+	t.Parallel()
+	m := New(Config{Session: nonProdSession(), Namespace: "default", Name: "worker-0", Containers: podContainers()})
+	started := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	m.handleLaunchResult(launchResultMsg{tgt: targetPod, mode: modeCopy, copyName: "worker-0-debug", launchedAt: started})
+	m.now = started.Add(4*time.Minute + 10*time.Second)
+	kb := m.Keybar()
+	if kb.RightNote != "worker-0-debug still running · 4m" {
+		t.Fatalf("RightNote = %q, want the copy's age", kb.RightNote)
+	}
+	if len(kb.RightHints) == 0 || kb.RightHints[0] != verbs.DebugCleanup.Hint() {
+		t.Fatalf("RightHints = %v, want the registered cleanup verb first", kb.RightHints)
 	}
 }
 

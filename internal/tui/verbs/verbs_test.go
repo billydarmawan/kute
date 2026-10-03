@@ -116,7 +116,7 @@ func TestAllRegistersEveryDefinedVerb(t *testing.T) {
 	t.Parallel()
 
 	defined := []Verb{
-		Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, PodDebug, Edit, Events,
+		Goto, Filter, Open, Logs, YAML, Exec, NodeDebug, NodeDebugDetail, PodDebug, DebugCleanup, Edit, Events,
 		Namespace, Context, AllNamespaces, JumpNamespace, ToggleGroup, PageUp, PageDown, Help, Retry, WhoCan,
 		HelmValues, HelmHistory, HelmPods, Mark, MarkAll,
 		FluxReconcile, FluxSuspend, FluxSource,

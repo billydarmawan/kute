@@ -57,6 +57,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, ok := tui.RoutePaste(msg, m.pasteTarget()); ok {
 		return m, cmd
 	}
+	// CLEAN UP's age renders against this stamp, never the clock (pure
+	// render); every message moves it on.
+	m.now = time.Now()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
@@ -70,7 +73,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case copyPodLookupMsg:
 		// The exit error stays on the feedback line alongside the prompt.
 		if msg.found && m.cleanup == nil {
-			m.stageCopyCleanup(msg.name)
+			m.stageCopyCleanup(msg.name, msg.created)
 		}
 	case nodeDebugRetryDueMsg:
 		return m, m.findNodeDebugPodCmd(msg.after, msg.attempt)
@@ -135,7 +138,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.tgt == targetPod && m.mode == modeCopy {
 			m.copyShareProcesses = !m.copyShareProcesses
 		}
-	case "ctrl+d":
+	case verbs.DebugCleanup.Key:
 		if m.cleanup != nil {
 			return m, m.beginCleanupDelete()
 		}
@@ -371,9 +374,10 @@ func (m Model) launchCmd() tea.Cmd {
 	if m.demo {
 		return demoLaunchResultCmd(launchResultMsg{tgt: targetPod, mode: modeCopy, copyName: copyName})
 	}
+	launchedAt := time.Now()
 	spec := kube.PodDebugCopySpec(m.session.CommandTarget(), m.namespace, m.podName, copyName, container, m.copyEntrypoint, m.copyShareProcesses, m.podProfile)
 	return tea.ExecProcess(spec, func(err error) tea.Msg {
-		return launchResultMsg{err: err, tgt: targetPod, mode: modeCopy, copyName: copyName}
+		return launchResultMsg{err: err, tgt: targetPod, mode: modeCopy, copyName: copyName, launchedAt: launchedAt}
 	})
 }
 
@@ -416,7 +420,7 @@ func (m *Model) handleLaunchResult(msg launchResultMsg) (tea.Model, tea.Cmd) {
 			return m, m.findCopyPodCmd(msg.copyName)
 		}
 		m.feedback = ""
-		m.stageCopyCleanup(msg.copyName)
+		m.stageCopyCleanup(msg.copyName, msg.launchedAt)
 		return m, nil
 	}
 	if msg.err != nil {
@@ -428,19 +432,21 @@ func (m *Model) handleLaunchResult(msg launchResultMsg) (tea.Model, tea.Cmd) {
 
 // stageCopyCleanup registers a debug copy with Session.DebugCopies (so the
 // pods table tags it for the rest of the session) and shows §41c's CLEAN UP
-// prompt for it.
-func (m *Model) stageCopyCleanup(name string) {
+// prompt for it. startedAt is when the copy was created (zero when unknown),
+// for the prompt's "still running · 4m".
+func (m *Model) stageCopyCleanup(name string, startedAt time.Time) {
 	if m.session != nil && m.session.DebugCopies != nil {
 		m.session.DebugCopies.Add(m.namespace, name)
 	}
-	m.cleanup = &cleanupPrompt{namespace: m.namespace, name: name, startedAt: time.Now()}
+	m.cleanup = &cleanupPrompt{namespace: m.namespace, name: name, startedAt: startedAt}
 }
 
 // copyPodLookupMsg is findCopyPodCmd's answer: whether the copy a failed
 // copy-mode launch was creating exists in the Pod cache.
 type copyPodLookupMsg struct {
-	name  string
-	found bool
+	name    string
+	found   bool
+	created time.Time
 }
 
 // findCopyPodCmd checks the eager Pod cache for name in the panel's
@@ -462,7 +468,7 @@ func (m Model) findCopyPodCmd(name string) tea.Cmd {
 		}
 		for _, obj := range objs {
 			if acc, err := meta.Accessor(obj); err == nil && acc.GetNamespace() == namespace && acc.GetName() == name {
-				return copyPodLookupMsg{name: name, found: true}
+				return copyPodLookupMsg{name: name, found: true, created: acc.GetCreationTimestamp().Time}
 			}
 		}
 		return copyPodLookupMsg{name: name}
@@ -471,14 +477,15 @@ func (m Model) findCopyPodCmd(name string) tea.Cmd {
 
 // beginCleanupDelete resolves ctrl-d on the CLEAN UP prompt — an ordinary
 // kube.Mutator.DeleteResource call, so unlike the launch itself this routes
-// through the shared verbs.Delete/actions.Controller path exactly as
+// through actions.Controller (verbs.DebugCleanup, Delete's own policy row)
+// exactly as
 // browse's own pod delete does (PROD escalates to the type-the-name modal
 // the same way).
 func (m *Model) beginCleanupDelete() tea.Cmd {
 	if m.cleanup == nil {
 		return nil
 	}
-	return m.actions.Begin(actions.Request{Verb: verbs.Delete, Prod: m.isProd()}, tui.TaskAction{
+	return m.actions.Begin(actions.Request{Verb: verbs.DebugCleanup, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "delete-" + string(kube.KindPod) + "-" + m.cleanup.namespace + "/" + m.cleanup.name,
 		Label: fmt.Sprintf("Delete Pod %s?", m.cleanup.name),
 		Scope: tui.TaskScope{

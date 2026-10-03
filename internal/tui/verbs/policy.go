@@ -83,6 +83,8 @@ var policies = map[string]rule{
 	// Delete: inline y/N, the type-the-name modal in PROD — and always the
 	// modal for a Namespace/CRD/Node (cascadeDeleteKinds).
 	Delete.ID: {tier: TierInline, prod: TierModal, typed: true, cascade: true},
+	// The debug panel's CLEAN UP delete is a pod delete like any other.
+	DebugCleanup.ID: {tier: TierInline, prod: TierModal, typed: true},
 	// Force delete (grace period 0) is always the type-the-name modal.
 	ForceDelete.ID: {tier: TierModal, prod: TierModal, typed: true},
 	// The rest of the "destroys or replaces something" family: inline y/N,

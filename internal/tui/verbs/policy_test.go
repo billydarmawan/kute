@@ -36,6 +36,7 @@ func surface(p Policy) string {
 var wantPolicy = map[string][2]string{
 	Delete.ID:                    {yN, typeName},
 	ForceDelete.ID:               {typeName, typeName},
+	DebugCleanup.ID:              {yN, typeName},
 	RolloutRestart.ID:            {yN, typeName},
 	RolloutUndo.ID:               {yN, typeName},
 	Rollback.ID:                  {yN, typeName},

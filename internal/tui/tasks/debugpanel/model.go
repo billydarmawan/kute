@@ -155,13 +155,16 @@ type Model struct {
 
 	launchPending bool
 	cleanup       *cleanupPrompt
-	actions       actions.Controller // cleanup delete only (verbs.Delete/kube.Mutator) — the debug launch itself is a bespoke gate (launchPending), never routed through this
-	access        AccessReviewer
-	openWhoCan    OpenWhoCanFunc
-	accessState   accessState
-	accessResult  kube.AccessReviewResult
-	accessErr     error
-	accessGen     int
+	// now is the clock as of the last message — CLEAN UP's age renders
+	// from it so Keybar stays a pure function of the model.
+	now          time.Time
+	actions      actions.Controller // cleanup delete only (verbs.Delete/kube.Mutator) — the debug launch itself is a bespoke gate (launchPending), never routed through this
+	access       AccessReviewer
+	openWhoCan   OpenWhoCanFunc
+	accessState  accessState
+	accessResult kube.AccessReviewResult
+	accessErr    error
+	accessGen    int
 
 	feedback string
 	conn     kube.ConnState

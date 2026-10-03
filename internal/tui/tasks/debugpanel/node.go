@@ -50,6 +50,7 @@ type nodeDebugPodLookupMsg struct {
 	namespace string
 	name      string
 	found     bool
+	created   time.Time
 }
 
 // nodeDebugRetryDueMsg fires after a failed lookup's backoff tick
@@ -107,7 +108,7 @@ func (m Model) findNodeDebugPodCmd(after time.Time, attempt int) tea.Cmd {
 		if best == nil {
 			return nodeDebugPodLookupMsg{after: after, attempt: attempt}
 		}
-		return nodeDebugPodLookupMsg{namespace: best.Namespace, name: best.Name, found: true}
+		return nodeDebugPodLookupMsg{namespace: best.Namespace, name: best.Name, found: true, created: best.CreationTimestamp.Time}
 	}
 }
 
@@ -119,7 +120,7 @@ func (m Model) findNodeDebugPodCmd(after time.Time, attempt int) tea.Cmd {
 // own terminal, kute just couldn't confirm it from here.
 func (m *Model) handleNodeDebugPodLookup(msg nodeDebugPodLookupMsg) (tea.Model, tea.Cmd) {
 	if msg.found {
-		m.cleanup = &cleanupPrompt{namespace: msg.namespace, name: msg.name, startedAt: time.Now()}
+		m.cleanup = &cleanupPrompt{namespace: msg.namespace, name: msg.name, startedAt: msg.created}
 		return m, nil
 	}
 	if msg.attempt+1 >= nodeDebugLookupMaxAttempts {
