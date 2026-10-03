@@ -285,29 +285,33 @@ func (m *Model) applyMetrics(msg metricsLoadedMsg) (tea.Model, tea.Cmd) {
 }
 
 // recomputeFiltered reapplies filterQuery to allPods (called after a reload
-// or a filter-query edit), trying to keep the same pod selected by name —
+// or a filter-query edit), trying to keep the same pod selected —
 // mirrors browse's recomputeVisible/restoreSelection, flattened since this
 // list has no grouping.
 func (m *Model) recomputeFiltered() {
-	name := m.selectedPodName()
+	key := m.selectedPodKey()
 	m.pods = applyPodFilter(m.allPods, m.filterInput.Value())
-	m.restoreSelection(name)
+	m.restoreSelection(key)
 }
 
-func (m Model) selectedPodName() string {
+// selectedPodKey is the selected pod's kube.PodKey — namespace and name,
+// never the bare name: a node's pods span namespaces, and two of them can
+// share a name (postgres-0 in two namespaces), so a name alone could put
+// the cursor back on the wrong row after a reload.
+func (m Model) selectedPodKey() string {
 	row, ok := m.selectedPod()
 	if !ok {
 		return ""
 	}
-	return row.pod.Name
+	return kube.PodKey(row.pod.Namespace, row.pod.Name)
 }
 
-// restoreSelection re-finds name among m.pods (just refiltered), falling
+// restoreSelection re-finds key among m.pods (just refiltered), falling
 // back to a clamped index when it's gone (filtered out or deleted).
-func (m *Model) restoreSelection(name string) {
-	if name != "" {
+func (m *Model) restoreSelection(key string) {
+	if key != "" {
 		for i, row := range m.pods {
-			if row.pod.Name == name {
+			if kube.PodKey(row.pod.Namespace, row.pod.Name) == key {
 				m.selected = i
 				m.clampOffset()
 				return

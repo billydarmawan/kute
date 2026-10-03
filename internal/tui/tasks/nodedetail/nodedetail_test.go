@@ -607,3 +607,30 @@ func TestPgDownPagesWithoutDraining(t *testing.T) {
 		t.Fatalf("pgdown in filter mode: filterActive=%v selected=%d", m.filterActive, m.selected)
 	}
 }
+
+// TestReloadKeepsTheSelectedPodAcrossNamespaces: a node's pods span
+// namespaces, so two can share a name. The cursor is restored by
+// namespace+name — by name alone a reload jumped it to the other
+// postgres-0, and the next action hit that one.
+func TestReloadKeepsTheSelectedPodAcrossNamespaces(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindNode: {testNode("node-a")},
+		kube.KindPod: {
+			schedPodWithContainers("team-a", "postgres-0", "node-a", "db"),
+			schedPodWithContainers("team-b", "postgres-0", "node-a", "db"),
+		},
+	}}
+	m := New(Config{Session: newSession(), Lister: lister, NodeName: "node-a"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+	if len(m.pods) != 2 {
+		t.Fatalf("pods = %d, want 2", len(m.pods))
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	want := m.pods[1].pod.Namespace
+	m.recomputeFiltered()
+	if got, ok := m.selectedPod(); !ok || got.pod.Namespace != want {
+		t.Fatalf("selection moved to %s/%s after a reload, want %s/postgres-0", got.pod.Namespace, got.pod.Name, want)
+	}
+}
