@@ -60,6 +60,12 @@ type crashInspector interface {
 	Conn() kube.ConnState
 }
 
+// The root model reaches liveState.sync as a tui.Model value, and the seam
+// is satisfied only by a type assertion: if these accessors ever moved to
+// pointer receivers, every crash report would silently lose where the user
+// was. Tests use a stub, so this is the one place that would notice.
+var _ crashInspector = tui.Model{}
+
 func newCrashCatcher(inner tea.Model, sink *diag.Sink, live *liveState) crashCatcher {
 	c := crashCatcher{
 		inner:     inner,
