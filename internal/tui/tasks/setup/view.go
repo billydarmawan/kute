@@ -59,7 +59,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:     tui.ModeSetup,
 			PillText: "EDIT PATH",
-			Groups:   [][]tui.KeyHint{{{Key: "enter", Label: "connect"}, {Key: "esc", Label: "cancel"}}},
+			Groups:   [][]tui.KeyHint{{verbs.Open.HintAs("connect"), verbs.Back.HintAs("cancel")}},
 		}
 	}
 	switch m.state {
@@ -500,7 +500,7 @@ func (m Model) editLines(theme tui.Theme, bw int) []string {
 		return nil
 	}
 	label := lipgloss.NewStyle().Foreground(theme.TextFaint).Render("kubeconfig path")
-	hint := lipgloss.NewStyle().Foreground(theme.TextFaint).Render("enter connect · ctrl+v paste · esc cancel")
+	hint := lipgloss.NewStyle().Foreground(theme.TextFaint).Render(verbs.Open.Key + " connect · ctrl+v paste · " + verbs.Back.Key + " cancel")
 	return []string{label, "  " + m.pathInput.View(), components.Pad(hint, bw)}
 }
 
