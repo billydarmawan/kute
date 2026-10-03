@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -156,7 +157,7 @@ func (l *liveState) sync(model tea.Model, msg tea.Msg) {
 			// another goroutine plumbed into the sink.
 			snap.Conn = phase
 			if conn.Err != "" {
-				l.sink.Logf("connection %s: %s", phase, conn.Err)
+				l.sink.Logf("connection %s: %s", phase, capLogText(conn.Err))
 			} else {
 				l.sink.Logf("connection %s", phase)
 			}
@@ -221,4 +222,22 @@ func reportProgramCrash(sink *diag.Sink, err error) error {
 	}
 	_, _ = io.WriteString(crashOut, sink.Footer(path))
 	return ErrCrashed
+}
+
+// maxConnErrLog caps a connection error in the diagnostics stream. For an
+// exec credential plugin ConnState.Err is the plugin's own stderr, which
+// can run long (device-code banners, cloud CLI help text); the head says
+// what failed, and the sink redacts anything token-shaped either way.
+const maxConnErrLog = 1024
+
+// capLogText truncates s to maxConnErrLog bytes on a rune boundary.
+func capLogText(s string) string {
+	if len(s) <= maxConnErrLog {
+		return s
+	}
+	cut := maxConnErrLog
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "… (truncated)"
 }

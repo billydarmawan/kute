@@ -27,7 +27,12 @@ missing. An unwritable path is a startup error rather than a silent downgrade:
 a user who asked for a log and got none has no way to tell.
 
 The file carries context, cluster and namespace names. It is not secret
-material, but it is not nothing either — the bug form says so.
+material, but it is not nothing either — the bug form says so. Every line is
+scrubbed on the way in, to the file and the ring alike (`diag.Redact`): bearer
+tokens, `token=`/`secret:`/`password=`-style values and JWT-shaped strings
+become `[redacted]`, and the home directory becomes `~`. A connection error is
+also capped at 1 KiB before it is logged, since for an exec credential plugin
+it is the plugin's own stderr.
 
 **Without the flag** the stream still fills a bounded in-memory ring (the last
 300 lines), so a crash report from a run that had no `--log-file` still shows

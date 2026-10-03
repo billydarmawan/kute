@@ -30,7 +30,7 @@ func TestLogConfigLoadRecordsBrokenConfig(t *testing.T) {
 	logConfigLoad(sink, &tui.Session{Config: config.Load()})
 
 	recent := strings.Join(sink.Recent(), "\n")
-	if !strings.Contains(recent, config.Path()) || !strings.Contains(recent, "treating every context as PROD") {
+	if !strings.Contains(recent, filepath.Join("~", ".config", "kute", "config.yaml")) || !strings.Contains(recent, "treating every context as PROD") {
 		t.Fatalf("expected the config parse error in the diag stream, got:\n%s", recent)
 	}
 }

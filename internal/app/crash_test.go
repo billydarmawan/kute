@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -356,5 +357,18 @@ func TestPanicHandlerReleasesTheTerminalBeforeTheFooter(t *testing.T) {
 	}
 	if !strings.Contains(footer.String(), report) {
 		t.Errorf("footer does not name the report; got:\n%s", footer.String())
+	}
+}
+
+// TestCapLogTextBoundsPluginStderr: an exec plugin's stderr reaches the
+// stream through ConnState.Err, so it's capped (on a rune boundary) before
+// it's logged (14 L6).
+func TestCapLogTextBoundsPluginStderr(t *testing.T) {
+	if got := capLogText("short"); got != "short" {
+		t.Fatalf("capLogText(short) = %q", got)
+	}
+	got := capLogText(strings.Repeat("é", maxConnErrLog))
+	if !strings.HasSuffix(got, "… (truncated)") || len(got) > maxConnErrLog+len("… (truncated)") || !utf8.ValidString(got) {
+		t.Fatalf("capLogText didn't cap cleanly: len %d, valid %t", len(got), utf8.ValidString(got))
 	}
 }

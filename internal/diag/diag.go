@@ -128,13 +128,16 @@ func (s *Sink) Write(p []byte) (int, error) {
 	if s == nil {
 		return len(p), nil
 	}
+	// Both destinations get the redacted text (see Redact): the log file is
+	// as likely to be attached to a public issue as the crash report is.
+	clean := Redact(string(p))
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.recordLocked(string(p))
+	s.recordLocked(clean)
 	if s.file != nil {
 		// A failed write must not propagate into client-go's logging path,
 		// where it would surface as a second error about the first one.
-		_, _ = s.file.Write(p)
+		_, _ = io.WriteString(s.file, clean)
 	}
 	return len(p), nil
 }

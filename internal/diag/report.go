@@ -199,7 +199,7 @@ func (s *Sink) fields(snap Snapshot) []field {
 		fields = append(fields, field{"mode", "demo (--demo, fake cluster)"})
 	}
 	if s.opts.LogFile != "" {
-		fields = append(fields, field{"log file", s.opts.LogFile})
+		fields = append(fields, field{"log file", tildeHome(s.opts.LogFile)})
 	}
 	return fields
 }
