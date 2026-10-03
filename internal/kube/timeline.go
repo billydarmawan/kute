@@ -1,6 +1,7 @@
 package kube
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"slices"
@@ -240,12 +241,26 @@ func rolloutReplicaSetImage(rs *appsv1.ReplicaSet) string {
 
 // MergeTimeline concatenates every source's entries and sorts them
 // newest-first — 16a/16b's "one clock" (docs/design README.md §16a).
+// Second-granularity ties are common (a restart and its BackOff event, a
+// rollout and its ScalingReplicaSet) and informer list order is
+// map-random, so ties break on the entry's own fields to keep rows from
+// swapping on every reload — the same fix sortEventsNewestFirst made for 9b.
 func MergeTimeline(sources ...[]TimelineEntry) []TimelineEntry {
 	var out []TimelineEntry
 	for _, s := range sources {
 		out = append(out, s...)
 	}
-	slices.SortFunc(out, func(a, b TimelineEntry) int { return b.Time.Compare(a.Time) })
+	slices.SortFunc(out, func(a, b TimelineEntry) int {
+		return cmp.Or(
+			b.Time.Compare(a.Time),
+			cmp.Compare(a.Kind, b.Kind),
+			cmp.Compare(a.Namespace, b.Namespace),
+			cmp.Compare(a.Object, b.Object),
+			cmp.Compare(a.Reason, b.Reason),
+			cmp.Compare(a.Message, b.Message),
+			cmp.Compare(b.Revision, a.Revision),
+		)
+	})
 	return out
 }
 

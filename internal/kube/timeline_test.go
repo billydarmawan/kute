@@ -1,6 +1,8 @@
 package kube
 
 import (
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -105,6 +107,24 @@ func TestMergeTimelineSortsNewestFirst(t *testing.T) {
 	}
 	if merged[0].Reason != "new" || merged[1].Reason != "mid" || merged[2].Reason != "old" {
 		t.Fatalf("merged not newest-first: %+v", merged)
+	}
+}
+
+func TestMergeTimelineBreaksSameSecondTiesDeterministically(t *testing.T) {
+	// Enough same-second entries that the sort can't fall back to its
+	// small-slice insertion sort, which happens to be stable.
+	now := time.Now().Truncate(time.Second)
+	var entries []TimelineEntry
+	for i := range 40 {
+		entries = append(entries, TimelineEntry{Time: now, Kind: TimelineEvent, Object: "Pod/web-1", Reason: fmt.Sprintf("R%02d", i)})
+	}
+	reversed := slices.Clone(entries)
+	slices.Reverse(reversed)
+	a, b := MergeTimeline(entries), MergeTimeline(reversed)
+	for i := range a {
+		if a[i].Reason != b[i].Reason {
+			t.Fatalf("tie order depends on input order at %d: %s vs %s", i, a[i].Reason, b[i].Reason)
+		}
 	}
 }
 
