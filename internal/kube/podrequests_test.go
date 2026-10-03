@@ -36,6 +36,7 @@ func TestPodEffectiveRequests(t *testing.T) {
 	tests := []struct {
 		name    string
 		spec    corev1.PodSpec
+		status  corev1.PodStatus
 		wantCPU int64
 		wantMem int64
 	}{
@@ -113,6 +114,69 @@ func TestPodEffectiveRequests(t *testing.T) {
 			wantMem: 384 * mi,
 		},
 		{
+			name: "pod-level requests replace the container aggregate",
+			spec: corev1.PodSpec{
+				Resources: &corev1.ResourceRequirements{Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("2Gi"),
+				}},
+				Containers: []corev1.Container{ctr("app", "200m", "256Mi")},
+				Overhead:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m")},
+			},
+			wantCPU: 1050,
+			wantMem: 2048 * mi,
+		},
+		{
+			name: "a pod-level request only overrides the resource it sets",
+			spec: corev1.PodSpec{
+				Resources: &corev1.ResourceRequirements{Requests: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1"),
+				}},
+				Containers: []corev1.Container{ctr("app", "200m", "256Mi")},
+			},
+			wantCPU: 1000,
+			wantMem: 256 * mi,
+		},
+		{
+			name: "an in-place resize still in flight holds the larger of spec and status",
+			spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{sidecar("proxy", "100m", "128Mi")},
+				// Resized down in spec; the kubelet hasn't caught up.
+				Containers: []corev1.Container{ctr("app", "200m", "256Mi")},
+			},
+			status: corev1.PodStatus{
+				InitContainerStatuses: []corev1.ContainerStatus{{
+					Name:               "proxy",
+					AllocatedResources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("300m")},
+				}},
+				ContainerStatuses: []corev1.ContainerStatus{{
+					Name:               "app",
+					AllocatedResources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+					Resources: &corev1.ResourceRequirements{Requests: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}},
+				}},
+			},
+			wantCPU: 800,
+			wantMem: 128*mi + 1024*mi,
+		},
+		{
+			name: "an infeasible resize counts only what the node granted",
+			spec: corev1.PodSpec{Containers: []corev1.Container{ctr("app", "8", "64Gi")}},
+			status: corev1.PodStatus{
+				Conditions: []corev1.PodCondition{{Type: corev1.PodResizePending, Status: corev1.ConditionTrue, Reason: corev1.PodReasonInfeasible}},
+				ContainerStatuses: []corev1.ContainerStatus{{
+					Name: "app",
+					AllocatedResources: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					},
+				}},
+			},
+			wantCPU: 500,
+			wantMem: 1024 * mi,
+		},
+		{
 			name:    "no requests at all",
 			spec:    corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}},
 			wantCPU: 0,
@@ -122,7 +186,7 @@ func TestPodEffectiveRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cpu, mem := PodEffectiveRequests(&corev1.Pod{Spec: tt.spec})
+			cpu, mem := PodEffectiveRequests(&corev1.Pod{Spec: tt.spec, Status: tt.status})
 			if cpu != tt.wantCPU || mem != tt.wantMem {
 				t.Errorf("PodEffectiveRequests = %dm/%d bytes, want %dm/%d bytes", cpu, mem, tt.wantCPU, tt.wantMem)
 			}
