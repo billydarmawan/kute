@@ -149,10 +149,12 @@ func (m Model) load() tea.Cmd {
 		if err != nil {
 			return loadedMsg{epoch: epoch, err: err}
 		}
-		// Narrow to this release before decoding: the cache is cluster-wide,
-		// this runs again on every Secret change and every cache-sync retry,
-		// and decoding a revision is base64 + gunzip + JSON + a YAML
-		// re-marshal that HelmReleaseHistory would then throw away.
+		// Narrow to this release before decoding: the cache holds every
+		// release in the namespace (every namespace's, when the synced
+		// all-namespaces cache serves the read), this runs again on every
+		// Secret change and every cache-sync retry, and decoding a revision
+		// is base64 + gunzip + JSON + a YAML re-marshal that
+		// HelmReleaseHistory would then throw away.
 		mine := kube.HelmReleaseSecretsFor(secrets, namespace, name)
 		history := kube.HelmReleaseHistory(kube.DecodeHelmReleases(mine), namespace, name)
 		return loadedMsg{epoch: epoch, revisions: annotateLatest(history, charts)}

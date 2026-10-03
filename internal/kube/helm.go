@@ -489,9 +489,10 @@ func decodeLatestHelmReleases(objs []runtime.Object, decode func(*corev1.Secret)
 // HelmReleaseSecretsFor narrows release Secrets to one release's own
 // revisions, before anything decodes them.
 //
-// The release cache is cluster-wide, and decoding is not cheap — base64,
+// The release cache holds every release in the namespace read (every
+// namespace, in all-namespaces mode), and decoding is not cheap — base64,
 // gunzip, JSON, then a YAML re-marshal of the values map, per revision of
-// every release in every namespace. 18a's history screen wants one release,
+// each of them. 18a's history screen wants one release,
 // and it re-reads on every Secret change event and on every cache-sync
 // retry tick, so doing that filtering after the decode (HelmReleaseHistory
 // alone) throws away nearly all of the work it just paid for.
