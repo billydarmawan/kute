@@ -204,9 +204,9 @@ func (m Model) editValueCell(theme tui.Theme, width int) string {
 	bold := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Background(theme.SelBg)
 	dim := lipgloss.NewStyle().Foreground(theme.TextDim).Background(theme.SelBg)
 	if e.masked {
-		return bold.Render(secretDataMaskGlyph) + accent.Render(tui.GlyphSelBar) + dim.Render(" · masked · M reveal")
+		return bold.Render(secretDataMaskGlyph) + accent.Render(tui.GlyphSelBar) + dim.Render(" · masked · ctrl-x reveal")
 	}
-	return e.valueInput.ViewWidth(width) + dim.Render(" · visible while editing · M re-mask")
+	return e.valueInput.ViewWidth(width) + dim.Render(" · visible while editing · ctrl-x re-mask")
 }
 
 // pendingEditConfirm reports whether an existing key's PROD y/N is

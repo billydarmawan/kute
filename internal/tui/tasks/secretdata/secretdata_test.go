@@ -428,6 +428,22 @@ func TestCtrlXTogglesMaskAndPlainXStaysTypeable(t *testing.T) {
 	}
 }
 
+// The edit row's inline hint names the mask toggle's real key — a bare M
+// would just type a letter into the buffer.
+func TestEditRowHintNamesCtrlXForTheMaskToggle(t *testing.T) {
+	secret := secretObj("nva-stage", "nva-secrets", map[string][]byte{"TOKEN": []byte("abc")})
+	m := newModel(t, newSession(), secret, &fakeMutator{secret: secret})
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if body := plain(m.Render()); !strings.Contains(body, "ctrl-x re-mask") || strings.Contains(body, "M re-mask") {
+		t.Fatalf("edit row hint should name ctrl-x:\n%s", body)
+	}
+	m = step(t, m, tea.KeyPressMsg{Text: "ctrl+x"})
+	if body := plain(m.Render()); !strings.Contains(body, "ctrl-x reveal") || strings.Contains(body, "M reveal") {
+		t.Fatalf("masked edit row hint should name ctrl-x:\n%s", body)
+	}
+}
+
 func TestEnterOnExistingRowDecodesAndEditsNonProdAppliesImmediately(t *testing.T) {
 	secret := secretObj("nva-stage", "nva-secrets", map[string][]byte{"DATABASE_URL": []byte("postgres://old")})
 	mut := &fakeMutator{secret: secret}
