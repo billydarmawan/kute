@@ -56,15 +56,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
+		// Debounced like cronjobdetail/jobattempts: every CronJob event
+		// cluster-wide lands here, and a burst should cost one reload.
 		if msg.Kind == kube.KindCronJob {
 			m.reloadEpoch++
-			return m, m.load()
+			return m, m.scheduleReload(m.reloadEpoch)
 		}
 	case kube.ConnStateMsg:
 		m.conn = kube.ConnState(msg)
 		m.actions.SetOffline(m.conn.Offline())
 	case loadedMsg:
 		return m.applyLoaded(msg)
+	case reloadDueMsg:
+		if msg.epoch == m.reloadEpoch {
+			return m, m.load()
+		}
 	case tui.CacheSyncRetryMsg:
 		if msg.Gen == m.reloadEpoch {
 			return m, m.load()
@@ -154,7 +160,25 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 		resourceVersion: msg.cj.resourceVersion,
 		generation:      msg.cj.generation,
 	}
-	m.accepted = accepted
+	switch {
+	case m.supersededRV != "" && accepted.resourceVersion == m.supersededRV:
+		// A cache snapshot from before our own apply/undo landed (any
+		// unrelated CronJob event can trigger this reload in that window):
+		// handleResult already took m.accepted from the mutation response,
+		// and reverting it here would show a phantom pending change and
+		// make the next undo 409 against a stale resourceVersion.
+	default:
+		m.supersededRV = ""
+		baselineMoved := m.accepted.schedule != accepted.schedule ||
+			m.accepted.timezone != accepted.timezone ||
+			m.accepted.hasTimezone != accepted.hasTimezone
+		m.accepted = accepted
+		if m.initialized && baselineMoved {
+			// An external edit moved the baseline under the typed buffers:
+			// re-derive the pending-change gate and WHAT CHANGES against it.
+			m.recomputeAll()
+		}
+	}
 	if !m.initialized {
 		// The very first load seeds the editable buffers; every later
 		// reload (a watch event, or our own post-apply reconciliation)
@@ -415,6 +439,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 		return nil
 	}
 	result := *msg.CronJobSchedule
+	m.supersededRV = pc.before.resourceVersion
 	m.accepted = acceptedPair{
 		schedule:        result.Schedule,
 		timezone:        result.TimeZone,

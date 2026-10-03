@@ -564,3 +564,59 @@ func TestTickUpdatesClockWithoutIssuingAnyListRawCall(t *testing.T) {
 		t.Fatalf("tick issued %d ListRaw calls, want 0", lister.calls-callsBefore)
 	}
 }
+
+// A cache snapshot that predates our own apply (the reload an unrelated
+// CronJob event triggers in that window) must not revert m.accepted to the
+// pre-apply schedule/resourceVersion.
+func TestStaleCacheSnapshotAfterApplyKeepsAcceptedFromResponse(t *testing.T) {
+	t.Parallel()
+	c := newFakeCronJob("default", "nightly", "0 2 * * *", "")
+	m := newModel(t, c, "default", "nightly")
+	preRV := m.accepted.resourceVersion
+
+	m = clearInput(t, m)
+	m = typeText(t, m, "*/15 * * * *")
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	applied := m.accepted
+	if applied.resourceVersion == preRV {
+		t.Fatalf("apply did not move the resourceVersion (still %q)", preRV)
+	}
+
+	m = step(t, m, loadedMsg{epoch: m.reloadEpoch, found: true, cj: &cronJobSnapshot{
+		schedule: "0 2 * * *", resourceVersion: preRV, generation: 1,
+	}})
+	if m.accepted != applied {
+		t.Fatalf("accepted = %+v after a stale snapshot, want the apply response's %+v", m.accepted, applied)
+	}
+	if m.hasPendingChange() {
+		t.Fatalf("a stale snapshot produced a phantom pending change")
+	}
+}
+
+// An external edit moves the baseline under the typed buffer: the pending-
+// change gate and WHAT CHANGES must be re-derived against the new one.
+func TestExternalEditRecomputesAgainstNewBaseline(t *testing.T) {
+	t.Parallel()
+	c := newFakeCronJob("default", "nightly", "0 2 * * *", "")
+	m := newModel(t, c, "default", "nightly")
+	m = clearInput(t, m)
+	m = typeText(t, m, "*/15 * * * *")
+	if !m.comparisonDirty {
+		t.Fatalf("expected a dirty comparison after typing a change")
+	}
+	m.comparisonDirty = false // as if the comparison had already landed
+	m.comparison = &scheduleComparison{}
+
+	m = step(t, m, loadedMsg{epoch: m.reloadEpoch, found: true, cj: &cronJobSnapshot{
+		schedule: "*/15 * * * *", resourceVersion: "9", generation: 2,
+	}})
+	if m.accepted.schedule != "*/15 * * * *" {
+		t.Fatalf("accepted.schedule = %q, want the external edit", m.accepted.schedule)
+	}
+	if m.comparison != nil {
+		t.Fatalf("WHAT CHANGES still shows a diff against the old baseline")
+	}
+	if m.comparisonDirty || m.hasPendingChange() {
+		t.Fatalf("buffer now matches the new baseline; want no pending change (dirty=%v)", m.comparisonDirty)
+	}
+}

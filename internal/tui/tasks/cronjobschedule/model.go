@@ -135,6 +135,11 @@ type Model struct {
 	lastError     string
 	conflict      bool // last apply failed with Conflict — 'r' offers a reload
 
+	// supersededRV is the resourceVersion a successful apply/undo replaced:
+	// a cache snapshot still carrying it predates that write, so
+	// applyLoaded keeps the mutation response's m.accepted over it.
+	supersededRV string
+
 	now time.Time // UI clock (tea.Tick); relative ETA text only, never a reload trigger
 
 	conn        kube.ConnState

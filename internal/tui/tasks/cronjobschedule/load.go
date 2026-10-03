@@ -1,11 +1,29 @@
 package cronjobschedule
 
 import (
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
 )
+
+// reloadDebounce coalesces bursts of watch events into one reload — same
+// value as cronjobdetail/jobattempts' own reloadDebounce, duplicated per the
+// repo's package-local-seam convention.
+const reloadDebounce = 250 * time.Millisecond
+
+// reloadDueMsg fires scheduleReload's tick; epoch drops a superseded one.
+type reloadDueMsg struct{ epoch int }
+
+// scheduleReload arranges one reloadDueMsg reloadDebounce from now.
+func (m Model) scheduleReload(epoch int) tea.Cmd {
+	return tea.Tick(reloadDebounce, func(time.Time) tea.Msg {
+		return reloadDueMsg{epoch: epoch}
+	})
+}
 
 // findCronJob resolves name against objs (a KindCronJob ListRaw reply),
 // returning a cronJobSnapshot of just the fields this screen needs.
