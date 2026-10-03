@@ -80,6 +80,22 @@ func TestRolloutRestartCoversStatefulSetAndDaemonSet(t *testing.T) {
 	}
 }
 
+// TestRolloutRestartRejectsOtherKinds pins that a kind without a rollout
+// never falls through to patching a same-named Deployment.
+func TestRolloutRestartRejectsOtherKinds(t *testing.T) {
+	t.Parallel()
+	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: "default"}}
+	c, cs := newTestCluster(deploy)
+	if err := c.RolloutRestart(t.Context(), KindCronJob, "default", "nightly"); err == nil {
+		t.Fatalf("expected an error restarting a CronJob")
+	}
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "patch" {
+			t.Fatalf("RolloutRestart(CronJob) sent a patch: %v", a)
+		}
+	}
+}
+
 func TestRolloutRestartRejectsEmptyName(t *testing.T) {
 	t.Parallel()
 	c, _ := newTestCluster()

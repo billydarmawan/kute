@@ -436,12 +436,17 @@ func (c *Cluster) RolloutRestart(ctx context.Context, kind ResourceKind, namespa
 	)
 	var err error
 	switch kind {
+	case KindDeployment:
+		_, err = c.clientset.AppsV1().Deployments(namespace).Patch(ctx, name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
 	case KindStatefulSet:
 		_, err = c.clientset.AppsV1().StatefulSets(namespace).Patch(ctx, name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
 	case KindDaemonSet:
 		_, err = c.clientset.AppsV1().DaemonSets(namespace).Patch(ctx, name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
 	default:
-		_, err = c.clientset.AppsV1().Deployments(namespace).Patch(ctx, name, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
+		// Never fall back to a Deployment of the same name: a CronJob or
+		// any other kind reaching here would silently restart the wrong
+		// object.
+		return fmt.Errorf("cannot restart rollout of %s %q: not a Deployment, StatefulSet or DaemonSet", kind, name)
 	}
 	return err
 }
