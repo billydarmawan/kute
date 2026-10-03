@@ -43,9 +43,9 @@ func (m Model) Keybar() tui.Keybar {
 			Pill:     tui.ModeBrowse,
 			PillText: "ADD KEY",
 			Groups: [][]tui.KeyHint{{
-				{Key: "↵", Label: "apply"},
+				verbs.Open.HintAs("apply"),
 				verbs.RestartConfigMapConsumers.Hint(),
-				{Key: "esc", Label: "discard"},
+				verbs.Back.HintAs("discard"),
 			}},
 		}
 	}
@@ -54,9 +54,9 @@ func (m Model) Keybar() tui.Keybar {
 			Pill:     tui.ModeBrowse,
 			PillText: "EDIT VALUE",
 			Groups: [][]tui.KeyHint{{
-				{Key: "↵", Label: "apply"},
+				verbs.Open.HintAs("apply"),
 				verbs.RestartConfigMapConsumers.Hint(),
-				{Key: "esc", Label: "discard"},
+				verbs.Back.HintAs("discard"),
 			}},
 		}
 	}
@@ -67,21 +67,21 @@ func (m Model) Keybar() tui.Keybar {
 			Groups: [][]tui.KeyHint{{
 				verbs.ConfigMapBufferApply.Hint(),
 				verbs.RestartConfigMapConsumers.Hint(),
-				{Key: "esc", Label: "discard"},
+				verbs.Back.HintAs("discard"),
 			}},
 		}
 	}
 
-	groups := [][]tui.KeyHint{{{Key: "↑↓", Label: "move"}}}
+	groups := [][]tui.KeyHint{{verbs.Move.Hint()}}
 	if m.mutator != nil && !verbs.AddConfigMapKey.HiddenWhileOffline(m.conn.Offline()) {
-		hints := []tui.KeyHint{{Key: "↵", Label: "edit"}, verbs.AddConfigMapKey.Hint(), verbs.RemoveConfigMapKey.Hint()}
+		hints := []tui.KeyHint{verbs.Open.HintAs("edit"), verbs.AddConfigMapKey.Hint(), verbs.RemoveConfigMapKey.Hint()}
 		row, ok := m.selectedKeyRow()
 		if ok && row.binary {
 			// A binaryData row is read-only here: only add applies.
 			hints = []tui.KeyHint{verbs.AddConfigMapKey.Hint()}
 		}
 		if ok && row.multiline() {
-			hints = append(hints, tui.KeyHint{Key: "e", Label: "buffer editor"})
+			hints = append(hints, verbs.ConfigMapBufferEdit.Hint())
 		}
 		groups = append(groups, hints)
 	}

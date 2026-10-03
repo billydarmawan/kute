@@ -38,10 +38,10 @@ func (m Model) Keybar() tui.Keybar {
 			Pill:     tui.ModeBrowse,
 			PillText: "ADD KEY",
 			Groups: [][]tui.KeyHint{{
-				{Key: "↵", Label: "apply"},
-				{Key: verbs.SecretMaskToggle.Key, Label: "re-mask input"},
+				verbs.Open.HintAs("apply"),
+				verbs.SecretMaskToggle.HintAs("re-mask input"),
 				verbs.SecretPaste.Hint(),
-				{Key: "esc", Label: "discard"},
+				verbs.Back.HintAs("discard"),
 			}},
 		}
 	}
@@ -50,18 +50,18 @@ func (m Model) Keybar() tui.Keybar {
 			Pill:     tui.ModeBrowse,
 			PillText: "EDIT VALUE",
 			Groups: [][]tui.KeyHint{{
-				{Key: "↵", Label: "save"},
+				verbs.Open.HintAs("save"),
 				verbs.SecretMaskToggle.Hint(),
 				verbs.SecretPaste.Hint(),
-				{Key: "esc", Label: "cancel"},
+				verbs.Back.HintAs("cancel"),
 			}},
 		}
 	}
 
-	groups := [][]tui.KeyHint{{{Key: "↑↓", Label: "move"}}}
+	groups := [][]tui.KeyHint{{verbs.Move.Hint()}}
 	if m.mutator != nil && !verbs.AddSecretKey.HiddenWhileOffline(m.conn.Offline()) {
 		groups = append(groups, []tui.KeyHint{
-			{Key: "↵", Label: "edit"}, verbs.AddSecretKey.Hint(), verbs.RemoveSecretKey.Hint(),
+			verbs.Open.HintAs("edit"), verbs.AddSecretKey.Hint(), verbs.RemoveSecretKey.Hint(),
 		})
 	}
 

@@ -228,7 +228,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.beginEditRow(row)
 			}
 		}
-	case "e":
+	case verbs.ConfigMapBufferEdit.Key:
 		// 'e' explicitly opens the buffer editor — only meaningful (and only
 		// offered in the keybar) on a multi-line row; on a single-line row
 		// it's already reachable via '↵'.
