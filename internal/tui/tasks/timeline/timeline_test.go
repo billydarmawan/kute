@@ -1477,6 +1477,28 @@ func TestArgoSyncRowResolvesFromApplicationStatus(t *testing.T) {
 	}
 }
 
+// OperationCompleted is a generic reason: another controller's event using
+// it stays an ordinary row rather than vanishing into the Argo sync path,
+// which drops anything that isn't an Application.
+func TestNonArgoOperationCompletedEventStaysAPlainRow(t *testing.T) {
+	events := []kube.Event{
+		{Type: "Warning", Reason: "OperationCompleted", Object: "Backup/nightly", ObjectAPIVersion: "velero.io/v1", Namespace: "default", Message: "backup finished", Count: 1, LastSeen: time.Now()},
+		{Type: "Warning", Reason: "OperationCompleted", Object: "Application/other", ObjectAPIVersion: "app.example.io/v1", Namespace: "default", Message: "other app done", Count: 1, LastSeen: time.Now()},
+	}
+	m := New(Config{Session: newSession(), Events: fakeEvents{events: events}, Lister: fakeLister{}, Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	if len(m.rows) != 2 {
+		t.Fatalf("rows = %+v, want both OperationCompleted events as plain rows", m.rows)
+	}
+	for _, r := range m.rows {
+		if r.Kind != kube.TimelineEvent {
+			t.Fatalf("row %+v, want a plain event row", r)
+		}
+	}
+}
+
 // TestArgoSyncByFallsBackToAutoSync pins §34a's "was this a human or the
 // machine?" distinction: an automated sync reads as "auto-sync", never
 // fabricated as anyone's name.

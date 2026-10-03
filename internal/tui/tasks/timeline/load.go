@@ -486,10 +486,16 @@ func sourceRevisionOf(ctx context.Context, lister resources.RawLister, namespace
 const argoApplicationKind = kube.ResourceKind("Application")
 
 // splitArgoSyncEvents partitions events into those reporting a completed
-// Argo sync (which become §34a sync rows) and the rest.
+// Argo sync (which become §34a sync rows) and the rest. Only an Argo
+// Application's event is diverted: OperationCompleted is a generic reason
+// another controller may use too, and TimelineFromArgoEvents drops anything
+// that isn't an Application, so diverting it would lose it from the feed.
 func splitArgoSyncEvents(events []kube.Event) (argo, plain []kube.Event) {
 	for _, e := range events {
-		if e.Reason == kube.ArgoOperationCompletedReason {
+		kind, _ := splitObject(e.Object)
+		group, _, _ := strings.Cut(e.ObjectAPIVersion, "/")
+		if e.Reason == kube.ArgoOperationCompletedReason && kind == argoApplicationKind &&
+			(e.ObjectAPIVersion == "" || group == kube.ArgoGroup) {
 			argo = append(argo, e)
 			continue
 		}
