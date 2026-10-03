@@ -203,6 +203,28 @@ func (c *Cluster) ListRaw(_ context.Context, kind kube.ResourceKind, namespace s
 	return out, nil
 }
 
+// CountLive mirrors *kube.Cluster.CountLive: a count with no informer behind
+// it, which for the fake means counting the seeded map. Without it, --demo and
+// every test built on the fake took the palette's cache-count fallback and the
+// production LiveCounter path ran nowhere outside a real cluster. Like the
+// real one it ignores namespace for a cluster-scoped kind.
+func (c *Cluster) CountLive(_ context.Context, kind kube.ResourceKind, namespace string) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	namespace = c.scopeKeyFor(kind, namespace).namespace
+	n := 0
+	for _, obj := range c.objects[kind] {
+		if namespace != "" {
+			accessor, err := apimeta.Accessor(obj)
+			if err != nil || accessor.GetNamespace() != namespace {
+				continue
+			}
+		}
+		n++
+	}
+	return n, nil
+}
+
 // Synced mirrors *kube.Cluster.Synced. The fake's objects are seeded
 // synchronously, so it reports connected unless a test says otherwise.
 func (c *Cluster) Synced() bool {

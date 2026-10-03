@@ -10,6 +10,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1205,5 +1206,40 @@ func TestPatchDataEnforcesResourceVersion(t *testing.T) {
 	}
 	if _, err := c.PatchSecretData(t.Context(), "default", "sec", "1", "K", "x", false); !apierrors.IsConflict(err) {
 		t.Fatalf("expected a Conflict against the stale version, got %v", err)
+	}
+}
+
+// TestCountLiveMatchesListRaw: the fake's CountLive is what --demo's goto
+// palette counts through, so it must agree with what the list then shows —
+// namespace-filtered for a namespaced kind, ignoring the namespace for a
+// cluster-scoped one, as *kube.Cluster.CountLive does.
+func TestCountLiveMatchesListRaw(t *testing.T) {
+	t.Parallel()
+	c := NewDemo()
+	pods, _ := c.ListRaw(t.Context(), kube.KindPod, "")
+	if len(pods) == 0 {
+		t.Fatal("demo fixtures have no pods to count")
+	}
+	accessor, _ := apimeta.Accessor(pods[0])
+	ns := accessor.GetNamespace()
+	nsPods, _ := c.ListRaw(t.Context(), kube.KindPod, ns)
+	nodes, _ := c.ListRaw(t.Context(), kube.KindNode, "")
+
+	for _, tc := range []struct {
+		kind      kube.ResourceKind
+		namespace string
+		want      int
+	}{
+		{kube.KindPod, "", len(pods)},
+		{kube.KindPod, ns, len(nsPods)},
+		{kube.KindNode, ns, len(nodes)},
+	} {
+		got, err := c.CountLive(t.Context(), tc.kind, tc.namespace)
+		if err != nil {
+			t.Fatalf("CountLive(%s, %q): %v", tc.kind, tc.namespace, err)
+		}
+		if got != tc.want {
+			t.Errorf("CountLive(%s, %q) = %d, want %d", tc.kind, tc.namespace, got, tc.want)
+		}
 	}
 }

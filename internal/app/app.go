@@ -573,11 +573,11 @@ var (
 	_ helmdetail.HelmSecretLister  = (*fake.Cluster)(nil)
 	_ routetable.TLSSecretLister   = (*fake.Cluster)(nil)
 	_ certchain.TLSSecretLister    = (*fake.Cluster)(nil)
-	// This block has no tui.ScopedChecker or tui.LiveCounter assertion for
-	// fake.Cluster. The fake has no informers to scope: SwitchNamespace only
-	// changes which objects ListRaw filters to (see fake.go's own field
-	// comment). The fake also has no server to count against. Scoped() and
-	// CountLive() would have nothing honest to report. --demo never accepts
+	_ tui.LiveCounter              = (*fake.Cluster)(nil)
+	// This block has no tui.ScopedChecker assertion for fake.Cluster. The
+	// fake has no informers to scope: SwitchNamespace only changes which
+	// objects ListRaw filters to (see fake.go's own field comment), so
+	// Scoped() would have nothing honest to report. --demo never accepts
 	// --namespace-scoped. Scoped-mode UI behavior — the 403 card's
 	// ScopedChecker read — is already tested against purpose-built lister
 	// doubles in browse/hints_test.go (scopedRecordingLister), not against

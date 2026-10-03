@@ -90,7 +90,7 @@ func (s *Session) CachedCount(kind kube.ResourceKind, namespace string) int {
 	if n, ok := s.counts.get(kind, namespace); ok {
 		return n
 	}
-	// Without a live counter (--demo's fake, tests), fall back to counting
+	// Without a live counter (lister doubles in tests), fall back to counting
 	// whatever cache is already populated. That reads as 0 for a kind whose
 	// informer hasn't started, which is why it is only a fallback.
 	if s.Lister != nil && s.liveCounter() == nil {
