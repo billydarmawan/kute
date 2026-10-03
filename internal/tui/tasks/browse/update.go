@@ -307,6 +307,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.recomputeVisible()
 			}
 		}
+	case actions.RunningMsg:
+		// A slow write's keybar line; the returned command is the only
+		// path its ResultMsg arrives by.
+		return m, m.actions.HandleRunning(msg)
 	case actions.BulkResultMsg:
 		// A marked-set verb's per-target outcomes — 20a's delete
 		// (bulk.go's beginBulkDelete) or §36c's suspend/resume

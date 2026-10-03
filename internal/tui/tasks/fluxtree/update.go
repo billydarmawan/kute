@@ -59,6 +59,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case loadedMsg:
 		return m, m.applyLoaded(msg)
+	case actions.RunningMsg:
+		// A slow write's keybar line; the returned command is the only
+		// path its ResultMsg arrives by.
+		return m, m.actionsCtl.HandleRunning(msg)
 	case actions.ResultMsg:
 		return m, m.handleResult(msg)
 	case tea.KeyPressMsg:

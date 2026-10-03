@@ -78,6 +78,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+	case actions.RunningMsg:
+		// A slow write's keybar line; the returned command is the only
+		// path its ResultMsg arrives by.
+		return m, m.actions.HandleRunning(msg)
 	case actions.ResultMsg:
 		m.actions.HandleResult(msg)
 		// This screen's own will-run strip is the result's surface (the

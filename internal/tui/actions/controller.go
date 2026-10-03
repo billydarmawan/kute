@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/kute-dev/kute/internal/tui/components/textfield"
@@ -154,11 +155,19 @@ type Controller struct {
 	// so the gate lives in the one place every mutating verb funnels
 	// through, not duplicated per screen/per-key.
 	offline bool
+	// id tells this controller's RunningMsgs from another's (New assigns it).
+	id uint64
+	// running is a slow write's still-running keybar line (running.go):
+	// set by HandleRunning, cleared when that write's result lands.
+	running running
+	// slowAfter/slowEvery override defaultSlowAfter/defaultSlowEvery
+	// (tests only; zero means the default).
+	slowAfter, slowEvery time.Duration
 }
 
 // New builds a Controller that executes through mutator (which may be nil).
 func New(mutator kube.Mutator) Controller {
-	return Controller{mutator: mutator}
+	return Controller{mutator: mutator, id: controllerIDs.Add(1)}
 }
 
 // SetOffline records whether the connection is mid-outage. Call it from the
@@ -193,9 +202,16 @@ func (c Controller) Message() string { return c.message }
 // success (green, same lifetime — "cleared the moment you do anything
 // else", docs/design README.md §26a). Empty while a confirmation is
 // showing, since the keybar is the confirm prompt then.
+//
+// With no outcome to show, a write that has been in flight for over a
+// second shows as a dim "still running" line with its elapsed time
+// (running.go) until its own result replaces it.
 func (c Controller) Result() tui.ResultLine {
 	if c.Active() {
 		return tui.ResultLine{}
+	}
+	if c.result.Empty() {
+		return c.runningLine()
 	}
 	return c.result
 }
@@ -445,6 +461,7 @@ func (c *Controller) stale(seq uint64) bool {
 // Begin) only reports its outcome line: it never clears the newer pending
 // confirm or execution.
 func (c *Controller) HandleResult(msg ResultMsg) {
+	c.settle(msg.Seq)
 	label := summary(msg.Label)
 	var message string
 	if msg.Err != nil {
@@ -481,6 +498,7 @@ func summary(label string) string {
 // only the failed rows marked) read msg.Results/msg.Failed() themselves —
 // this only drives the controller's own State()/Message().
 func (c *Controller) HandleBulkResult(msg BulkResultMsg) {
+	c.settle(msg.Seq)
 	message := c.reportBulkResult(msg)
 	failed := msg.Failed()
 	if c.stale(msg.Seq) {
@@ -539,7 +557,22 @@ func (c Controller) Prompt() string {
 	return fmt.Sprintf("%s %s? (y) confirm  (esc) cancel", capitalize(s.Verb), target)
 }
 
+// execute dispatches the pending action's write, watched by watchSlow so a
+// slow one reports itself on the keybar while it runs (review 10 L6).
 func (c *Controller) execute() tea.Cmd {
+	after, every := c.slowAfter, c.slowEvery
+	if after <= 0 {
+		after = defaultSlowAfter
+	}
+	if every <= 0 {
+		every = defaultSlowEvery
+	}
+	text := runningText(c.pending.Scope)
+	return watchSlow(c.dispatch(), c.id, c.seq, text, after, every)
+}
+
+// dispatch builds the pending action's write command.
+func (c *Controller) dispatch() tea.Cmd {
 	action := *c.pending
 	mutator := c.mutator
 	seq := c.seq

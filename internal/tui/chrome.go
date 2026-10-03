@@ -211,10 +211,14 @@ type Keybar struct {
 
 // ResultLine is a mutating action's outcome as the keybar shows it: a
 // failure renders red behind GlyphFailed, a success green behind
-// GlyphSucceeded. Text is folded onto one line, never wrapped.
+// GlyphSucceeded. Running is the line before there is an outcome — a write
+// still in flight past actions.Controller's threshold — rendered dim behind
+// GlyphProbing where a success would go. Text is folded onto one line,
+// never wrapped.
 type ResultLine struct {
-	Text   string
-	Failed bool
+	Text    string
+	Failed  bool
+	Running bool
 }
 
 // Empty reports whether there is no outcome to show.
@@ -540,6 +544,11 @@ func renderKeybarV2(k Keybar, theme Theme, width int) string {
 			// will-run note, and keeps the hints: it's low-stakes, and a
 			// narrow keybar may drop it the way it drops any right-side note.
 			right = lipgloss.NewStyle().Foreground(theme.Good).Render(GlyphSucceeded + " " + singleLine(k.Result.Text))
+			if k.Result.Running {
+				// Not an outcome yet: dim, behind the outstanding-request
+				// glyph, in the same slot the outcome will take.
+				right = dim.Render(GlyphProbing + " " + singleLine(k.Result.Text))
+			}
 		}
 		if note != "" {
 			if right != "" {

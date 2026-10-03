@@ -15,8 +15,11 @@ import (
 // makes every failed delete/drain/cordon/restart look exactly like a
 // success. Every task package with a Controller field must (1) implement
 // tui.ActionResulter by returning the controller's Result() — tui.Frame
-// renders it on the keybar — and (2) DismissResult on a key press, so the
-// line lasts until the user acts. Static on purpose: a new screen fails
+// renders it on the keybar — (2) DismissResult on a key press, so the
+// line lasts until the user acts, and (3) route actions.RunningMsg to
+// HandleRunning (review 10 L6): a slow write's ResultMsg arrives through
+// the command HandleRunning returns, so a screen that drops it never hears
+// how the write ended. Static on purpose: a new screen fails
 // here before anyone has to remember to write its own failed-result test.
 func TestEveryControllerScreenRendersResults(t *testing.T) {
 	root := filepath.Join("..", "tasks")
@@ -39,7 +42,11 @@ func TestEveryControllerScreenRendersResults(t *testing.T) {
 			t.Errorf("%s embeds actions.Controller (%v) but has no ActionResult() returning its Result() — "+
 				"a failed mutation would render like a success", e.Name(), fields)
 		}
-		if !callsDismiss(pkg, fields) {
+		if !callsMethod(pkg, fields, "HandleRunning") {
+			t.Errorf("%s embeds actions.Controller (%v) but never routes actions.RunningMsg to HandleRunning() — "+
+				"a slow write's result would never arrive", e.Name(), fields)
+		}
+		if !callsMethod(pkg, fields, "DismissResult") {
 			t.Errorf("%s embeds actions.Controller (%v) but never calls DismissResult() — "+
 				"the result line would never clear", e.Name(), fields)
 		}
@@ -134,11 +141,11 @@ func hasActionResult(pkg []*ast.File, fields map[string]bool) bool {
 	return false
 }
 
-func callsDismiss(pkg []*ast.File, fields map[string]bool) bool {
+func callsMethod(pkg []*ast.File, fields map[string]bool, method string) bool {
 	found := false
 	for _, f := range pkg {
 		ast.Inspect(f, func(n ast.Node) bool {
-			if fieldCall(n, fields, "DismissResult") {
+			if fieldCall(n, fields, method) {
 				found = true
 			}
 			return !found

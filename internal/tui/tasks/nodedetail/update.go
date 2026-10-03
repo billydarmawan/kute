@@ -115,6 +115,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		m.now = time.Now()
 		return m, cmd
+	case actions.RunningMsg:
+		// A slow write's keybar line; the returned command is the only
+		// path its ResultMsg arrives by.
+		return m, m.actions.HandleRunning(msg)
 	case actions.ResultMsg:
 		m.actions.HandleResult(msg)
 		if metapanel.IsActionID(msg.ActionID) && m.meta != nil {

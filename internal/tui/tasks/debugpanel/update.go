@@ -77,6 +77,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case nodeDebugRetryDueMsg:
 		return m, m.findNodeDebugPodCmd(msg.after, msg.attempt)
+	case actions.RunningMsg:
+		// A slow write's keybar line; the returned command is the only
+		// path its ResultMsg arrives by.
+		return m, m.actions.HandleRunning(msg)
 	case actions.ResultMsg:
 		return m.handleActionResult(msg)
 	case accessReviewedMsg:

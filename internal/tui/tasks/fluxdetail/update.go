@@ -72,6 +72,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Gen == m.loadEpoch {
 			return m, m.load()
 		}
+	case actions.RunningMsg:
+		// A slow write's keybar line; the returned command is the only
+		// path its ResultMsg arrives by.
+		return m, m.actions.HandleRunning(msg)
 	case actions.ResultMsg:
 		// The outcome is the controller's keybar result line
 		// (ActionResult); the will-run command it replaces is cleared.

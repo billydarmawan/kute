@@ -46,6 +46,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Gen == m.syncRetryGen && m.lister != nil {
 			return m, m.load()
 		}
+	case actions.RunningMsg:
+		// A slow write's keybar line; the returned command is the only
+		// path its ResultMsg arrives by.
+		return m, m.actions.HandleRunning(msg)
 	case actions.ResultMsg:
 		m.actions.HandleResult(msg)
 		if msg.Err == nil {

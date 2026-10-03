@@ -70,6 +70,32 @@ func TestKeybarSuccessResult(t *testing.T) {
 	}
 }
 
+// TestKeybarRunningResult pins review 10 L6's render: a write still in
+// flight keeps the hints and shows dim behind GlyphProbing, in the slot its
+// outcome will take — neither the success green nor a failure's red.
+func TestKeybarRunningResult(t *testing.T) {
+	for name, theme := range map[string]Theme{"dark": Dark(), "light": Light()} {
+		t.Run(name, func(t *testing.T) {
+			kb := Keybar{
+				Pill: ModeBrowse, PillText: "NODES",
+				Groups: [][]KeyHint{{{Key: "C", Label: "cordon"}}},
+				Result: ResultLine{Text: "drain node/node-a · still running · 4s", Running: true},
+			}
+			out := renderKeybarV2(kb, theme, 100)
+			text := ansi.Strip(out)
+			if !strings.Contains(text, "cordon") || !strings.Contains(text, GlyphProbing+" drain node/node-a · still running · 4s") {
+				t.Fatalf("keybar = %q, want hints plus the running line", text)
+			}
+			if strings.Contains(text, GlyphSucceeded) {
+				t.Fatalf("keybar = %q, a running write is not a success", text)
+			}
+			if !strings.Contains(out, sgrPrefix(lipgloss.NewStyle().Foreground(theme.TextDim))+GlyphProbing) {
+				t.Fatalf("running line not rendered in theme.TextDim: %q", out)
+			}
+		})
+	}
+}
+
 // TestKeybarRightNoteShortFallback pins the will-run fallback: a RightNote
 // that overflows the line is swapped for RightNoteShort rather than dropped
 // outright (insetChromeLine's behaviour for any right side that won't fit),
