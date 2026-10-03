@@ -5,8 +5,8 @@ import (
 	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
-// Keybar composes the bottom band from verb references plus this screen's
-// own y/o/x/r — 28b's pill is UPDATE (docs/design README.md §28b). The key
+// Keybar composes the bottom band from verb references, this screen's own
+// y/o/x/r included — 28b's pill is UPDATE (docs/design README.md §28b). The key
 // group shown is state-conditional: "y copy · o release notes · x skip"
 // while an update is available, "r re-check now"
 // in the empty (already-current) state — 'r' only exists there, per the
@@ -22,16 +22,16 @@ func (m Model) Keybar() tui.Keybar {
 	switch m.state() {
 	case tui.TaskStateReady:
 		kb.Groups = [][]tui.KeyHint{{
-			{Key: "y", Label: "copy command"},
-			{Key: "o", Label: "release notes ↗"},
-			{Key: "x", Label: "skip"},
+			verbs.UpdateCopyCommand.Hint(),
+			verbs.UpdateNotes.Hint(),
+			verbs.UpdateSkip.Hint(),
 		}}
 	case tui.TaskStateEmpty:
 		if m.checkDisabled() {
 			break
 		}
 		kb.Groups = [][]tui.KeyHint{{
-			{Key: "r", Label: "re-check now"},
+			verbs.UpdateRecheck.Hint(),
 		}}
 	}
 	return kb

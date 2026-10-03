@@ -5,6 +5,7 @@ import (
 
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 // openedBrowserMsg carries m.openBrowser's result back through Update
@@ -48,23 +49,23 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc", "backspace":
 		return m, func() tea.Msg { return tui.BackMsg{} }
-	case "y":
+	case verbs.UpdateCopyCommand.Key:
 		if info, ok := m.info(); ok {
 			if _, avail := m.available(); avail {
 				m.feedback = "command copied"
 				return m, tea.SetClipboard(info.Install.Command)
 			}
 		}
-	case "o":
+	case verbs.UpdateNotes.Key:
 		if release, ok := m.available(); ok && release.HTMLURL != "" && m.openBrowser != nil {
 			return m, openBrowserCmd(m.openBrowser, release.HTMLURL)
 		}
-	case "x":
+	case verbs.UpdateSkip.Key:
 		if release, ok := m.available(); ok && m.session != nil {
 			m.session.State.MarkUpdateSeen(release.Version)
 			m.feedback = release.Version + " skipped"
 		}
-	case "r":
+	case verbs.UpdateRecheck.Key:
 		if m.state() == tui.TaskStateEmpty && !m.checkDisabled() && m.recheck != nil {
 			m.checking = true
 			m.feedback = "checking…"
