@@ -485,6 +485,31 @@ func TestEscSendsBackMsg(t *testing.T) {
 	}
 }
 
+func TestSlowEarlierLoadCannotOverwriteANewerOne(t *testing.T) {
+	ev := func(reason string) kube.Event {
+		return kube.Event{Type: "Warning", Reason: reason, Object: "Pod/web-1", Namespace: "default", Count: 1, LastSeen: time.Now()}
+	}
+	m := New(Config{Session: newSession(), Events: fakeEvents{events: []kube.Event{ev("Initial")}}, Namespace: "default"})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	m.events = fakeEvents{events: []kube.Event{ev("StaleReason")}}
+	updated, stale := m.Update(kube.ResourceChangedMsg{Kind: kube.KindEvent})
+	m = *updated.(*Model)
+	m.events = fakeEvents{events: []kube.Event{ev("FreshReason")}}
+	updated, fresh := m.Update(kube.ResourceChangedMsg{Kind: kube.KindEvent})
+	m = *updated.(*Model)
+
+	// The newer load lands first; the slow earlier one arrives after it.
+	m = step(t, m, fresh())
+	m = step(t, m, stale())
+
+	view := plain(m.Render())
+	if !strings.Contains(view, "FreshReason") || strings.Contains(view, "StaleReason") {
+		t.Fatalf("a superseded load overwrote the newer feed:\n%s", view)
+	}
+}
+
 // TestRolloutDividerChangeOffsetAndCallout covers 16a's full-width rollout
 // divider, the +CHANGE column's offset-since-rollout ("+4m"), and the
 // summary strip's "first sign of trouble after rollout" correlation

@@ -76,10 +76,15 @@ type Model struct {
 	// syncRetryGen guards a cache-sync retry against a newer load having
 	// landed in the meantime.
 	syncRetryGen int
-	mutator      kube.Mutator
-	actionsCtl   actions.Controller
-	openEvents   OpenEventsFunc
-	timeout      time.Duration
+	// loadEpoch guards every load() dispatch: each Event/Pod/ReplicaSet
+	// change starts a full load(), and a slow earlier one must not land
+	// after a newer one and overwrite it (events' own loadEpoch guard).
+	// Bumped by reload(); Init's first load runs at epoch 0.
+	loadEpoch  int
+	mutator    kube.Mutator
+	actionsCtl actions.Controller
+	openEvents OpenEventsFunc
+	timeout    time.Duration
 
 	namespace  string
 	objectKind kube.ResourceKind
@@ -141,8 +146,10 @@ type Model struct {
 	spinner   spinner.Model
 }
 
-// loadedMsg carries one load()'s result.
+// loadedMsg carries one load()'s result. epoch is m.loadEpoch when load()
+// was dispatched; applyLoaded drops a superseded one.
 type loadedMsg struct {
+	epoch          int
 	entries        []kube.TimelineEntry
 	rail           []kube.TimelineEntry
 	railDeployment string

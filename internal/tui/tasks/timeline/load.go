@@ -29,6 +29,7 @@ func (m Model) load() tea.Cmd {
 	objectKind := m.objectKind
 	objectName := m.objectName
 	timeout := m.timeout
+	epoch := m.loadEpoch
 
 	parent := m.session.ClusterContext()
 	return func() tea.Msg {
@@ -37,7 +38,7 @@ func (m Model) load() tea.Cmd {
 
 		rawEvents, err := eventsForScope(ctx, src, lister, namespace, objectKind, objectName)
 		if err != nil {
-			return loadedMsg{err: err}
+			return loadedMsg{epoch: epoch, err: err}
 		}
 		// Deployment is part of applyLoaded's required cache set even when
 		// this particular scope has no ReplicaSet-owned Pod and therefore no
@@ -71,7 +72,7 @@ func (m Model) load() tea.Cmd {
 		attachChangeCause(ctx, lister, namespace, rail)
 
 		merged := kube.MergeTimeline(eventEntries, restartEntries, rolloutEntries, revisionEntries, argoSyncEntries)
-		return loadedMsg{entries: merged, rail: rail, railDeployment: railDeployment}
+		return loadedMsg{epoch: epoch, entries: merged, rail: rail, railDeployment: railDeployment}
 	}
 }
 

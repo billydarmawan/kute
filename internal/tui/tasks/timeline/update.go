@@ -43,6 +43,12 @@ func (m *Model) Reload() tea.Cmd {
 	if m.events == nil {
 		return nil
 	}
+	return m.reload()
+}
+
+// reload supersedes every load still in flight, then dispatches a new one.
+func (m *Model) reload() tea.Cmd {
+	m.loadEpoch++
 	return m.load()
 }
 
@@ -55,11 +61,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ResourceChangedMsg:
 		if isTimelineSource(msg.Kind) && m.events != nil {
-			return m, m.load()
+			return m, m.reload()
 		}
 	case tui.CacheSyncRetryMsg:
 		if msg.Gen == m.syncRetryGen && m.lister != nil {
-			return m, m.load()
+			return m, m.reload()
 		}
 	case kube.ConnStateMsg:
 		m.conn = kube.ConnState(msg)
@@ -76,7 +82,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actions.ResultMsg:
 		m.actionsCtl.HandleResult(msg)
 		if msg.Err == nil {
-			return m, m.load()
+			return m, m.reload()
 		}
 		// A failed rollback is the controller's keybar result line
 		// (ActionResult).
@@ -97,6 +103,9 @@ func isTimelineSource(kind kube.ResourceKind) bool {
 }
 
 func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
+	if msg.epoch != m.loadEpoch {
+		return m, nil // superseded by a newer load
+	}
 	// firstLoad is read before m.state is overwritten below — only the very
 	// first loadedMsg (Init's own load(), while m.state is still Loading)
 	// should default focus onto the rail; a later watch-triggered refresh
