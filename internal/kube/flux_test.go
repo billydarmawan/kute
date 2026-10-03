@@ -13,6 +13,10 @@ func TestParseFluxInventoryID(t *testing.T) {
 		{"_gitlab__Namespace", "", "gitlab", "", "Namespace", true},
 		{"gitlab__apps_Deployment", "", "", "", "", false},
 		{"not-an-id", "", "", "", "", false},
+		{"_system__aggregate-to-view_rbac.authorization.k8s.io_ClusterRole", "", "system:aggregate-to-view", "rbac.authorization.k8s.io", "ClusterRole", true},
+		{"kube-system_system__controller__bootstrap-signer_rbac.authorization.k8s.io_Role", "kube-system", "system:controller:bootstrap-signer", "rbac.authorization.k8s.io", "Role", true},
+		{"_system__aggregate-to-view_apps_Deployment", "", "", "", "", false},
+		{"a_b_c_d_e", "", "", "", "", false},
 	} {
 		ns, name, group, kind, ok := ParseFluxInventoryID(tc.id)
 		if ok != tc.ok || (ok && (ns != tc.ns || name != tc.name || group != tc.group || kind != tc.kind)) {
