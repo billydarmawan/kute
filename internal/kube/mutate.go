@@ -1181,13 +1181,13 @@ func (c *Cluster) SetImage(ctx context.Context, kind ResourceKind, namespace, na
 		containerField = "initContainers"
 	}
 	patch := fmt.Sprintf(
-		`{"spec":{"template":{"spec":{"%s":[{"name":%q,"image":%q}]}}}}`,
-		containerField, container, image,
+		`{"spec":{"template":{"spec":{"%s":[{"name":%s,"image":%s}]}}}}`,
+		containerField, jsonString(container), jsonString(image),
 	)
 	if kind == KindCronJob {
 		patch = fmt.Sprintf(
-			`{"spec":{"jobTemplate":{"spec":{"template":{"spec":{"%s":[{"name":%q,"image":%q}]}}}}}}`,
-			containerField, container, image,
+			`{"spec":{"jobTemplate":{"spec":{"template":{"spec":{"%s":[{"name":%s,"image":%s}]}}}}}}`,
+			containerField, jsonString(container), jsonString(image),
 		)
 	}
 	var err error
@@ -1296,8 +1296,8 @@ func resourcesPatchJSON(container string, edits ResourceEdits) (patch string, ok
 	}
 	resourcesObj := "{" + strings.Join(parts, ",") + "}"
 	return fmt.Sprintf(
-		`{"spec":{"template":{"spec":{"containers":[{"name":%q,"resources":%s}]}}}}`,
-		container, resourcesObj,
+		`{"spec":{"template":{"spec":{"containers":[{"name":%s,"resources":%s}]}}}}`,
+		jsonString(container), resourcesObj,
 	), true
 }
 
@@ -1322,7 +1322,24 @@ func quantityJSONLiteral(v string) string {
 	if v == "" {
 		return "null"
 	}
-	return strconv.Quote(v)
+	return jsonString(v)
+}
+
+// jsonString renders s as a JSON string literal. Patch bodies are built
+// with it rather than Go's %q/strconv.Quote, whose \x.. and \U........
+// escapes (for control bytes, invalid UTF-8 and non-printable astral runes)
+// are not JSON and get the whole patch rejected by the API server. HTML
+// escaping is off so a will-run line that prints the body stays readable.
+func jsonString(s string) string {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
+		// Never reached — encoding a Go string always succeeds (invalid
+		// UTF-8 is coerced to U+FFFD).
+		return `""`
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // SetResourcesCommandString renders the exact command SetResources runs —
@@ -1422,9 +1439,9 @@ func metaPatchJSON(isAnnotation bool, key, value string, remove bool) string {
 	if isAnnotation {
 		field = "annotations"
 	}
-	kv := fmt.Sprintf("%q:%q", key, value)
+	kv := jsonString(key) + ":" + jsonString(value)
 	if remove {
-		kv = fmt.Sprintf("%q:null", key)
+		kv = jsonString(key) + ":null"
 	}
 	return fmt.Sprintf(`{"metadata":{"%s":{%s}}}`, field, kv)
 }

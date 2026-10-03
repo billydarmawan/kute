@@ -2159,3 +2159,33 @@ func TestPatchDataReturnsServerResourceVersion(t *testing.T) {
 		})
 	}
 }
+
+// TestPatchBodiesAreValidJSONForControlAndAstralRunes pins that the hand-built
+// patch bodies escape the way JSON does: Go's %q renders \x1b, \a, invalid
+// UTF-8 and non-printable astral runes (U+E0001, a flag emoji's tag
+// characters) as \x../\U........ escapes, which the API server rejects.
+func TestPatchBodiesAreValidJSONForControlAndAstralRunes(t *testing.T) {
+	for _, s := range []string{"\x1b[31m", "bell\a", "bad\xffutf8", "tag\U000E0001", "<a&b>", `q"uo\te`} {
+		bodies := map[string]string{
+			"meta":       metaPatchJSON(true, "k", s, false),
+			"meta-key":   metaPatchJSON(false, s, "v", true),
+			"quantity":   quantityJSONLiteral(s),
+			"image-name": jsonString(s),
+		}
+		if p, ok := resourcesPatchJSON(s, ResourceEdits{CPURequest: &s}); ok {
+			bodies["resources"] = p
+		}
+		for name, body := range bodies {
+			if !json.Valid([]byte(body)) {
+				t.Errorf("%s body for %q is not valid JSON: %s", name, s, body)
+			}
+		}
+		var got map[string]map[string]map[string]string
+		if err := json.Unmarshal([]byte(metaPatchJSON(true, "k", s, false)), &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if want := strings.ToValidUTF8(s, "�"); got["metadata"]["annotations"]["k"] != want {
+			t.Errorf("round-trip = %q, want %q", got["metadata"]["annotations"]["k"], want)
+		}
+	}
+}
