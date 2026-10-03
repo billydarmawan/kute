@@ -83,9 +83,15 @@ func testPod(ns, name string, phase corev1.PodPhase) *corev1.Pod {
 	if phase == corev1.PodRunning {
 		statuses = []corev1.ContainerStatus{{Name: "app", Ready: true}}
 	}
+	// Every phase but Pending has been scheduled; a Pending fixture stands
+	// for the unscheduled kind, which holds no node's pod slot.
+	node := "node-a"
+	if phase == corev1.PodPending {
+		node = ""
+	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name},
-		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}},
+		Spec:       corev1.PodSpec{NodeName: node, Containers: []corev1.Container{{Name: "app"}}},
 		Status:     corev1.PodStatus{Phase: phase, ContainerStatuses: statuses},
 	}
 }
@@ -175,6 +181,11 @@ func TestLoadAggregatesNodesPodsAndRecentChanges(t *testing.T) {
 	}
 	if len(m.nodeTrouble) != 2 {
 		t.Fatalf("nodeTrouble = %d, want 2 (NotReady node-b + cordoned node-c)", len(m.nodeTrouble))
+	}
+	// CAPACITY's pods bar counts what occupies a node's pod slots: web-1
+	// only — worker-1 is terminal and cache-1 was never scheduled.
+	if m.capPodsUsed != 1 {
+		t.Fatalf("capPodsUsed = %d, want 1 (scheduled, non-terminal pods only)", m.capPodsUsed)
 	}
 	if len(m.podTrouble) != 2 {
 		t.Fatalf("podTrouble = %d, want 2 (Failed worker-1 + Pending cache-1)", len(m.podTrouble))

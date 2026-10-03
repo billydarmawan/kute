@@ -236,7 +236,10 @@ func loadOverview(ctx context.Context, lister resources.RawLister, registry reso
 		if row.Status == resources.StatusWarn || row.Status == resources.StatusFail {
 			data.podTrouble = append(data.podTrouble, row)
 		}
-		if p, ok := obj.(*corev1.Pod); ok && !podTerminal(p) {
+		// Only scheduled pods occupy a node's pod slots — an unscheduled
+		// Pending pod counted against the nodes' Allocatable pods would
+		// overstate the bar, and 11a/11b count only scheduled pods too.
+		if p, ok := obj.(*corev1.Pod); ok && p.Spec.NodeName != "" && !podTerminal(p) {
 			data.capPodsUsed++
 		}
 	}
