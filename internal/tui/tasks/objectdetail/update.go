@@ -140,11 +140,25 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 			m.syncRetryGen++
 			return m, tui.ScheduleCacheSyncRetry(m.syncRetryGen)
 		}
+		// Settled is not empty: a cache that stopped filling (Forbidden, a
+		// LIST that keeps failing) says nothing about whether the object
+		// still exists, so show why instead of claiming it was deleted.
+		if err := tui.KindsError(m.lister, m.namespace, m.kind); err != nil {
+			m.state = tui.TaskStateError
+			if kube.IsPermissionError(err) {
+				m.state = tui.TaskStatePermissionDenied
+			}
+			m.feedback = err.Error()
+			return m, nil
+		}
 		m.gone = true
 		m.state = tui.TaskStateReady
 		m.feedback = ""
 		return m, nil
 	}
+	// Found again (recreated, or a cache that simply hadn't filled when an
+	// earlier load missed it) — drop a stale "deleted" latch.
+	m.gone = false
 	// The Event informer starts lazily on this screen's first read and
 	// answers empty until its initial LIST lands — "no events" (and the
 	// redirect it can trigger) is a claim about the cluster, so it waits

@@ -2,6 +2,7 @@ package objectdetail
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -13,8 +14,9 @@ import (
 
 // nsLister filters by namespace like the real cache does ("" = all).
 type nsLister struct {
-	objs   []runtime.Object
-	synced bool
+	objs    []runtime.Object
+	synced  bool
+	kindErr error // KindError's answer for every kind
 }
 
 func (l nsLister) ListRaw(_ context.Context, _ kube.ResourceKind, namespace string) ([]runtime.Object, error) {
@@ -28,6 +30,8 @@ func (l nsLister) ListRaw(_ context.Context, _ kube.ResourceKind, namespace stri
 }
 
 func (l nsLister) KindSynced(kube.ResourceKind, string) bool { return l.synced }
+
+func (l nsLister) KindError(kube.ResourceKind, string) error { return l.kindErr }
 
 func certIn(ns, name string) *unstructured.Unstructured {
 	u := certObj(name, map[string]any{"type": "Ready", "status": "True"})
@@ -74,5 +78,42 @@ func TestNotFoundInUnsyncedCacheIsNotDeleted(t *testing.T) {
 	}
 	if got.state != tui.TaskStateLoading || cmd == nil {
 		t.Fatalf("state=%s retry=%v, want loading with a cache-sync retry", got.state, cmd != nil)
+	}
+}
+
+// TestNotFoundInErroredCacheIsNotDeleted: a cache that settled because its
+// LIST failed (Forbidden, …) can't say the object is gone — show the reason.
+func TestNotFoundInErroredCacheIsNotDeleted(t *testing.T) {
+	lister := nsLister{synced: true, kindErr: errors.New("initial list failed: connection refused")}
+	m := New(Config{
+		Session: testSession(), Lister: lister, Events: fakeEvents{},
+		Kind: certificateKind(), Namespace: "aaa", Name: "api-tls",
+	})
+	updated, _ := m.Update(m.load()())
+	got := updated.(*Model)
+	if got.gone {
+		t.Fatal("an errored cache's miss rendered the \"deleted\" banner")
+	}
+	if got.state != tui.TaskStateError || got.feedback == "" {
+		t.Fatalf("state=%s feedback=%q, want the cache's error", got.state, got.feedback)
+	}
+}
+
+// TestFoundAgainClearsGone: a load that finds the object (recreated) drops
+// the "deleted" latch and its any-key-backs-out keybar.
+func TestFoundAgainClearsGone(t *testing.T) {
+	lister := &nsLister{synced: true}
+	m := New(Config{
+		Session: testSession(), Lister: lister, Events: fakeEvents{},
+		Kind: certificateKind(), Namespace: "aaa", Name: "api-tls",
+	})
+	m.Update(m.load()())
+	if !m.gone {
+		t.Fatal("precondition: a synced miss should read as deleted")
+	}
+	lister.objs = []runtime.Object{certIn("aaa", "api-tls")}
+	m.Update(m.load()())
+	if m.gone || !m.found {
+		t.Fatalf("gone=%v found=%v after the object came back", m.gone, m.found)
 	}
 }
