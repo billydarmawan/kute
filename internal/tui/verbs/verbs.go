@@ -3,9 +3,10 @@
 // … — is one registry entry: stable ID, key, label, destructiveness tier,
 // applicable kinds, mutating flag. Screens hand-compose their keybars
 // (curated per-screen grouping and order, only applicable keys shown) but
-// only from these entries, never from key/label string literals; the help
-// overlay and the confirm policy read the same entries, so they cannot
-// drift apart.
+// only from these entries, never from key string literals (HintAs lets a
+// screen name what a shared key does there; TestNoHandWrittenKeyHints
+// fails a hand-written Key); the help overlay and the confirm policy read
+// the same entries, so they cannot drift apart.
 package verbs
 
 import (
