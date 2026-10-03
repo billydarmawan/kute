@@ -2189,3 +2189,17 @@ func TestPatchBodiesAreValidJSONForControlAndAstralRunes(t *testing.T) {
 		}
 	}
 }
+
+// TestWillRunLinesShellQuoteAnApostrophe: the -p argument is single-quoted,
+// so a ' inside a value must be closed, escaped and reopened, or the
+// printed command doesn't paste.
+func TestWillRunLinesShellQuoteAnApostrophe(t *testing.T) {
+	got := ConfigMapDataCommandString("ns", "cfg", "GREETING", "it's", false)
+	want := `kubectl patch cm/cfg --type merge -p '{"data":{"GREETING":"it'\''s"}}' -n ns`
+	if got != want {
+		t.Fatalf("ConfigMapDataCommandString =\n%s\nwant\n%s", got, want)
+	}
+	if got := ArgoSyncCommandString(KindPod, "argocd", "app", "main", "o'brien"); !strings.Contains(got, `o'\''brien`) {
+		t.Fatalf("ArgoSyncCommandString didn't escape the apostrophe: %s", got)
+	}
+}

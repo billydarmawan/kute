@@ -980,9 +980,9 @@ func CronJobSetScheduleCommandString(namespace, name, schedule string, timezone 
 	if err != nil {
 		// Never reached — spec is a small map of strings/nil built above,
 		// which always marshals — but a will-run line must never panic.
-		return fmt.Sprintf(`kubectl patch cronjob/%s --type merge -p '{"spec":{"schedule":%q}}' -n %s`, name, schedule, namespace)
+		return fmt.Sprintf(`kubectl patch cronjob/%s --type merge -p %s -n %s`, name, shellQuote(`{"spec":{"schedule":`+jsonString(schedule)+`}}`), namespace)
 	}
-	return fmt.Sprintf("kubectl patch cronjob/%s --type merge -p '%s' -n %s", name, body, namespace)
+	return fmt.Sprintf("kubectl patch cronjob/%s --type merge -p %s -n %s", name, shellQuote(string(body)), namespace)
 }
 
 // FluxReconcileCommandString renders the kubectl annotate kute issues for
@@ -1013,8 +1013,8 @@ func ArgoRefreshCommandString(kind ResourceKind, namespace, name string) string 
 // ArgoSyncCommandString renders the kubectl patch kute actually issues for
 // §33a's 'S' — not the `argocd app sync` it is equivalent to, same rule.
 func ArgoSyncCommandString(kind ResourceKind, namespace, name, revision, initiator string) string {
-	cmd := fmt.Sprintf(`kubectl patch %s/%s --type merge -p '%s'`,
-		kind.ResourceArg(), name, ArgoSyncPatch(revision, initiator))
+	cmd := fmt.Sprintf(`kubectl patch %s/%s --type merge -p %s`,
+		kind.ResourceArg(), name, shellQuote(string(ArgoSyncPatch(revision, initiator))))
 	if namespace != "" {
 		cmd += " -n " + namespace
 	}
@@ -1325,6 +1325,14 @@ func quantityJSONLiteral(v string) string {
 	return jsonString(v)
 }
 
+// shellQuote single-quotes s for a will-run line, so the printed command
+// pastes into a POSIX shell intact even when a value carries an apostrophe
+// (closed, backslash-escaped and reopened) rather than ending the quoted -p
+// argument early.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // jsonString renders s as a JSON string literal. Patch bodies are built
 // with it rather than Go's %q/strconv.Quote, whose \x.. and \U........
 // escapes (for control bytes, invalid UTF-8 and non-printable astral runes)
@@ -1352,7 +1360,7 @@ func jsonString(s string) string {
 func SetResourcesCommandString(kind ResourceKind, namespace, name, container string, edits ResourceEdits) string {
 	if edits.anyUnset() {
 		patch, _ := resourcesPatchJSON(container, edits)
-		return fmt.Sprintf("kubectl patch %s/%s --type strategic -p '%s' -n %s", workloadResourceArg(kind), name, patch, namespace)
+		return fmt.Sprintf("kubectl patch %s/%s --type strategic -p %s -n %s", workloadResourceArg(kind), name, shellQuote(patch), namespace)
 	}
 	var reqParts, limParts []string
 	if edits.CPURequest != nil {
@@ -1537,9 +1545,9 @@ func secretDataPatchJSON(resourceVersion, key, value string, remove bool) ([]byt
 func SecretDataCommandString(namespace, name, key string, remove bool) string {
 	arg := "secret/" + name
 	if remove {
-		return fmt.Sprintf("kubectl patch %s --type merge -p '{\"data\":{%q:null}}' -n %s", arg, key, namespace)
+		return fmt.Sprintf("kubectl patch %s --type merge -p %s -n %s", arg, shellQuote(`{"data":{`+jsonString(key)+`:null}}`), namespace)
 	}
-	return fmt.Sprintf("kubectl patch %s --type merge -p '{\"stringData\":{%q:\"••••••\"}}' -n %s", arg, key, namespace)
+	return fmt.Sprintf("kubectl patch %s --type merge -p %s -n %s", arg, shellQuote(`{"stringData":{`+jsonString(key)+`:"••••••"}}`), namespace)
 }
 
 // PatchConfigMapData implements Mutator against the live clientset — a JSON
@@ -1590,9 +1598,9 @@ func configMapDataPatchJSON(resourceVersion, key, value string, remove bool) ([]
 func ConfigMapDataCommandString(namespace, name, key, value string, remove bool) string {
 	arg := "cm/" + name
 	if remove {
-		return fmt.Sprintf("kubectl patch %s --type merge -p '{\"data\":{%q:null}}' -n %s", arg, key, namespace)
+		return fmt.Sprintf("kubectl patch %s --type merge -p %s -n %s", arg, shellQuote(`{"data":{`+jsonString(key)+`:null}}`), namespace)
 	}
-	return fmt.Sprintf("kubectl patch %s --type merge -p '{\"data\":{%q:%q}}' -n %s", arg, key, value, namespace)
+	return fmt.Sprintf("kubectl patch %s --type merge -p %s -n %s", arg, shellQuote(`{"data":{`+jsonString(key)+`:`+jsonString(value)+`}}`), namespace)
 }
 
 // ConfigMapConsumerRestartCommandString renders the `kubectl rollout
