@@ -420,3 +420,24 @@ func TestFailedSwitchContextReloadsOnlyAfterRollback(t *testing.T) {
 		t.Error("a rolled-back switch did not reload the list")
 	}
 }
+
+// TestContextSwitchNeverSeedsPreviousClusterRows: rowCache is per context —
+// switching to another cluster must show the skeleton, not the old cluster's
+// rows dimmed as "cached" under the new context's header.
+func TestContextSwitchNeverSeedsPreviousClusterRows(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {pod("default", "api-1")},
+	}}
+	session := newSession()
+	session.Location.Context = "cluster-a"
+	m := New(Config{Session: session, Lister: lister})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()()) // Pods loaded under cluster-a
+
+	session.Location.Context = "cluster-b" // the root updates Location first
+	updated, _ := m.Update(tui.SwitchContextMsg{Context: "cluster-b", Namespace: "default", Kind: kube.KindPod})
+	m = *updated.(*Model)
+	if m.cachedView || len(m.rows) != 0 {
+		t.Fatalf("cachedView=%v rows=%d: cluster-a's rows seeded cluster-b's loading view", m.cachedView, len(m.rows))
+	}
+}

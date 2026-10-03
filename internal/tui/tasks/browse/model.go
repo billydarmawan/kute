@@ -490,14 +490,15 @@ type Model struct {
 	// rows records this and every path that would show a mismatched set drops
 	// it instead (dropStaleShapedRows).
 	rowColumns int
-	// rowCache holds the last successfully-loaded rows per kind+namespace
-	// seen this session (browseCacheKey), so revisiting one mid-session can
+	// rowCache holds the last successfully-loaded rows per
+	// context+kind+namespace seen this session (browseCacheKey), so revisiting one mid-session can
 	// show cached rows dimmed instead of the skeleton loader (docs/design
 	// README.md §15a: "revisiting a kind seen this session: cached rows
 	// dimmed instead of skeletons" — the same muted treatment 4a's stale
 	// grammar already gives an offline table). Never cleared by
 	// resetAndLoad — it outlives any single kind/namespace view on purpose,
-	// including across a context switch, which is why each entry carries the
+	// including across a context switch: entries are keyed by context so a
+	// switch never shows the previous cluster's rows, and each carries the
 	// column shape its rows were projected with.
 	rowCache map[browseCacheKey]cachedRows
 	// cachedView is true while m.state is TaskStateLoading but m.rows holds
@@ -1305,12 +1306,22 @@ func (m *Model) clearOrigin() {
 }
 
 // browseCacheKey identifies one kind+namespace view for rowCache — the same
-// two dimensions switchKind/switchNamespace mutate, and the same pairing
-// applyRowsLoaded's own stale-reply guard (msg.kind != m.kind) already keys
-// off implicitly.
+// two dimensions switchKind/switchNamespace mutate — within one kube
+// context, so a 7a switch never seeds the new cluster's loading view with
+// the previous cluster's rows.
 type browseCacheKey struct {
+	context   string
 	kind      kube.ResourceKind
 	namespace string
+}
+
+// cacheKey is rowCache's key for kind/namespace under the active context.
+func (m Model) cacheKey(kind kube.ResourceKind, namespace string) browseCacheKey {
+	ctx := ""
+	if m.session != nil {
+		ctx = m.session.Location.Context
+	}
+	return browseCacheKey{context: ctx, kind: kind, namespace: namespace}
 }
 
 // cachedRows is one rowCache entry: the snapshot plus the number of
@@ -1330,7 +1341,7 @@ type cachedRows struct {
 // now in force is no hit at all: showing it would mean rendering cells under
 // headers they don't belong to.
 func (m Model) cachedRowsFor(kind kube.ResourceKind, namespace string) ([]resources.Row, bool) {
-	entry, ok := m.rowCache[browseCacheKey{kind, namespace}]
+	entry, ok := m.rowCache[m.cacheKey(kind, namespace)]
 	if !ok || entry.columns != len(m.desc.Columns) {
 		return nil, false
 	}
@@ -1348,7 +1359,7 @@ func (m *Model) cacheCurrentRows() {
 		m.rowCache = make(map[browseCacheKey]cachedRows)
 	}
 	cp := slices.Clone(m.rows)
-	m.rowCache[browseCacheKey{m.kind, m.namespace}] = cachedRows{rows: cp, columns: m.rowColumns}
+	m.rowCache[m.cacheKey(m.kind, m.namespace)] = cachedRows{rows: cp, columns: m.rowColumns}
 }
 
 // dropStaleShapedRows clears any loaded rows that were projected against a
