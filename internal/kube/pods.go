@@ -442,10 +442,28 @@ func containerStatusSummary(statuses []corev1.ContainerStatus) (int32, int32, st
 }
 
 func ownerRef(refs []metav1.OwnerReference) string {
-	if len(refs) == 0 {
+	ref := ControllerRef(refs)
+	if ref == nil {
 		return ""
 	}
-	return refs[0].Kind + "/" + refs[0].Name
+	return ref.Kind + "/" + ref.Name
+}
+
+// ControllerRef is the owner reference that controls the object — the one
+// marked controller=true (metav1.GetControllerOf's answer), wherever it sits
+// in refs, so an unrelated owner listed first can't pass for the parent.
+// An object that marks none (a sparse fixture, a hand-written manifest)
+// falls back to its first reference; nil when it has none.
+func ControllerRef(refs []metav1.OwnerReference) *metav1.OwnerReference {
+	for i := range refs {
+		if refs[i].Controller != nil && *refs[i].Controller {
+			return &refs[i]
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return &refs[0]
 }
 
 // podLimits is the pod's whole-pod CPU/memory limit: the sum over

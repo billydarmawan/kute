@@ -149,7 +149,11 @@ func TimelineFromRollouts(objs []runtime.Object) []TimelineEntry {
 	out := make([]TimelineEntry, 0, len(objs))
 	for _, obj := range objs {
 		rs, ok := obj.(*appsv1.ReplicaSet)
-		if !ok || len(rs.OwnerReferences) == 0 || rs.OwnerReferences[0].Kind != "Deployment" {
+		if !ok {
+			continue
+		}
+		owner := ControllerRef(rs.OwnerReferences)
+		if owner == nil || owner.Kind != "Deployment" {
 			continue
 		}
 		revText, ok := rs.Annotations["deployment.kubernetes.io/revision"]
@@ -165,7 +169,7 @@ func TimelineFromRollouts(objs []runtime.Object) []TimelineEntry {
 		out = append(out, TimelineEntry{
 			Time:           rs.CreationTimestamp.Time,
 			Kind:           TimelineRollout,
-			Object:         "Deployment/" + rs.OwnerReferences[0].Name,
+			Object:         "Deployment/" + owner.Name,
 			Namespace:      rs.Namespace,
 			Reason:         "Rollout",
 			Message:        message,

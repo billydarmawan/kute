@@ -653,7 +653,10 @@ func deploymentRevisions(ctx context.Context, lister resources.RawLister, namesp
 	var revs []revisionCandidate
 	for _, obj := range objs {
 		rs, ok := obj.(*appsv1.ReplicaSet)
-		if !ok || len(rs.OwnerReferences) == 0 || rs.OwnerReferences[0].Kind != "Deployment" || rs.OwnerReferences[0].Name != name {
+		if !ok {
+			continue
+		}
+		if owner := kube.ControllerRef(rs.OwnerReferences); owner == nil || owner.Kind != "Deployment" || owner.Name != name {
 			continue
 		}
 		revText, ok := rs.Annotations["deployment.kubernetes.io/revision"]
@@ -690,7 +693,10 @@ func controllerRevisions(ctx context.Context, lister resources.RawLister, kind k
 	var revs []revisionCandidate
 	for _, obj := range objs {
 		cr, ok := obj.(*appsv1.ControllerRevision)
-		if !ok || len(cr.OwnerReferences) == 0 || cr.OwnerReferences[0].Kind != string(kind) || cr.OwnerReferences[0].Name != name {
+		if !ok {
+			continue
+		}
+		if owner := kube.ControllerRef(cr.OwnerReferences); owner == nil || owner.Kind != string(kind) || owner.Name != name {
 			continue
 		}
 		image := controllerRevisionContainerImage(cr, container, initContainer)

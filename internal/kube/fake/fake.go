@@ -1245,8 +1245,10 @@ func (c *Cluster) RolloutUndo(_ context.Context, namespace, name string, toRevis
 	maxRevision := 0
 	for _, obj := range c.objects[kube.KindReplicaSet] {
 		rs, ok := obj.(*appsv1.ReplicaSet)
-		if !ok || rs.Namespace != namespace || len(rs.OwnerReferences) == 0 ||
-			rs.OwnerReferences[0].Kind != "Deployment" || rs.OwnerReferences[0].Name != name {
+		if !ok || rs.Namespace != namespace {
+			continue
+		}
+		if owner := kube.ControllerRef(rs.OwnerReferences); owner == nil || owner.Kind != "Deployment" || owner.Name != name {
 			continue
 		}
 		rev, _ := strconv.Atoi(rs.Annotations["deployment.kubernetes.io/revision"])

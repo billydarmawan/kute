@@ -420,10 +420,11 @@ func splitOwner(owner string) (kube.ResourceKind, string, bool) {
 // ownerRef mirrors kube.PodFromObject's own unexported helper of the same
 // name — duplicated per the repo's small-pure-helper convention.
 func ownerRef(refs []metav1.OwnerReference) string {
-	if len(refs) == 0 {
+	ref := kube.ControllerRef(refs)
+	if ref == nil {
 		return ""
 	}
-	return refs[0].Kind + "/" + refs[0].Name
+	return ref.Kind + "/" + ref.Name
 }
 
 // splitFluxRevisionEvents partitions events into those carrying a Flux

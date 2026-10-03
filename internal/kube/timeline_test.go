@@ -77,6 +77,28 @@ func newReplicaSet(name, deployment string, revision string, image string, creat
 	return rs
 }
 
+// The controller owner reference decides the parent, wherever it sits: an
+// unrelated owner listed first must not hide (or impersonate) the
+// Deployment.
+func TestTimelineFromRolloutsReadsTheControllerOwnerNotTheFirst(t *testing.T) {
+	controller := true
+	rs := newReplicaSet("web-abc", "", "3", "nginx:1.27", time.Now())
+	rs.OwnerReferences = []metav1.OwnerReference{
+		{Kind: "Rollout", Name: "web-canary"},
+		{Kind: "Deployment", Name: "web", Controller: &controller},
+	}
+	entries := TimelineFromRollouts([]runtime.Object{rs})
+	if len(entries) != 1 || entries[0].Object != "Deployment/web" {
+		t.Fatalf("entries = %+v, want one rollout of Deployment/web", entries)
+	}
+	if ref := ControllerRef(rs.OwnerReferences); ref == nil || ref.Name != "web" {
+		t.Fatalf("ControllerRef = %+v, want the controller=true Deployment ref", ref)
+	}
+	if ref := ControllerRef([]metav1.OwnerReference{{Kind: "ReplicaSet", Name: "sparse"}}); ref == nil || ref.Name != "sparse" {
+		t.Fatalf("ControllerRef without a controller flag = %+v, want the first ref", ref)
+	}
+}
+
 func TestTimelineFromRolloutsFiltersToDeploymentOwnedReplicaSets(t *testing.T) {
 	objs := []runtime.Object{
 		newReplicaSet("nva-worker-1", "nva-worker", "3", "nginx:1.25", time.Now().Add(-time.Hour)),

@@ -1136,7 +1136,7 @@ func RolloutUndoTarget(dep *appsv1.Deployment, rs *appsv1.ReplicaSet) (*corev1.P
 func replicaSetForRevision(items []appsv1.ReplicaSet, deploymentName string, toRevision int) (*appsv1.ReplicaSet, bool) {
 	for i := range items {
 		rs := &items[i]
-		if len(rs.OwnerReferences) == 0 || rs.OwnerReferences[0].Kind != "Deployment" || rs.OwnerReferences[0].Name != deploymentName {
+		if owner := ControllerRef(rs.OwnerReferences); owner == nil || owner.Kind != "Deployment" || owner.Name != deploymentName {
 			continue
 		}
 		rev, _ := strconv.Atoi(rs.Annotations["deployment.kubernetes.io/revision"])
