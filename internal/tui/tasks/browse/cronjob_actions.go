@@ -183,9 +183,9 @@ func (m Model) cronJobRunKeybar() tui.Keybar {
 	kb := tui.Keybar{
 		Pill: tui.ModeBrowse, PillText: "RUN NOW",
 		Groups: [][]tui.KeyHint{{
-			{Key: "↵", Label: "run"},
-			{Key: verbs.CronJobCopyCommand.Key, Label: verbs.CronJobCopyCommand.Label},
-			{Key: "esc", Label: "cancel"},
+			verbs.Open.HintAs("run"),
+			verbs.CronJobCopyCommand.Hint(),
+			verbs.Back.HintAs("cancel"),
 		}},
 		RightNote: "will run: " + cronJobRunCommand(t),
 	}
@@ -409,8 +409,8 @@ func (m Model) cronJobResumeKeybar() tui.Keybar {
 	kb := tui.Keybar{
 		Pill: tui.ModeBrowse, PillText: "RESUME",
 		Groups: [][]tui.KeyHint{{
-			{Key: "↵", Label: "resume"},
-			{Key: "esc", Label: "cancel"},
+			verbs.Open.HintAs("resume"),
+			verbs.Back.HintAs("cancel"),
 		}},
 	}
 	if len(t.entries) == 1 {

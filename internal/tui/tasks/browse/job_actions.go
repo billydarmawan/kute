@@ -152,9 +152,9 @@ func (m Model) jobRerunKeybar() tui.Keybar {
 		Pill:     tui.ModeBrowse,
 		PillText: "RERUN",
 		Groups: [][]tui.KeyHint{{
-			{Key: "↑↓", Label: "create/replace"},
-			{Key: "↵", Label: action},
-			{Key: "esc", Label: "cancel"},
+			verbs.Move.HintAs("create/replace"),
+			verbs.Open.HintAs(action),
+			verbs.Back.HintAs("cancel"),
 		}},
 		RightNote: "will run: " + jobRerunCommand(t),
 	}

@@ -862,7 +862,8 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return task, cmd
 			}
 		}
-	case verbs.YAML.Key:
+	case verbs.YAML.Key, verbs.CopyError.Key:
+		// An error card's CopyError shares YAML's y; the state decides.
 		if m.state == tui.TaskStatePermissionDenied || m.state == tui.TaskStateError {
 			return m, tea.SetClipboard(m.feedback)
 		}

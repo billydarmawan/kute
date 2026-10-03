@@ -236,9 +236,9 @@ func (m Model) jobKeybarGroup() []tui.KeyHint {
 	if row, ok := m.selectedRow(); ok && row.Suspended {
 		suspend.Label = "resume"
 	}
-	hints := []tui.KeyHint{{Key: verbs.JobRetry.Key, Label: verbs.JobRetry.Label}}
+	hints := []tui.KeyHint{verbs.JobRetry.Hint()}
 	if m.openLogs != nil {
-		hints = append(hints, tui.KeyHint{Key: "l", Label: "logs"})
+		hints = append(hints, verbs.Logs.Hint())
 	}
 	hints = append(hints, tui.KeyHint{Key: suspend.Key, Label: suspend.Label})
 	return hints

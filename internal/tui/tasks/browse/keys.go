@@ -47,9 +47,9 @@ func (m Model) Keybar() tui.Keybar {
 			PillText: "SCALE",
 			Groups: [][]tui.KeyHint{{
 				{Key: m.pendingScale.input.Value() + tui.GlyphSelBar, Label: "replicas"},
-				{Key: "+/−", Label: "nudge"},
-				{Key: "↵", Label: "apply"},
-				{Key: "esc", Label: "cancel"},
+				verbs.Nudge.Hint(),
+				verbs.Open.HintAs("apply"),
+				verbs.Back.HintAs("cancel"),
 			}},
 		}
 		if hpa := m.pendingScale.hpaName; hpa != "" {
@@ -72,11 +72,11 @@ func (m Model) Keybar() tui.Keybar {
 		// way (setimage_view.go's will-run strip shows the confirm-pending
 		// state).
 		t := m.pendingSetImage
-		hints := []tui.KeyHint{{Key: "↵", Label: "apply"}, {Key: "↑↓", Label: "pick from history"}}
+		hints := []tui.KeyHint{verbs.Open.HintAs("apply"), verbs.Move.HintAs("pick from history")}
 		if len(t.containers) > 1 {
-			hints = append(hints, tui.KeyHint{Key: tui.GlyphTab, Label: "container"})
+			hints = append(hints, verbs.NextPanel.HintAs("container"))
 		}
-		hints = append(hints, tui.KeyHint{Key: "ctrl+e", Label: "full ref"}, tui.KeyHint{Key: "esc", Label: "cancel"})
+		hints = append(hints, verbs.SetImageFullRef.Hint(), verbs.Back.HintAs("cancel"))
 		rightNote := "watch the rollout in 9a"
 		if t.kind == kube.KindCronJob {
 			rightNote = "future jobs use the new image · running jobs unaffected"
@@ -89,11 +89,11 @@ func (m Model) Keybar() tui.Keybar {
 		}
 	}
 	if m.pendingSetResources != nil && !m.actions.Active() {
-		hints := []tui.KeyHint{{Key: "↵", Label: "apply changed fields"}, {Key: "↑↓", Label: "field"}, {Key: "+/−", Label: "nudge (64Mi / 50m)"}}
+		hints := []tui.KeyHint{verbs.Open.HintAs("apply changed fields"), verbs.Move.HintAs("field"), verbs.Nudge.HintAs("nudge (64Mi / 50m)")}
 		if len(m.pendingSetResources.containers) > 1 {
-			hints = append(hints, tui.KeyHint{Key: tui.GlyphTab, Label: "container"})
+			hints = append(hints, verbs.NextPanel.HintAs("container"))
 		}
-		hints = append(hints, tui.KeyHint{Key: "u", Label: "unset field"}, tui.KeyHint{Key: "esc", Label: "cancel"})
+		hints = append(hints, verbs.SetResourcesUnset.Hint(), verbs.Back.HintAs("cancel"))
 		return tui.Keybar{
 			Pill:     tui.ModeBrowse,
 			PillText: "RESOURCES",
@@ -276,7 +276,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:       pill,
 			PillText:   pillText,
-			Groups:     [][]tui.KeyHint{{verbs.Goto.Hint(), verbs.Context.Hint(), verbs.WhoCan.Hint(), {Key: "y", Label: "copy error"}, verbs.Retry.Hint()}},
+			Groups:     [][]tui.KeyHint{{verbs.Goto.Hint(), verbs.Context.Hint(), verbs.WhoCan.Hint(), verbs.CopyError.Hint(), verbs.Retry.Hint()}},
 			RightHints: append(tui.UpdateRightHints(m.session), verbs.Help.Hint()),
 		}
 	}
@@ -284,7 +284,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:       pill,
 			PillText:   pillText,
-			Groups:     [][]tui.KeyHint{{verbs.Retry.Hint(), verbs.Goto.Hint(), verbs.Context.Hint(), {Key: "y", Label: "copy error"}}},
+			Groups:     [][]tui.KeyHint{{verbs.Retry.Hint(), verbs.Goto.Hint(), verbs.Context.Hint(), verbs.CopyError.Hint()}},
 			RightHints: append(tui.UpdateRightHints(m.session), verbs.Help.Hint()),
 		}
 	}
@@ -315,7 +315,7 @@ func (m Model) Keybar() tui.Keybar {
 		return tui.Keybar{
 			Pill:      tui.ModeFilter,
 			PillText:  "FILTER",
-			Groups:    [][]tui.KeyHint{{{Key: "esc", Label: "clear"}, verbs.MarkAll.Hint()}},
+			Groups:    [][]tui.KeyHint{{verbs.Back.HintAs("clear"), verbs.MarkAll.Hint()}},
 			RightNote: "type to narrow",
 		}
 	}
@@ -327,7 +327,7 @@ func (m Model) Keybar() tui.Keybar {
 			Groups: [][]tui.KeyHint{{
 				verbs.Retry.Hint(),
 				verbs.Context.Hint(),
-				{Key: "↑↓", Label: "browse snapshot"},
+				verbs.Move.HintAs("browse snapshot"),
 			}},
 			RightNote: "mutating actions disabled",
 		}

@@ -84,6 +84,15 @@ func (v Verb) Matches(press string) bool {
 	return slices.Contains(v.Presses, press)
 }
 
+// Press is the key press that fires v — its first Press, or Key itself —
+// for a switch case on tea.KeyPressMsg.String().
+func (v Verb) Press() string {
+	if len(v.Presses) == 0 {
+		return v.Key
+	}
+	return v.Presses[0]
+}
+
 // AppliesTo reports whether the verb is offered for kind. A nil Kinds list
 // means "every kind".
 func (v Verb) AppliesTo(kind kube.ResourceKind) bool {

@@ -265,11 +265,11 @@ func (m *Model) updateSetImageKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.commitSetImage(*t)
-	case "tab":
+	case verbs.NextPanel.Press():
 		if len(t.containers) > 1 {
 			m.selectSetImageContainer((t.containerIdx + 1) % len(t.containers))
 		}
-	case "ctrl+e":
+	case verbs.SetImageFullRef.Key:
 		if t.fullRef {
 			repo := imageRepo(t.input.Value())
 			tag := tagOf(t.input.Value())

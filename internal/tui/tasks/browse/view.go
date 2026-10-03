@@ -763,10 +763,10 @@ func (m Model) loadErrorBody(width, height int) string {
 		"",
 		note.Render("The connection will keep retrying automatically."),
 		"",
-		key.Render("r") + label.Render(" retry now"),
-		key.Render("g") + label.Render(" jump to another kind"),
-		key.Render("c") + label.Render(" switch context"),
-		key.Render("y") + label.Render(" copy error"),
+		key.Render(verbs.Retry.Key) + label.Render(" retry now"),
+		key.Render(verbs.Goto.Key) + label.Render(" jump to another kind"),
+		key.Render(verbs.Context.Key) + label.Render(" switch context"),
+		key.Render(verbs.CopyError.Key) + label.Render(" "+verbs.CopyError.Label),
 	}
 
 	cardStyle := lipgloss.NewStyle().
@@ -846,11 +846,11 @@ func (m Model) permissionDeniedBody(width, height int) string {
 		title.Render("403 Forbidden") + meta.Render("  "+lowerDisplay(m.desc.Display)+" · list"),
 		highlightQuoted(m.feedback, body, entity),
 		"",
-		recover("g", "jump to another kind", "everything else still works"),
-		recover("c", "switch context", "another context may grant access"),
-		recover("w", "who-can", "see who does have access"),
-		recover("y", "copy error", "paste to your cluster admin"),
-		recover("r", "retry", ""),
+		recover(verbs.Goto.Key, "jump to another kind", "everything else still works"),
+		recover(verbs.Context.Key, "switch context", "another context may grant access"),
+		recover(verbs.WhoCan.Key, verbs.WhoCan.Label, "see who does have access"),
+		recover(verbs.CopyError.Key, verbs.CopyError.Label, "paste to your cluster admin"),
+		recover(verbs.Retry.Key, verbs.Retry.Label, ""),
 	}
 	if hint := m.namespaceScopedHint(); hint != "" {
 		lines = append(lines, "", note.Render(hint))

@@ -519,15 +519,15 @@ func (m *Model) updateSetResourcesKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 			t.fieldIdx++
 			t.fields[t.fieldIdx].input.Focus()
 		}
-	case "tab":
+	case verbs.NextPanel.Press():
 		if len(t.containers) > 1 {
 			m.selectSetResourcesContainer((t.containerIdx + 1) % len(t.containers))
 		}
-	case "+":
+	case verbs.ScaleUpKey:
 		t.nudge(1)
-	case "-":
+	case verbs.ScaleDownKey:
 		t.nudge(-1)
-	case "u":
+	case verbs.SetResourcesUnset.Key:
 		f := &t.fields[t.fieldIdx]
 		f.setBuffer("")
 		f.unset, f.invalid = true, false
