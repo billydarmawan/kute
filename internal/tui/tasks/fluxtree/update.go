@@ -23,6 +23,12 @@ func (m *Model) Reload() tea.Cmd {
 	if m.lister == nil {
 		return nil
 	}
+	return m.startLoad()
+}
+
+// startLoad issues a load newer than every one already in flight.
+func (m *Model) startLoad() tea.Cmd {
+	m.loadSeq++
 	return m.load()
 }
 
@@ -45,11 +51,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only the kinds this screen draws — a Pod event must not re-run the
 		// whole join.
 		if m.lister != nil && m.isFluxKind(msg.Kind) {
-			return m, m.load()
+			return m, m.startLoad()
 		}
 	case tui.CacheSyncRetryMsg:
 		if msg.Gen == m.reloadEpoch && m.lister != nil {
-			return m, m.load()
+			return m, m.startLoad()
 		}
 	case loadedMsg:
 		return m, m.applyLoaded(msg)
@@ -72,6 +78,12 @@ func (m Model) isFluxKind(kind kube.ResourceKind) bool {
 }
 
 func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
+	// Loads race — the slowest reply is not necessarily the oldest — so
+	// one older than what is already on screen is dropped.
+	if msg.seq < m.appliedSeq {
+		return nil
+	}
+	m.appliedSeq = msg.seq
 	m.reloadEpoch++
 	if !tui.KindsSynced(m.lister, "", msg.kinds...) {
 		// A non-empty join can still be partial while one of the Flux caches is
@@ -97,14 +109,9 @@ func (m *Model) applyLoaded(msg loadedMsg) tea.Cmd {
 	m.feedback = ""
 
 	if len(m.groups) == 0 {
-		// "This cluster runs no Flux objects" is a claim about the cluster,
-		// and the caches these kinds live in start filling only when this
-		// screen first reads them. Never make it against a cache that hasn't
-		// settled (CLAUDE.md's empty-state rule).
-		if !tui.KindsSynced(m.lister, "", msg.kinds...) {
-			m.state = tui.TaskStateLoading
-			return tui.ScheduleCacheSyncRetry(m.reloadEpoch)
-		}
+		// "This cluster runs no Flux objects" is a claim about the cluster;
+		// the KindsSynced gate above is what makes it safe to make here
+		// (CLAUDE.md's empty-state rule).
 		m.state = tui.TaskStateEmpty
 	}
 	return m.scheduleStallRetry()
@@ -149,7 +156,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	if msg.Err != nil {
 		return nil
 	}
-	return m.load()
+	return m.startLoad()
 }
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

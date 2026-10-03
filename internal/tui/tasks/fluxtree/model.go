@@ -162,8 +162,13 @@ type Model struct {
 
 	selected, offset int
 
-	// reloadEpoch guards a cache-sync retry against a newer load.
+	// reloadEpoch guards a cache-sync retry against a newer load. loadSeq
+	// numbers every load issued (startLoad) and appliedSeq is the newest one
+	// applied, so a slow watch-triggered join landing late can never put an
+	// older tree back on screen.
 	reloadEpoch int
+	loadSeq     int
+	appliedSeq  int
 	// kindErrs are the Flux kinds the last load couldn't read, named on the
 	// strip so a partial tree never passes for the whole one.
 	kindErrs []kindError
@@ -184,6 +189,7 @@ type Model struct {
 
 // loadedMsg carries one load()'s result.
 type loadedMsg struct {
+	seq    int
 	groups []group
 	// kinds are the Flux kinds this load actually read, so the empty state
 	// can gate on their caches rather than claiming a cluster has no Flux
@@ -220,6 +226,7 @@ func New(cfg Config) Model {
 		now:              time.Now(),
 		loadStartedAt:    time.Now(),
 		spinner:          components.NewSpinner(),
+		loadSeq:          1,
 	}
 }
 

@@ -804,3 +804,24 @@ func TestReconcileUnderAMissingSourceSkipsWithSource(t *testing.T) {
 		t.Errorf("a reconciler under a missing source reconciles alone, got %q", m.execFeedback)
 	}
 }
+
+// TestStaleLoadNeverOverwritesANewerTree: watch-triggered joins race, and
+// the slowest reply isn't necessarily the oldest — one issued before the
+// tree on screen must not put its older join back.
+func TestStaleLoadNeverOverwritesANewerTree(t *testing.T) {
+	m := demoModel(t)
+	stale := m.load()()
+	m.startLoad()
+	fresh := m.load()()
+	m.Update(fresh)
+	want := len(m.groups)
+	if want == 0 {
+		t.Fatal("demo should have groups")
+	}
+	staleMsg := stale.(loadedMsg)
+	staleMsg.groups = nil
+	m.Update(staleMsg)
+	if len(m.groups) != want || m.state != tui.TaskStateReady {
+		t.Fatalf("a stale load replaced the tree: %d groups, state %v", len(m.groups), m.state)
+	}
+}

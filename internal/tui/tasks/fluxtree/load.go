@@ -27,7 +27,11 @@ import (
 // is a handful of discovered CRDs, never a walk of the registry. Starting
 // those informers is this screen's whole purpose; starting everything else's
 // would be the failure CLAUDE.md's lazy-informer rule exists to prevent.
+//
+// The reply carries m.loadSeq, which the caller bumps (startLoad) — Init
+// runs on a value copy and uses New's seq directly.
 func (m Model) load() tea.Cmd {
+	seq := m.loadSeq
 	lister := m.lister
 	registry := m.registry()
 	timeout := m.timeout
@@ -87,7 +91,7 @@ func (m Model) load() tea.Cmd {
 			}
 		}
 		if len(read) > 0 && len(kindErrs) == len(read) {
-			return loadedMsg{err: kindErrs[0].err, kinds: read, kindErrs: kindErrs}
+			return loadedMsg{seq: seq, err: kindErrs[0].err, kinds: read, kindErrs: kindErrs}
 		}
 
 		// A HelmRelease's spec.chartRef may name a HelmChart, which is not a
@@ -142,7 +146,7 @@ func (m Model) load() tea.Cmd {
 			groups = append(groups, *g)
 		}
 		sortGroups(groups)
-		return loadedMsg{groups: groups, kinds: read, kindErrs: kindErrs}
+		return loadedMsg{seq: seq, groups: groups, kinds: read, kindErrs: kindErrs}
 	}
 }
 
