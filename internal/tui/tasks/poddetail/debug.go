@@ -77,6 +77,13 @@ func (m *Model) beginExecOrDebug() (tea.Model, tea.Cmd, bool) {
 	if m.shells == nil {
 		return m.openSelectedExec()
 	}
+	if m.shellProbing {
+		// A probe is already in flight: a second one would fire a second
+		// kubectl exec once the first shell exits.
+		return nil, nil, true
+	}
+	m.shellProbing = true
+	m.execFeedback = shellProbingNote(m.name)
 	return nil, detectPodShellsCmd(m.session.ClusterContext(), m.namespace, m.name, m.pod.ContainerInfos, m.shells), true
 }
 
@@ -109,6 +116,10 @@ func (m *Model) openPodDebug(namespace, podName string, containers []kube.Contai
 // meant, now that every container's probe result is in — see browse's own
 // routePodShellsProbed doc comment.
 func (m *Model) routePodShellsProbed(msg podShellsProbedMsg) (tea.Model, tea.Cmd) {
+	m.shellProbing = false
+	if m.execFeedback == shellProbingNote(msg.podName) {
+		m.execFeedback = ""
+	}
 	if msg.allShellless() {
 		waiting := podHasWaitingContainer(msg.containers)
 		return m.openPodDebug(msg.namespace, msg.podName, msg.containers, m.pod.Status, waiting)
@@ -124,4 +135,9 @@ func (m *Model) routePodShellsProbed(msg podShellsProbedMsg) (tea.Model, tea.Cmd
 		return task, cmd
 	}
 	return m, cmd
+}
+
+// shellProbingNote is the keybar line shown while the 'x' shell probe runs.
+func shellProbingNote(podName string) string {
+	return podName + ": checking for a shell…"
 }

@@ -154,3 +154,36 @@ func TestAllShelllessMultiContainerSkipsPicker(t *testing.T) {
 		t.Fatalf("expected the debug panel's sentinel task to be pushed, got %T", updated)
 	}
 }
+
+// TestRepeatXWhileProbingIsIgnored mirrors browse's own test of the same
+// name: a repeat 'x' during the shell probe starts no second probe.
+func TestRepeatXWhileProbingIsIgnored(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {runningPod("api-0", "default", "node-a")},
+	}}
+	detector := &countingShellDetector{}
+	m := New(Config{
+		Session: newSession(), Lister: lister, Shells: detector,
+		Namespace: "default", Name: "api-0",
+	})
+	m.SetSize(120, 40)
+	m = step(t, m, m.Init()())
+
+	_, probe := m.Update(tea.KeyPressMsg{Text: "x"})
+	if probe == nil {
+		t.Fatal("expected a probe Cmd")
+	}
+	if m.execFeedback == "" {
+		t.Fatal("expected a probing note on the keybar")
+	}
+	if _, again := m.Update(tea.KeyPressMsg{Text: "x"}); again != nil {
+		t.Fatal("a repeat x during the probe started a second probe")
+	}
+	m.Update(probe())
+	if detector.calls != 1 {
+		t.Fatalf("DetectShells calls = %d, want 1", detector.calls)
+	}
+	if m.execFeedback != "" {
+		t.Fatalf("probing note left on the keybar: %q", m.execFeedback)
+	}
+}

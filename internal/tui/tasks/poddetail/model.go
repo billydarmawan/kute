@@ -173,6 +173,9 @@ type Model struct {
 	// Also carries kubectl edit's exit message (editResultMsg) — same
 	// transient channel, same reasoning.
 	execFeedback string
+	// shellProbing is set while the 'x' async shell probe (debug.go) is in
+	// flight, so a repeat 'x' is ignored instead of starting a second probe.
+	shellProbing bool
 	// pendingEdit is non-nil while 'E' edit's PROD-only y/N line is showing
 	// (verbs.Resolve(verbs.Edit, …)) — mirrors browse.Model's own pendingEdit field.
 	pendingEdit *editTarget

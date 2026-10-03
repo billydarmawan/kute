@@ -317,3 +317,41 @@ func TestDebugCopyTagCoexistsWithEphemeralTag(t *testing.T) {
 		t.Fatalf("NameSuffix = %q, want %q", got, want)
 	}
 }
+
+// TestRepeatXWhileProbingIsIgnored pins L1: a second 'x' while the first
+// press's shell probe is still in flight must not start a second probe (and
+// so a second kubectl exec once the first shell exits), and the keybar says
+// the probe is running.
+func TestRepeatXWhileProbingIsIgnored(t *testing.T) {
+	lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.KindPod: {podWithContainers("default", "api-0", "app")},
+	}}
+	detector := &countingShellDetector{}
+	m := New(Config{Session: newSession(), Lister: lister, Shells: detector})
+	m.SetSize(120, 36)
+	m = step(t, m, m.Init()())
+
+	_, probe := m.Update(tea.KeyPressMsg{Text: "x"})
+	if probe == nil {
+		t.Fatal("expected a probe Cmd")
+	}
+	if m.execFeedback == "" {
+		t.Fatal("expected a probing note on the keybar")
+	}
+	if _, again := m.Update(tea.KeyPressMsg{Text: "x"}); again != nil {
+		t.Fatal("a repeat x during the probe started a second probe")
+	}
+	_, execCmd := m.Update(probe())
+	if execCmd == nil {
+		t.Fatal("expected the probe result to exec")
+	}
+	if detector.calls != 1 {
+		t.Fatalf("DetectShells calls = %d, want 1", detector.calls)
+	}
+	if m.execFeedback != "" {
+		t.Fatalf("probing note left on the keybar: %q", m.execFeedback)
+	}
+	if _, next := m.Update(tea.KeyPressMsg{Text: "x"}); next == nil {
+		t.Fatal("x after the probe finished should probe again")
+	}
+}

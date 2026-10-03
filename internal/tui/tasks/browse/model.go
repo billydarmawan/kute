@@ -386,6 +386,9 @@ type Model struct {
 	// kubectl edit's exit message (editResultMsg, edit.go) and node shell's
 	// (nodeShellResultMsg) — same transient channel, same reasoning.
 	execFeedback string
+	// shellProbing is set while the 'x' async shell probe (debug.go) is in
+	// flight, so a repeat 'x' is ignored instead of starting a second probe.
+	shellProbing bool
 	// pendingEdit is non-nil while 'E' edit's PROD-only y/N line is showing
 	// (edit.go's bespoke gate — verbs.Resolve(verbs.Edit, …)) — nil the rest of the
 	// time, including right after a non-prod 'E' press, which skips this
