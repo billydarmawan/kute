@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"slices"
+	"testing"
+
+	"github.com/kute-dev/kute/internal/app"
+)
 
 // TestConflictingScopeFlags pins the usage-error rule
 // (docs/lazy-informers.md §5.6): --namespace-scoped already
@@ -32,5 +37,46 @@ func TestConflictingScopeFlags(t *testing.T) {
 				t.Fatalf("conflictingScopeFlags(%v) = %v, want nil", tt.set, err)
 			}
 		})
+	}
+}
+
+// TestValidateFlags: values flag.Parse accepts but kute would silently
+// ignore, or only fail on much later, are usage errors (14 L15).
+func TestValidateFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     app.Config
+		args    []string
+		wantErr bool
+	}{
+		{"bare launch", app.Config{}, nil, false},
+		{"dark theme", app.Config{Theme: "dark"}, nil, false},
+		{"light theme", app.Config{Theme: "light"}, nil, false},
+		{"theme typo", app.Config{Theme: "drak"}, nil, true},
+		{"positional argument", app.Config{}, []string{"pods"}, true},
+		{"valid namespace", app.Config{Namespace: "kube-system"}, nil, false},
+		{"invalid namespace", app.Config{Namespace: "Kube_System"}, nil, true},
+		{"valid scoped namespace", app.Config{ScopeNamespace: "team-a"}, nil, false},
+		{"invalid scoped namespace", app.Config{ScopeNamespace: "team a"}, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateFlags(tt.cfg, tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateFlags(%+v, %v) = %v, wantErr %t", tt.cfg, tt.args, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestDemoIgnoredFlags: --demo drops --context and --kubeconfig, and says
+// so rather than ignoring them in silence; -n is honoured in demo mode.
+func TestDemoIgnoredFlags(t *testing.T) {
+	set := []string{"demo", "context", "kubeconfig", "n"}
+	if got := demoIgnoredFlags(app.Config{Demo: true}, set); !slices.Equal(got, []string{"--context", "--kubeconfig"}) {
+		t.Fatalf("demoIgnoredFlags = %v, want [--context --kubeconfig]", got)
+	}
+	if got := demoIgnoredFlags(app.Config{}, set); got != nil {
+		t.Fatalf("demoIgnoredFlags without --demo = %v, want nil", got)
 	}
 }

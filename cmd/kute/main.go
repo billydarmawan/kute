@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/kute-dev/kute/internal/app"
 )
@@ -45,6 +48,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "kute: %v\n", err)
 		os.Exit(1)
 	}
+	if err := validateFlags(cfg, flag.Args()); err != nil {
+		fmt.Fprintf(os.Stderr, "kute: %v\n", err)
+		flag.Usage()
+		os.Exit(2)
+	}
+	for _, w := range demoIgnoredFlags(cfg, setNames) {
+		fmt.Fprintf(os.Stderr, "kute: %s is ignored with --demo\n", w)
+	}
 
 	if err := app.RunWithConfig(cfg); err != nil {
 		// A crash has already printed its own footer, naming the report
@@ -71,4 +82,45 @@ func conflictingScopeFlags(setNames []string) error {
 		return errors.New("--namespace and --namespace-scoped are mutually exclusive; --namespace-scoped already selects the namespace")
 	}
 	return nil
+}
+
+// validateFlags rejects what flag.Parse lets through but kute would
+// silently ignore or only fail on much later: a --theme other than
+// dark/light, stray positional arguments (`kute pods` is not a command),
+// and a namespace that can't exist (a typo there surfaced as Forbidden or
+// an empty list rather than as the typo it is).
+func validateFlags(cfg app.Config, args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("unexpected argument %q: kute takes flags only", args[0])
+	}
+	switch cfg.Theme {
+	case "", "dark", "light":
+	default:
+		return fmt.Errorf("invalid --theme %q: want dark or light", cfg.Theme)
+	}
+	for flagName, ns := range map[string]string{"--namespace": cfg.Namespace, "--namespace-scoped": cfg.ScopeNamespace} {
+		if ns == "" {
+			continue
+		}
+		if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
+			return fmt.Errorf("invalid %s %q: %s", flagName, ns, strings.Join(errs, "; "))
+		}
+	}
+	return nil
+}
+
+// demoIgnoredFlags names the cluster-selection flags --demo drops: the
+// fake cluster has one fixed context and no kubeconfig. -n and
+// --namespace-scoped are honoured in demo mode and aren't listed.
+func demoIgnoredFlags(cfg app.Config, setNames []string) []string {
+	if !cfg.Demo {
+		return nil
+	}
+	var ignored []string
+	for _, name := range []string{"context", "kubeconfig"} {
+		if slices.Contains(setNames, name) {
+			ignored = append(ignored, "--"+name)
+		}
+	}
+	return ignored
 }
