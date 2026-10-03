@@ -3,6 +3,7 @@ package browse
 import (
 	"context"
 	"image/color"
+	"slices"
 	"strings"
 	"testing"
 
@@ -375,6 +376,49 @@ func TestArgoDashboardURLReadsOffTheUpdateLoopFromTheControlPlane(t *testing.T) 
 	msg, ok := cmd().(argoDashboardURLMsg)
 	if !ok || msg.url != "https://argocd.demo.local/applications/team-a/worker" {
 		t.Fatalf("lookup = %+v, want the team-a/worker deep link built from argocd/argocd-cm", msg)
+	}
+}
+
+// TestArgoDashboardURLChecksTheConfiguredControlPlaneFirst: with
+// config.yaml's argoCDNamespace set, that namespace's argocd-cm wins over
+// one in the Application's namespace or in argocd.
+func TestArgoDashboardURLChecksTheConfiguredControlPlaneFirst(t *testing.T) {
+	app := application("worker", "main", "abc0000", "OutOfSync", "Healthy")
+	app.SetNamespace("team-a")
+	cm := func(ns, url string) *corev1.ConfigMap {
+		return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "argocd-cm", Namespace: ns}, Data: map[string]string{"url": url}}
+	}
+	reads := 0
+	lister := configMapCountingLister{reads: &reads, fakeLister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+		kube.ResourceKind("Application"): {app},
+		kube.KindConfigMap:               {cm("team-a", "https://wrong.team-a"), cm("argocd", "https://wrong.argocd"), cm("gitops", "https://argo.gitops")},
+	}}}
+	m := argoDashboardModel(t, "team-a", lister)
+	m.session.Config.ArgoCDNamespace = "gitops"
+
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "u"})
+	if cmd == nil {
+		t.Fatal("expected a lookup cmd from 'u'")
+	}
+	msg, ok := cmd().(argoDashboardURLMsg)
+	if !ok || msg.url != "https://argo.gitops/applications/team-a/worker" {
+		t.Fatalf("lookup = %+v, want the link from gitops/argocd-cm", msg)
+	}
+}
+
+func TestArgoCMNamespacesOrder(t *testing.T) {
+	for _, tc := range []struct {
+		configured, app string
+		want            []string
+	}{
+		{"", "team-a", []string{"team-a", "argocd"}},
+		{"gitops", "team-a", []string{"gitops", "team-a", "argocd"}},
+		{"argocd", "team-a", []string{"argocd", "team-a"}},
+		{"", "argocd", []string{"argocd"}},
+	} {
+		if got := argoCMNamespaces(tc.configured, tc.app); !slices.Equal(got, tc.want) {
+			t.Errorf("argoCMNamespaces(%q, %q) = %v, want %v", tc.configured, tc.app, got, tc.want)
+		}
 	}
 }
 

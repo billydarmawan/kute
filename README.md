@@ -224,6 +224,11 @@ theme: dark
 # Default: busybox:1.37
 nodeShellImage: my-registry.internal/busybox:1.37
 
+# Argo CD's control-plane namespace (where argocd-cm lives), for an install
+# outside the default. The Argo Applications list's u (copy dashboard link)
+# looks here first, then in the Application's own namespace, then argocd.
+argoCDNamespace: gitops
+
 update:
   # Set false to disable the once-per-24h release-feed check that drives the
   # update-available chip. Useful behind egress-flagging proxies.

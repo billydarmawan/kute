@@ -482,3 +482,47 @@ func TestSetProdKeepsListShape(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadParsesArgoCDNamespace(t *testing.T) {
+	t.Parallel()
+	got := loadFrom(writeConfig(t, "argoCDNamespace: gitops\n"))
+	if got.LoadErr != nil || got.ArgoCDNamespace != "gitops" {
+		t.Fatalf("got %+v, want argoCDNamespace gitops with no error", got)
+	}
+}
+
+// TestBadArgoCDNamespaceLeavesProdContextsAlone: a mistyped argoCDNamespace
+// is reported, but neither drops prodContexts nor makes every context PROD.
+func TestBadArgoCDNamespaceLeavesProdContextsAlone(t *testing.T) {
+	t.Parallel()
+	got := loadFrom(writeConfig(t, "prodContexts: [prod-eu]\nargoCDNamespace: [gitops]\n"))
+	if got.LoadErr == nil {
+		t.Fatal("LoadErr = nil; the bad argoCDNamespace must be reported")
+	}
+	if got.ProdUnknown() || !got.IsProd("prod-eu") || got.IsProd("dev-kind") {
+		t.Fatalf("prodContexts must survive a bad argoCDNamespace intact: %+v unknown=%v", got.ProdContexts, got.ProdUnknown())
+	}
+	if got.ArgoCDNamespace != "" {
+		t.Fatalf("ArgoCDNamespace = %q, want empty for an undecodable value", got.ArgoCDNamespace)
+	}
+}
+
+// TestSetProdLeavesArgoCDNamespaceUntouched: argoCDNamespace is read-only —
+// ctrl+p rewrites prodContexts alone, so the key and its exact text survive,
+// and an in-memory change to it is never written.
+func TestSetProdLeavesArgoCDNamespaceUntouched(t *testing.T) {
+	writeHomeConfig(t, "argoCDNamespace: gitops # argo lives here\nprodContexts: [prod-eu]\n", 0o644)
+
+	c := Load()
+	if c.ArgoCDNamespace != "gitops" {
+		t.Fatalf("ArgoCDNamespace = %q, want gitops", c.ArgoCDNamespace)
+	}
+	c.ArgoCDNamespace = "elsewhere"
+	if err := c.SetProd("prod-us", true); err != nil {
+		t.Fatalf("SetProd: %v", err)
+	}
+	const want = "argoCDNamespace: gitops # argo lives here\nprodContexts: [prod-eu, prod-us]\n"
+	if got := readHomeConfig(t); got != want {
+		t.Fatalf("config.yaml =\n%s\nwant\n%s", got, want)
+	}
+}

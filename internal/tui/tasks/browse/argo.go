@@ -12,6 +12,7 @@ package browse
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -110,7 +111,8 @@ const argoDashboardTimeout = 5 * time.Second
 
 // argoControlPlaneNamespace is where a default Argo CD install keeps
 // argocd-cm. Under apps-in-any-namespace an Application lives elsewhere,
-// so 'u' looks there after the Application's own namespace.
+// so 'u' looks there after the Application's own namespace — and after
+// config.yaml's argoCDNamespace, for an install that isn't here at all.
 const argoControlPlaneNamespace = "argocd"
 
 // argoDashboardURLMsg carries the u key's lookup back to the update loop: the
@@ -136,11 +138,12 @@ func (m *Model) copySelectedArgoDashboardURL() tea.Cmd {
 	}
 	lister := m.lister
 	parent := m.session.ClusterContext()
+	controlPlane := m.session.Config.ArgoCDNamespace
 	namespace, name := row.Namespace, row.Name
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, argoDashboardTimeout)
 		defer cancel()
-		base, feedback := argoDashboardBaseURL(ctx, lister, namespace)
+		base, feedback := argoDashboardBaseURL(ctx, lister, argoCMNamespaces(controlPlane, namespace))
 		if base == "" {
 			return argoDashboardURLMsg{feedback: feedback}
 		}
@@ -157,16 +160,26 @@ func (m *Model) handleArgoDashboardURL(msg argoDashboardURLMsg) tea.Cmd {
 	return tea.SetClipboard(msg.url)
 }
 
-// argoDashboardBaseURL reads argocd-cm's own "url" data key, looking in the
-// Application's namespace and then Argo's default control-plane namespace.
-// It returns the URL, or "" plus the feedback line for the miss. A cache
-// that hasn't filled yet (the first 'u' starts the ConfigMap informer) or
-// can't be read is reported as such, never as "not configured".
-func argoDashboardBaseURL(ctx context.Context, lister resources.RawLister, namespace string) (string, string) {
-	namespaces := []string{namespace}
-	if namespace != argoControlPlaneNamespace {
-		namespaces = append(namespaces, argoControlPlaneNamespace)
+// argoCMNamespaces is where 'u' looks for argocd-cm, in order: config.yaml's
+// argoCDNamespace when set (an install outside the default namespace), the
+// Application's own namespace, then Argo's default control-plane namespace
+// — each once.
+func argoCMNamespaces(configured, appNamespace string) []string {
+	var out []string
+	for _, ns := range []string{configured, appNamespace, argoControlPlaneNamespace} {
+		if ns != "" && !slices.Contains(out, ns) {
+			out = append(out, ns)
+		}
 	}
+	return out
+}
+
+// argoDashboardBaseURL reads argocd-cm's own "url" data key from the first
+// of namespaces (argoCMNamespaces) that has one. It returns the URL, or ""
+// plus the feedback line for the miss. A cache that hasn't filled yet (the
+// first 'u' starts the ConfigMap informer) or can't be read is reported as
+// such, never as "not configured".
+func argoDashboardBaseURL(ctx context.Context, lister resources.RawLister, namespaces []string) (string, string) {
 	var loading bool
 	var readErr error
 	for _, ns := range namespaces {

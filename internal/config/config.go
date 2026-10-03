@@ -30,6 +30,11 @@ type Config struct {
 	// verb ('s' on a node) hands to kubectl debug — for clusters that can't
 	// pull from Docker Hub. Empty falls back to kube.DefaultNodeShellImage.
 	NodeShellImage string `yaml:"nodeShellImage,omitempty"`
+	// ArgoCDNamespace is Argo CD's control-plane namespace — where its
+	// argocd-cm lives — for an install outside the default "argocd". Read
+	// only by §33a's 'u' dashboard-link lookup, which checks it first;
+	// read-only like every key but prodContexts (SetProd never writes it).
+	ArgoCDNamespace string `yaml:"argoCDNamespace,omitempty"`
 	// Update holds 28a/28b's update-check toggle — relevant behind
 	// egress-flagging proxies (docs/design README.md §28a).
 	Update UpdateConfig `yaml:"update,omitempty"`
