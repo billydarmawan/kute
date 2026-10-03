@@ -334,7 +334,8 @@ func TestSetResourcesCommitsThroughMutatorNonProd(t *testing.T) {
 	m = step(t, m, m.Init()())
 	m.beginSetResources()
 
-	m = step(t, m, tea.KeyPressMsg{Text: "+"}) // cpu request 250m -> 300m
+	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyDown}) // cpu limit
+	m = step(t, m, tea.KeyPressMsg{Text: "+"})
 	m = step(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	// One dry-run call (commitSetResources' pre-flight) plus one real call
@@ -348,11 +349,15 @@ func TestSetResourcesCommitsThroughMutatorNonProd(t *testing.T) {
 	if m.pendingSetResources == nil {
 		t.Fatal("expected the panel to remain open after apply")
 	}
-	if got := m.pendingSetResources.message; got != "set resources: worker" {
-		t.Fatalf("result message = %q, want set resources: worker", got)
+	want := "applied cpu.limit=1050m"
+	if got := m.pendingSetResources.message; got != want {
+		t.Fatalf("result message = %q, want %q", got, want)
 	}
-	if view := plain(m.Render()); !strings.Contains(view, "set resources: worker") {
+	if view := plain(m.Render()); !strings.Contains(view, want) {
 		t.Fatalf("result is absent from the still-open panel:\n%s", view)
+	}
+	if got := m.pendingSetResources.fieldIdx; got != fieldCPULimit {
+		t.Fatalf("fieldIdx = %d after apply, want the cpu limit field (%d) to stay selected", got, fieldCPULimit)
 	}
 	if m.actions.Active() {
 		t.Fatal("set-resources is TierNone outside PROD and should execute immediately, not show a confirm")
@@ -533,7 +538,7 @@ func TestSetResourcesMetricsReadNeverBlocksUpdate(t *testing.T) {
 		t.Fatalf("calls = %d, usageOK = %v after the read landed, want 1/true", calls, m.pendingSetResources.usageOK)
 	}
 
-	m.pendingSetResources.message = "set resources: worker"
+	m.pendingSetResources.message = "applied cpu.request=300m"
 	updated, _ = m.Update(kube.ResourceChangedMsg{Kind: kube.KindDeployment})
 	m = *updated.(*Model)
 	if calls != 1 {

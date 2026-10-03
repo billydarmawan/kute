@@ -7,7 +7,7 @@
 ▎ ●  nva-worker   4/4    stable                …va.dev/nva-worker:3.4.2    30d  
                                                                                 
   ╭──────────────────────────────────────────────────────────────────────────╮  
-  │ container   worker   usage: from the metrics poll                        │  
+  │ container   worker   usage: sampled when opened                          │  
   │──────────────────────────────────────────────────────────────────────────│  
   │   FIELD       CURRENT   NEW           P95 USAGE                          │  
   │   cpu request 250m      250m          ▮▮▮▮▮▮▮▮▯▯ 182m                    │  

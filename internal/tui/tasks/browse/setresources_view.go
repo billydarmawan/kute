@@ -92,7 +92,7 @@ func (m Model) setResourcesStripLine(t *setResourcesTarget, theme tui.Theme, wid
 			parts = append(parts, dim.Render(name))
 		}
 	}
-	left := strings.Join(parts, "  ") + "  " + faint.Render("usage: from the metrics poll")
+	left := strings.Join(parts, "  ") + "  " + faint.Render("usage: sampled when opened")
 
 	right := ""
 	if t.oomOK {

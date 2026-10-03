@@ -14,6 +14,7 @@ package browse
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -156,6 +157,8 @@ type setResourcesTarget struct {
 
 type setResourcesPendingCommit struct {
 	container string
+	fieldIdx  int
+	edits     kube.ResourceEdits
 }
 
 // activeContainer is the container the panel is currently editing.
@@ -661,7 +664,11 @@ func (m *Model) handleDryRunSetResources(msg dryRunSetResourcesMsg) (tea.Model, 
 		return m, nil
 	}
 	edits := msg.target.edits()
-	m.pendingSetResources.pendingCommit = &setResourcesPendingCommit{container: msg.target.activeContainer().Name}
+	m.pendingSetResources.pendingCommit = &setResourcesPendingCommit{
+		container: msg.target.activeContainer().Name,
+		fieldIdx:  m.pendingSetResources.fieldIdx,
+		edits:     edits,
+	}
 	return m, m.actions.Begin(actions.Request{Verb: verbs.SetResources, Prod: m.isProd()}, tui.TaskAction{
 		ID:    "set-resources-" + msg.target.namespace + "/" + msg.target.name,
 		Label: fmt.Sprintf("Set resources for %s?", msg.target.name),
@@ -690,9 +697,10 @@ func (m *Model) handleSetResourcesResult(msg actions.ResultMsg) tea.Cmd {
 		return nil
 	}
 
-	container := ""
+	container, fieldIdx := "", 0
+	var edits kube.ResourceEdits
 	if pc != nil {
-		container = pc.container
+		container, fieldIdx, edits = pc.container, pc.fieldIdx, pc.edits
 	}
 	fresh, ok := m.buildSetResourcesTarget(t.kind, t.namespace, t.name, t.desiredCount)
 	if !ok {
@@ -701,35 +709,67 @@ func (m *Model) handleSetResourcesResult(msg actions.ResultMsg) tea.Cmd {
 	}
 	carrySetResourcesMetrics(t, fresh)
 	m.pendingSetResources = fresh
-	idx := 0
-	for i, c := range fresh.containers {
+	m.selectSetResourcesContainerNamed(container, fieldIdx)
+	m.pendingSetResources.message = appliedResourcesMessage(edits)
+	return nil
+}
+
+// appliedResourcesMessage is §25a's inline result line — the fields the
+// apply actually changed, e.g. "applied cpu.limit=768m, mem.limit=768Mi",
+// with an unset field reading "<field>=unset".
+func appliedResourcesMessage(e kube.ResourceEdits) string {
+	var parts []string
+	add := func(label string, v *string) {
+		if v == nil {
+			return
+		}
+		val := *v
+		if val == "" {
+			val = "unset"
+		}
+		parts = append(parts, label+"="+val)
+	}
+	add("cpu.request", e.CPURequest)
+	add("cpu.limit", e.CPULimit)
+	add("mem.request", e.MEMRequest)
+	add("mem.limit", e.MEMLimit)
+	if len(parts) == 0 {
+		return "applied"
+	}
+	return "applied " + strings.Join(parts, ", ")
+}
+
+// selectSetResourcesContainerNamed re-selects container's tab on a rebuilt
+// target (falling back to the first) and keeps fieldIdx focused when that
+// container survived — §25a: "the field you were on stays selected, same
+// container tab".
+func (m *Model) selectSetResourcesContainerNamed(container string, fieldIdx int) {
+	t := m.pendingSetResources
+	idx, found := 0, false
+	for i, c := range t.containers {
 		if c.Name == container {
-			idx = i
+			idx, found = i, true
 			break
 		}
 	}
 	m.selectSetResourcesContainer(idx)
-	m.pendingSetResources.message = "set resources: " + container
-	return nil
+	if found && fieldIdx > 0 && fieldIdx < len(t.fields) {
+		t.fields[t.fieldIdx].input.Blur()
+		t.fieldIdx = fieldIdx
+		t.fields[t.fieldIdx].input.Focus()
+	}
 }
 
 func (m *Model) refreshSetResourcesTarget() {
 	t := m.pendingSetResources
-	container, message, lastError := t.activeContainer().Name, t.message, t.lastError
+	container, fieldIdx, message, lastError := t.activeContainer().Name, t.fieldIdx, t.message, t.lastError
 	fresh, ok := m.buildSetResourcesTarget(t.kind, t.namespace, t.name, t.desiredCount)
 	if !ok {
 		return
 	}
 	carrySetResourcesMetrics(t, fresh)
 	m.pendingSetResources = fresh
-	idx := 0
-	for i, c := range fresh.containers {
-		if c.Name == container {
-			idx = i
-			break
-		}
-	}
-	m.selectSetResourcesContainer(idx)
+	m.selectSetResourcesContainerNamed(container, fieldIdx)
 	m.pendingSetResources.message = message
 	m.pendingSetResources.lastError = lastError
 }
