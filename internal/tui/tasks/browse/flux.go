@@ -26,7 +26,13 @@ import (
 // descriptor's own Flux flag, never a kind-name check — the Flux kind set
 // is discovered at connect, not compiled in.
 func (m Model) fluxVerbsApply() bool {
-	return m.desc.Flux && m.mutator != nil && m.state == tui.TaskStateReady
+	return m.fluxNavApplies() && m.mutator != nil
+}
+
+// fluxNavApplies is fluxVerbsApply minus the mutator: 'o' only navigates,
+// so read-only wiring keeps it.
+func (m Model) fluxNavApplies() bool {
+	return m.desc.Flux && m.state == tui.TaskStateReady
 }
 
 // openSelectedFluxDetail pushes §31a for the cursor row. Gated on the
@@ -118,7 +124,7 @@ func fluxSourceRef(row resources.Row) (resources.FluxSourceRef, bool) {
 	return src, src.Kind != "" && src.Name != ""
 }
 
-// fluxKeybarGroup is §30a's keybar block. The suspend hint's *label* flips
+// fluxKeybarGroup is §30a's keybar block — just 'o' without a mutator. The suspend hint's *label* flips
 // with the cursor row while its key stays whatever the registry says — the
 // same contextual-label pattern openPodsHint uses.
 func (m Model) fluxKeybarGroup() []tui.KeyHint {
@@ -126,9 +132,11 @@ func (m Model) fluxKeybarGroup() []tui.KeyHint {
 	if row, ok := m.selectedRow(); ok && row.Suspended {
 		suspend.Label = "resume"
 	}
-	hints := []tui.KeyHint{
-		{Key: verbs.FluxReconcile.Key, Label: verbs.FluxReconcile.Label},
-		{Key: suspend.Key, Label: suspend.Label},
+	var hints []tui.KeyHint
+	if m.fluxVerbsApply() {
+		hints = append(hints,
+			tui.KeyHint{Key: verbs.FluxReconcile.Key, Label: verbs.FluxReconcile.Label},
+			tui.KeyHint{Key: suspend.Key, Label: suspend.Label})
 	}
 	if _, ok := fluxSourceRefForSelection(m); ok {
 		hints = append(hints, tui.KeyHint{Key: verbs.FluxSource.Key, Label: verbs.FluxSource.Label})

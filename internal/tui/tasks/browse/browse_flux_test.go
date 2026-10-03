@@ -371,3 +371,19 @@ func TestFluxEnterOpensReconcilerDetailOnlyForReconcilers(t *testing.T) {
 		}
 	}
 }
+
+// TestFluxSourceVerbWorksWithoutAMutator: 'o' only navigates, so a
+// read-only wiring keeps the jump and its keybar hint.
+func TestFluxSourceVerbWorksWithoutAMutator(t *testing.T) {
+	m := fluxModel(t, kustomization("nebula-apps", false, "True", "ok"))
+	if !strings.Contains(plain(m.Render()), "source") {
+		t.Errorf("keybar should still offer 'o' without a mutator:\n%s", plain(m.Render()))
+	}
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "o"})
+	if cmd == nil {
+		t.Fatal("expected a goto cmd from 'o' without a mutator")
+	}
+	if msg, ok := cmd().(tui.GotoResourceMsg); !ok || msg.Kind != "GitRepository" {
+		t.Errorf("expected a jump to the GitRepository, got %#v", cmd())
+	}
+}

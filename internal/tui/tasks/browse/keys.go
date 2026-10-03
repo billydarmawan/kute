@@ -420,8 +420,10 @@ func (m Model) Keybar() tui.Keybar {
 			groups = append(groups, helmGroup)
 		}
 	}
-	if m.fluxVerbsApply() {
-		groups = append(groups, m.fluxKeybarGroup())
+	if m.fluxNavApplies() {
+		if g := m.fluxKeybarGroup(); len(g) > 0 {
+			groups = append(groups, g)
+		}
 	}
 	if m.argoVerbsApply() {
 		groups = append(groups, m.argoKeybarGroup())

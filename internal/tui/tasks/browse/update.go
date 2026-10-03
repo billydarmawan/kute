@@ -777,7 +777,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.toggleGroup()
 		}
 	case verbs.FluxSource.Key:
-		if m.fluxVerbsApply() {
+		if m.fluxNavApplies() {
 			if cmd, ok := m.openSelectedFluxSource(); ok {
 				return m, cmd
 			}
