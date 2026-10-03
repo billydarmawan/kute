@@ -968,8 +968,9 @@ func (c *Cluster) findUnstructuredLocked(kind kube.ResourceKind, namespace, name
 // PatchSecretData sets or removes a single key in a Secret's .Data map in
 // place — 27b's add-key editor against the fake cluster. resourceVersion is
 // checked the way a real apiserver checks the merge patch's
-// metadata.resourceVersion: a mismatch is a typed Conflict.
-func (c *Cluster) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+// metadata.resourceVersion: a mismatch is a typed Conflict, and a success
+// returns the bumped resourceVersion, as the real apiserver's response does.
+func (c *Cluster) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, obj := range c.objects[kube.KindSecret] {
@@ -978,7 +979,7 @@ func (c *Cluster) PatchSecretData(_ context.Context, namespace, name, resourceVe
 			continue
 		}
 		if err := c.checkAndBumpResourceVersion(&s.ObjectMeta, secretGroupResource, resourceVersion); err != nil {
-			return err
+			return "", err
 		}
 		if remove {
 			delete(s.Data, key)
@@ -989,15 +990,15 @@ func (c *Cluster) PatchSecretData(_ context.Context, namespace, name, resourceVe
 			s.Data[key] = []byte(value)
 		}
 		c.notify(kube.KindSecret)
-		return nil
+		return s.ResourceVersion, nil
 	}
-	return fmt.Errorf("%s %q not found", kube.KindSecret, name)
+	return "", fmt.Errorf("%s %q not found", kube.KindSecret, name)
 }
 
 // PatchConfigMapData sets or removes a single key in a ConfigMap's .Data map
 // in place — 27a's value-edit editor against the fake cluster, with the same
 // resourceVersion precondition PatchSecretData checks.
-func (c *Cluster) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+func (c *Cluster) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, obj := range c.objects[kube.KindConfigMap] {
@@ -1006,7 +1007,7 @@ func (c *Cluster) PatchConfigMapData(_ context.Context, namespace, name, resourc
 			continue
 		}
 		if err := c.checkAndBumpResourceVersion(&cm.ObjectMeta, configMapGroupResource, resourceVersion); err != nil {
-			return err
+			return "", err
 		}
 		if remove {
 			delete(cm.Data, key)
@@ -1017,9 +1018,9 @@ func (c *Cluster) PatchConfigMapData(_ context.Context, namespace, name, resourc
 			cm.Data[key] = value
 		}
 		c.notify(kube.KindConfigMap)
-		return nil
+		return cm.ResourceVersion, nil
 	}
-	return fmt.Errorf("%s %q not found", kube.KindConfigMap, name)
+	return "", fmt.Errorf("%s %q not found", kube.KindConfigMap, name)
 }
 
 // applyResourceEdits mutates ctr's Resources.Requests/Limits in place per

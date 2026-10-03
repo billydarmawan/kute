@@ -276,11 +276,11 @@ func (f *fakeMutator) SetResources(context.Context, kube.ResourceKind, string, s
 func (f *fakeMutator) PatchMeta(context.Context, kube.ResourceKind, string, string, bool, string, string, bool) error {
 	return nil
 }
-func (f *fakeMutator) PatchSecretData(context.Context, string, string, string, string, string, bool) error {
-	return nil
+func (f *fakeMutator) PatchSecretData(context.Context, string, string, string, string, string, bool) (string, error) {
+	return "", nil
 }
-func (f *fakeMutator) PatchConfigMapData(context.Context, string, string, string, string, string, bool) error {
-	return nil
+func (f *fakeMutator) PatchConfigMapData(context.Context, string, string, string, string, string, bool) (string, error) {
+	return "", nil
 }
 
 // Flux verbs (§30a). Recorded but inert: no test in this package drives

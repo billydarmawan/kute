@@ -81,22 +81,22 @@ func (f *fakeMutator) SetResources(context.Context, kube.ResourceKind, string, s
 func (f *fakeMutator) PatchMeta(context.Context, kube.ResourceKind, string, string, bool, string, string, bool) error {
 	return nil
 }
-func (f *fakeMutator) PatchSecretData(context.Context, string, string, string, string, string, bool) error {
-	return nil
+func (f *fakeMutator) PatchSecretData(context.Context, string, string, string, string, string, bool) (string, error) {
+	return "", nil
 }
-func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	f.dataResourceVersions = append(f.dataResourceVersions, resourceVersion)
 	if f.err != nil {
-		return f.err
+		return "", f.err
 	}
 	if f.cm == nil || f.cm.Name != name || f.cm.Namespace != namespace {
-		return nil
+		return "", nil
 	}
 	// A fixture that carries a resourceVersion gets the API server's
 	// precondition check: a mismatch is a 409, a match bumps it.
 	if f.cm.ResourceVersion != "" {
 		if resourceVersion != f.cm.ResourceVersion {
-			return apierrors.NewConflict(schema.GroupResource{Resource: "configmaps"}, name, errors.New("the object has been modified"))
+			return "", apierrors.NewConflict(schema.GroupResource{Resource: "configmaps"}, name, errors.New("the object has been modified"))
 		}
 		n, _ := strconv.Atoi(f.cm.ResourceVersion)
 		f.cm.ResourceVersion = strconv.Itoa(n + 1)
@@ -109,7 +109,7 @@ func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, res
 	} else {
 		f.cm.Data[key] = value
 	}
-	return nil
+	return f.cm.ResourceVersion, nil
 }
 
 // Flux verbs (§30a). Recorded but inert: no test in this package drives
@@ -1021,5 +1021,53 @@ func TestCtrlRWithNoConsumersIsThePlainApply(t *testing.T) {
 	m = step(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	if m.actions.Active() || cm.Data["LOG_LEVEL"] != "debug" {
 		t.Fatalf("expected ctrl-r with no consumers to apply immediately outside PROD, cm.Data = %+v", cm.Data)
+	}
+}
+
+// TestEditAgainBeforeCacheCatchesUpUsesWrittenResourceVersion: right after
+// the user's own successful apply, the reload reads an informer cache that
+// still holds the pre-write ConfigMap. A buffer opened in that window must
+// precondition on the resourceVersion the patch returned, not the cached
+// pre-write one — otherwise its first commit is a 409 against the user's own
+// change. Once the cache reports anything else, it's trusted again.
+func TestEditAgainBeforeCacheCatchesUpUsesWrittenResourceVersion(t *testing.T) {
+	server := cmObj("nva-stage", "nva-config", map[string]string{"LOG_LEVEL": "info"})
+	server.ResourceVersion = "1"
+	cached := server.DeepCopy() // the informer cache: never sees the write
+	mut := &fakeMutator{cm: server}
+	m := newModel(t, newSession(), cached, mut, nil)
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	m = typeOver(t, m, "info", "debug")
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if server.Data["LOG_LEVEL"] != "debug" || m.lastError != "" {
+		t.Fatalf("first apply: server.Data = %+v, lastError %q", server.Data, m.lastError)
+	}
+
+	// The cache still says resourceVersion 1 and LOG_LEVEL=info.
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if m.editing == nil {
+		t.Fatal("expected ↵ to reopen the edit row")
+	}
+	m = typeOver(t, m, m.editing.valueInput.Value(), "trace")
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+
+	if got := mut.dataResourceVersions; len(got) != 2 || got[0] != "1" || got[1] != "2" {
+		t.Fatalf("patch preconditions = %v, want [1 2] (the second on the version the first write returned)", got)
+	}
+	if m.lastError != "" {
+		t.Fatalf("second apply failed: %q", m.lastError)
+	}
+	if server.Data["LOG_LEVEL"] != "trace" {
+		t.Fatalf("second apply did not land: server.Data = %+v", server.Data)
+	}
+
+	// The cache catches up: its resourceVersion is trusted again.
+	cached.ResourceVersion = server.ResourceVersion
+	cached.Data = map[string]string{"LOG_LEVEL": "trace"}
+	m = step(t, m, kube.ResourceChangedMsg{Kind: kube.KindConfigMap})
+	if m.resourceVersion != server.ResourceVersion || m.ownWrites.Latest() != "" {
+		t.Fatalf("after the cache caught up: resourceVersion = %q, remembered write %q; want %q and none",
+			m.resourceVersion, m.ownWrites.Latest(), server.ResourceVersion)
 	}
 }

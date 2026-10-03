@@ -148,7 +148,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.keys = msg.keys
 	m.consumers = msg.consumers
-	m.resourceVersion = msg.resourceVersion
+	m.resourceVersion = m.ownWrites.Resolve(msg.resourceVersion)
 	if m.bufferRVFollows {
 		m.bufferRV = m.resourceVersion
 	}
@@ -541,6 +541,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 		// that, on the error line, and refresh like a success — restoring
 		// the editor would offer to re-apply a value that's already there
 		// and re-restart every consumer that already rolled.
+		m.recordWrite(pc, msg.DataResourceVersion)
 		m.message = ""
 		m.lastError = commitVerb(pc) + " " + pc.key + " · " + partial.Error()
 		m.focusKey = pc.key
@@ -557,6 +558,9 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 		m.bufferRVFollows = conflict
 		m.restoreBuffer(pc)
 		if conflict {
+			// The server has moved past every version this screen wrote:
+			// trust the reload.
+			m.ownWrites.Forget()
 			m.lastError = conflictMessage(m.name, pc, m.multiline != nil)
 			m.reloadEpoch++
 			return m.load()
@@ -567,6 +571,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	if pc == nil {
 		return nil
 	}
+	m.recordWrite(pc, msg.DataResourceVersion)
 	m.message = commitVerb(pc) + " " + pc.key
 	if pc.restartConsumers && len(pc.consumers) > 0 {
 		m.message += " · restarted " + consumerCount(len(pc.consumers))
@@ -574,6 +579,18 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	m.focusKey = pc.key
 	m.reloadEpoch++
 	return m.load()
+}
+
+// recordWrite notes a landed patch's returned resourceVersion and makes it
+// current at once, so a buffer opened before the reload (or the reload of a
+// cache that hasn't caught up yet) preconditions on the server's version
+// after this write, not the one before it.
+func (m *Model) recordWrite(pc *configMapPendingCommit, after string) {
+	if pc == nil || after == "" {
+		return
+	}
+	m.ownWrites.Wrote(pc.resourceVersion, after)
+	m.resourceVersion = after
 }
 
 // restoreBuffer reopens the editor a commit came from, holding the value it

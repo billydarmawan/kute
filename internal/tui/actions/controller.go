@@ -43,6 +43,13 @@ type ResultMsg struct {
 	// key its refresh/undo readiness off this authoritative value rather
 	// than an immediate, possibly-stale informer cache read.
 	CronJobSchedule *kube.CronJobScheduleResult
+	// DataResourceVersion is the Secret's/ConfigMap's resourceVersion as the
+	// server returned it from a "secret-data"/"configmap-data" patch — set
+	// whenever the patch landed (including a ctrl-r commit whose chained
+	// restarts partly failed), "" otherwise and for every other verb. 27a/27b
+	// precondition their next write on it while the informer cache still
+	// holds the pre-write object.
+	DataResourceVersion string
 }
 
 // RestartsFailedError is a "configmap-data" ctrl-r commit's outcome when the
@@ -546,9 +553,49 @@ func (c *Controller) execute() tea.Cmd {
 		}
 	}
 
+	// secret-data/configmap-data are intercepted for the same reason:
+	// the patch returns the object's new resourceVersion, which the editor
+	// screens need on ResultMsg to precondition their next write before
+	// the informer cache has caught up with this one.
+	if action.Scope.Verb == "secret-data" || action.Scope.Verb == "configmap-data" {
+		return func() tea.Msg {
+			rv, err := executeDataPatch(mutator, action.Scope)
+			return ResultMsg{ActionID: action.ID, Label: action.Label, Err: err, Seq: seq, DataResourceVersion: rv}
+		}
+	}
+
 	return func() tea.Msg {
 		return ResultMsg{ActionID: action.ID, Label: action.Label, Err: executeScope(mutator, action.Scope), Seq: seq}
 	}
+}
+
+// executeDataPatch runs a "secret-data" or "configmap-data" action — the
+// single-key patch plus, for a ctrl-r ConfigMap commit, the consumer
+// restarts chained after it — and returns the object's resourceVersion as
+// the server reported it after the patch. That resourceVersion is non-empty
+// whenever the patch itself landed, including when only a chained restart
+// failed (a *RestartsFailedError): restarts touch the consumers, never the
+// ConfigMap, so they don't move it.
+func executeDataPatch(mutator kube.Mutator, scope tui.TaskScope) (string, error) {
+	if scope.Verb == "secret-data" {
+		return mutator.PatchSecretData(context.Background(),
+			scope.Namespace, scope.ResourceName, scope.DataResourceVersion, scope.SecretKey, scope.SecretValue, scope.SecretRemove)
+	}
+	rv, err := mutator.PatchConfigMapData(context.Background(),
+		scope.Namespace, scope.ResourceName, scope.DataResourceVersion, scope.ConfigMapKey, scope.ConfigMapValue, scope.ConfigMapRemove)
+	if err != nil || !scope.ConfigMapRestartConsumers {
+		return rv, err
+	}
+	partial := &RestartsFailedError{Total: len(scope.ConfigMapConsumers)}
+	for _, ref := range scope.ConfigMapConsumers {
+		if rerr := mutator.RolloutRestart(context.Background(), ref.Kind, scope.Namespace, ref.Name); rerr != nil {
+			partial.Failed = append(partial.Failed, RestartFailure{Ref: ref, Err: rerr})
+		}
+	}
+	if len(partial.Failed) > 0 {
+		return rv, partial
+	}
+	return rv, nil
 }
 
 // executeBulk runs action.Scope.Verb once per action.Scope.BulkTargets entry
@@ -687,23 +734,11 @@ func executeScope(mutator kube.Mutator, scope tui.TaskScope) error {
 		err = mutator.PatchMeta(context.Background(),
 			kube.ResourceKind(scope.ResourceKind), scope.Namespace, scope.ResourceName,
 			scope.MetaIsAnnotation, scope.MetaKey, scope.MetaValue, scope.MetaRemove)
-	case "secret-data":
-		err = mutator.PatchSecretData(context.Background(),
-			scope.Namespace, scope.ResourceName, scope.DataResourceVersion, scope.SecretKey, scope.SecretValue, scope.SecretRemove)
-	case "configmap-data":
-		err = mutator.PatchConfigMapData(context.Background(),
-			scope.Namespace, scope.ResourceName, scope.DataResourceVersion, scope.ConfigMapKey, scope.ConfigMapValue, scope.ConfigMapRemove)
-		if err == nil && scope.ConfigMapRestartConsumers {
-			partial := &RestartsFailedError{Total: len(scope.ConfigMapConsumers)}
-			for _, ref := range scope.ConfigMapConsumers {
-				if rerr := mutator.RolloutRestart(context.Background(), ref.Kind, scope.Namespace, ref.Name); rerr != nil {
-					partial.Failed = append(partial.Failed, RestartFailure{Ref: ref, Err: rerr})
-				}
-			}
-			if len(partial.Failed) > 0 {
-				err = partial
-			}
-		}
+	case "secret-data", "configmap-data":
+		// Only reached from executeBulk (execute() intercepts both verbs to
+		// carry the returned resourceVersion onto ResultMsg); neither is
+		// bulk-capable today.
+		_, err = executeDataPatch(mutator, scope)
 	default:
 		err = fmt.Errorf("unsupported verb %q", scope.Verb)
 	}

@@ -1179,24 +1179,31 @@ func TestPatchDataEnforcesResourceVersion(t *testing.T) {
 		Data:       map[string][]byte{"K": []byte("a")},
 	})
 
-	if err := c.PatchConfigMapData(t.Context(), "default", "cfg", "", "K", "b", false); err == nil || apierrors.IsConflict(err) {
+	if _, err := c.PatchConfigMapData(t.Context(), "default", "cfg", "", "K", "b", false); err == nil || apierrors.IsConflict(err) {
 		t.Fatalf("expected a missing precondition refused (not a Conflict), got %v", err)
 	}
-	if err := c.PatchConfigMapData(t.Context(), "default", "cfg", "1", "K", "b", false); err != nil {
+	rv, err := c.PatchConfigMapData(t.Context(), "default", "cfg", "1", "K", "b", false)
+	if err != nil {
 		t.Fatalf("PatchConfigMapData at the seeded version: %v", err)
 	}
-	if err := c.PatchConfigMapData(t.Context(), "default", "cfg", "1", "K", "c", false); !apierrors.IsConflict(err) {
+	if _, err := c.PatchConfigMapData(t.Context(), "default", "cfg", "1", "K", "c", false); !apierrors.IsConflict(err) {
 		t.Fatalf("expected a Conflict against the stale version, got %v", err)
 	}
 	objs, _ := c.ListRaw(t.Context(), kube.KindConfigMap, "default")
 	if got := objs[0].(*corev1.ConfigMap).Data["K"]; got != "b" {
 		t.Errorf("Data[K] = %q, want b (the conflicted write must not land)", got)
 	}
+	if stored := objs[0].(*corev1.ConfigMap).ResourceVersion; rv != stored || rv == "1" {
+		t.Errorf("returned resourceVersion = %q, want the bumped stored %q", rv, stored)
+	}
+	if again, err := c.PatchConfigMapData(t.Context(), "default", "cfg", rv, "K", "d", false); err != nil || again == rv {
+		t.Errorf("patch at the returned resourceVersion = (%q, %v), want a success with a new one", again, err)
+	}
 
-	if err := c.PatchSecretData(t.Context(), "default", "sec", "1", "K", "", true); err != nil {
+	if _, err := c.PatchSecretData(t.Context(), "default", "sec", "1", "K", "", true); err != nil {
 		t.Fatalf("PatchSecretData at the seeded version: %v", err)
 	}
-	if err := c.PatchSecretData(t.Context(), "default", "sec", "1", "K", "x", false); !apierrors.IsConflict(err) {
+	if _, err := c.PatchSecretData(t.Context(), "default", "sec", "1", "K", "x", false); !apierrors.IsConflict(err) {
 		t.Fatalf("expected a Conflict against the stale version, got %v", err)
 	}
 }

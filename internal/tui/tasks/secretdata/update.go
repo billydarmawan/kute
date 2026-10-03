@@ -129,7 +129,7 @@ func (m *Model) applyLoaded(msg loadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.secretType = msg.secretType
 	m.keys = msg.keys
-	m.resourceVersion = msg.resourceVersion
+	m.resourceVersion = m.ownWrites.Resolve(msg.resourceVersion)
 	if m.bufferRVFollows {
 		m.bufferRV = m.resourceVersion
 	}
@@ -421,6 +421,9 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 		conflict := apierrors.IsConflict(msg.Err)
 		if conflict {
 			m.lastError = conflictMessage(m.name, pc)
+			// The server has moved past every version this screen wrote:
+			// trust the reload.
+			m.ownWrites.Forget()
 		}
 		if pc != nil {
 			m.bufferRV = pc.resourceVersion
@@ -457,6 +460,7 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	if pc == nil {
 		return nil
 	}
+	m.recordWrite(pc, msg.DataResourceVersion)
 	switch {
 	case pc.remove:
 		m.message = "removed " + pc.key
@@ -468,6 +472,18 @@ func (m *Model) handleResult(msg actions.ResultMsg) tea.Cmd {
 	m.focusKey = pc.key
 	m.reloadEpoch++
 	return m.load()
+}
+
+// recordWrite notes a landed patch's returned resourceVersion and makes it
+// current at once, so a buffer opened before the reload (or the reload of a
+// cache that hasn't caught up yet) preconditions on the server's version
+// after this write, not the one before it.
+func (m *Model) recordWrite(pc *secretPendingCommit, after string) {
+	if pc == nil || after == "" {
+		return
+	}
+	m.ownWrites.Wrote(pc.resourceVersion, after)
+	m.resourceVersion = after
 }
 
 func clamp(v, lo, hi int) int {

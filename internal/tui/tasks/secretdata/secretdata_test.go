@@ -72,19 +72,19 @@ func (f *fakeMutator) SetResources(context.Context, kube.ResourceKind, string, s
 func (f *fakeMutator) PatchMeta(context.Context, kube.ResourceKind, string, string, bool, string, string, bool) error {
 	return nil
 }
-func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	f.dataResourceVersions = append(f.dataResourceVersions, resourceVersion)
 	if f.err != nil {
-		return f.err
+		return "", f.err
 	}
 	if f.secret == nil || f.secret.Name != name || f.secret.Namespace != namespace {
-		return nil
+		return "", nil
 	}
 	// A fixture that carries a resourceVersion gets the API server's
 	// precondition check: a mismatch is a 409, a match bumps it.
 	if f.secret.ResourceVersion != "" {
 		if resourceVersion != f.secret.ResourceVersion {
-			return apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, name, errors.New("the object has been modified"))
+			return "", apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, name, errors.New("the object has been modified"))
 		}
 		n, _ := strconv.Atoi(f.secret.ResourceVersion)
 		f.secret.ResourceVersion = strconv.Itoa(n + 1)
@@ -97,10 +97,10 @@ func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resour
 	} else {
 		f.secret.Data[key] = []byte(value)
 	}
-	return nil
+	return f.secret.ResourceVersion, nil
 }
-func (f *fakeMutator) PatchConfigMapData(context.Context, string, string, string, string, string, bool) error {
-	return nil
+func (f *fakeMutator) PatchConfigMapData(context.Context, string, string, string, string, string, bool) (string, error) {
+	return "", nil
 }
 
 // Flux verbs (§30a). Recorded but inert: no test in this package drives
@@ -757,5 +757,58 @@ func TestRemoveKeyConflictSaysSoAndReloads(t *testing.T) {
 	m = step(t, m, tea.KeyPressMsg{Text: "y"})
 	if _, ok := secret.Data["DATABASE_URL"]; ok {
 		t.Fatalf("expected the retry to remove the key, preconditions %v", mut.dataResourceVersions)
+	}
+}
+
+// TestEditAgainBeforeCacheCatchesUpUsesWrittenResourceVersion: right after
+// the user's own successful write, the reload reads an informer cache that
+// still holds the pre-write Secret. A buffer opened (or a removal begun) in
+// that window must precondition on the resourceVersion the patch returned,
+// not the cached pre-write one — otherwise its first commit is a 409
+// against the user's own change.
+func TestEditAgainBeforeCacheCatchesUpUsesWrittenResourceVersion(t *testing.T) {
+	server := secretObj("nva-stage", "nva-secrets", map[string][]byte{"DATABASE_URL": []byte("postgres://old")})
+	server.ResourceVersion = "1"
+	cached := server.DeepCopy() // the informer cache: never sees the writes
+	mut := &fakeMutator{secret: server}
+	m := newModel(t, newSession(), cached, mut)
+
+	retype := func(m Model, value string) Model {
+		for range m.editing.valueInput.Value() {
+			m = step(t, m, tea.KeyPressMsg{Text: "backspace"})
+		}
+		for _, r := range value {
+			m = step(t, m, tea.KeyPressMsg{Text: string(r)})
+		}
+		return step(t, m, tea.KeyPressMsg{Text: "enter"})
+	}
+
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	m = retype(m, "postgres://new")
+	if string(server.Data["DATABASE_URL"]) != "postgres://new" || m.lastError != "" {
+		t.Fatalf("first write: server.Data = %q, lastError %q", server.Data, m.lastError)
+	}
+
+	// The cache still says resourceVersion 1.
+	m = step(t, m, tea.KeyPressMsg{Text: "enter"})
+	if m.editing == nil {
+		t.Fatal("expected ↵ to reopen the edit row")
+	}
+	m = retype(m, "postgres://newer")
+	if m.lastError != "" || string(server.Data["DATABASE_URL"]) != "postgres://newer" {
+		t.Fatalf("second write: server.Data = %q, lastError %q", server.Data, m.lastError)
+	}
+
+	// A removal in the same window chains off the second write.
+	m = step(t, m, tea.KeyPressMsg{Text: "D"})
+	m = step(t, m, tea.KeyPressMsg{Text: "y"})
+	if m.lastError != "" {
+		t.Fatalf("removal failed: %q", m.lastError)
+	}
+	if _, ok := server.Data["DATABASE_URL"]; ok {
+		t.Fatalf("removal did not land: server.Data = %q", server.Data)
+	}
+	if got := mut.dataResourceVersions; len(got) != 3 || got[0] != "1" || got[1] != "2" || got[2] != "3" {
+		t.Fatalf("patch preconditions = %v, want [1 2 3] (each on the version the previous write returned)", got)
 	}
 }

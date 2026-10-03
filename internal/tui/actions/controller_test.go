@@ -66,6 +66,7 @@ type fakeMutator struct {
 	secretDataPatches    []string
 	configMapDataPatches []string
 	dataResourceVersions []string
+	dataNextRV           string
 	rolloutRestarts      []string
 	cronJobTriggers      []cronJobTriggerCall
 	cronJobSuspends      []cronJobSuspendCall
@@ -128,24 +129,30 @@ func (f *fakeMutator) PatchMeta(_ context.Context, kind kube.ResourceKind, ns, n
 	return f.err
 }
 
-func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	f.dataResourceVersions = append(f.dataResourceVersions, resourceVersion)
 	entry := key + "=" + value
 	if remove {
 		entry = key + "-"
 	}
 	f.secretDataPatches = append(f.secretDataPatches, namespace+"/"+name+" "+entry)
-	return f.err
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.dataNextRV, nil
 }
 
-func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	f.dataResourceVersions = append(f.dataResourceVersions, resourceVersion)
 	entry := key + "=" + value
 	if remove {
 		entry = key + "-"
 	}
 	f.configMapDataPatches = append(f.configMapDataPatches, namespace+"/"+name+" "+entry)
-	return f.err
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.dataNextRV, nil
 }
 
 // Flux verbs (§30a). Recorded but inert: no test in this package drives
@@ -433,7 +440,7 @@ func TestExecuteDispatchesInitContainerSetImage(t *testing.T) {
 }
 
 func TestExecuteDispatchesSecretDataToPatchSecretData(t *testing.T) {
-	mut := &fakeMutator{}
+	mut := &fakeMutator{dataNextRV: "42"}
 	c := New(mut)
 	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID:    "add-secret-key-default/nva-secrets/SMTP_PASSWORD",
@@ -457,10 +464,13 @@ func TestExecuteDispatchesSecretDataToPatchSecretData(t *testing.T) {
 	if len(mut.dataResourceVersions) != 1 || mut.dataResourceVersions[0] != "41" {
 		t.Fatalf("precondition = %v, want the scope's resourceVersion 41", mut.dataResourceVersions)
 	}
+	if msg.DataResourceVersion != "42" {
+		t.Fatalf("ResultMsg.DataResourceVersion = %q, want the patch's returned 42", msg.DataResourceVersion)
+	}
 }
 
 func TestExecuteDispatchesConfigMapDataToPatchConfigMapData(t *testing.T) {
-	mut := &fakeMutator{}
+	mut := &fakeMutator{dataNextRV: "42"}
 	c := New(mut)
 	cmd := beginAt(&c, TierNone, tui.TaskAction{
 		ID:    "add-configmap-key-default/nva-config/LOG_LEVEL",
@@ -486,6 +496,9 @@ func TestExecuteDispatchesConfigMapDataToPatchConfigMapData(t *testing.T) {
 	}
 	if len(mut.dataResourceVersions) != 1 || mut.dataResourceVersions[0] != "41" {
 		t.Fatalf("precondition = %v, want the scope's resourceVersion 41", mut.dataResourceVersions)
+	}
+	if msg.DataResourceVersion != "42" {
+		t.Fatalf("ResultMsg.DataResourceVersion = %q, want the patch's returned 42", msg.DataResourceVersion)
 	}
 }
 

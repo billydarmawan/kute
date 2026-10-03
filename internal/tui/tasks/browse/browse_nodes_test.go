@@ -231,27 +231,27 @@ func (f *fakeMutator) PatchMeta(_ context.Context, kind kube.ResourceKind, names
 	}
 	return nil
 }
-func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+func (f *fakeMutator) PatchSecretData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	if f.err != nil {
-		return f.err
+		return "", f.err
 	}
 	entry := key + "=" + value
 	if remove {
 		entry = key + "-"
 	}
 	f.secretDataPatches = append(f.secretDataPatches, namespace+"/"+name+" "+entry)
-	return nil
+	return "", nil
 }
-func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+func (f *fakeMutator) PatchConfigMapData(_ context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	if f.err != nil {
-		return f.err
+		return "", f.err
 	}
 	entry := key + "=" + value
 	if remove {
 		entry = key + "-"
 	}
 	f.configMapDataPatches = append(f.configMapDataPatches, namespace+"/"+name+" "+entry)
-	return nil
+	return "", nil
 }
 
 // Flux verbs (§30a). Recorded but inert: no test in this package drives

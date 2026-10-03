@@ -92,16 +92,21 @@ type Mutator interface {
 	// resourceVersion as the caller observed it, sent as a precondition in
 	// the patch body, so a concurrent write returns Conflict
 	// (apierrors.IsConflict) instead of being silently overwritten — the
-	// same precondition SetCronJobSchedule carries. It is required.
-	PatchSecretData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) error
+	// same precondition SetCronJobSchedule carries. It is required. On
+	// success it returns the Secret's new resourceVersion as the server
+	// reported it (the same authoritative read-back CronJobScheduleResult
+	// carries), so the editor's next write can precondition on it before
+	// the informer cache has caught up with this one.
+	PatchSecretData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error)
 	// PatchConfigMapData sets or removes a single key in a ConfigMap's data —
 	// 27a's value-edit editor. remove=true deletes the key (a JSON-merge-patch
 	// null under .data, same idiom as PatchSecretData's removal); otherwise
 	// sets key=value directly under .data — unlike Secret, ConfigMap's .data
 	// is already plain text, so there's no .stringData split to make.
 	// resourceVersion is the same required precondition PatchSecretData
-	// carries.
-	PatchConfigMapData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) error
+	// carries, and the returned string is the ConfigMap's new
+	// resourceVersion, as PatchSecretData returns.
+	PatchConfigMapData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error)
 	// SetFluxSuspend sets or clears spec.suspend on a Flux object — what
 	// `flux suspend`/`flux resume` do, as a plain API patch with no flux
 	// binary anywhere in the path (docs/design README.md §30a; contrast
@@ -1431,19 +1436,22 @@ func metaResourceArg(kind ResourceKind) string {
 // it's always a typed core/v1 kind. The body carries
 // metadata.resourceVersion, so the API server rejects it with 409 Conflict
 // if the Secret changed since the caller read it.
-func (c *Cluster) PatchSecretData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+func (c *Cluster) PatchSecretData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	if name == "" {
-		return fmt.Errorf("cannot patch secret: empty name")
+		return "", fmt.Errorf("cannot patch secret: empty name")
 	}
 	if resourceVersion == "" {
-		return fmt.Errorf("cannot patch secret %q: missing resourceVersion precondition", name)
+		return "", fmt.Errorf("cannot patch secret %q: missing resourceVersion precondition", name)
 	}
 	patch, err := secretDataPatchJSON(resourceVersion, key, value, remove)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = c.clientset.CoreV1().Secrets(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
-	return err
+	updated, err := c.clientset.CoreV1().Secrets(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
+	if err != nil {
+		return "", err
+	}
+	return updated.ResourceVersion, nil
 }
 
 // secretDataPatchJSON builds the JSON merge patch body PatchSecretData
@@ -1482,19 +1490,22 @@ func SecretDataCommandString(namespace, name, key string, remove bool) string {
 // text server-side, so there's no .stringData split to make. Like
 // PatchSecretData, the body carries the metadata.resourceVersion
 // precondition, so a concurrent change returns 409 Conflict.
-func (c *Cluster) PatchConfigMapData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) error {
+func (c *Cluster) PatchConfigMapData(ctx context.Context, namespace, name, resourceVersion, key, value string, remove bool) (string, error) {
 	if name == "" {
-		return fmt.Errorf("cannot patch configmap: empty name")
+		return "", fmt.Errorf("cannot patch configmap: empty name")
 	}
 	if resourceVersion == "" {
-		return fmt.Errorf("cannot patch configmap %q: missing resourceVersion precondition", name)
+		return "", fmt.Errorf("cannot patch configmap %q: missing resourceVersion precondition", name)
 	}
 	patch, err := configMapDataPatchJSON(resourceVersion, key, value, remove)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = c.clientset.CoreV1().ConfigMaps(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
-	return err
+	updated, err := c.clientset.CoreV1().ConfigMaps(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
+	if err != nil {
+		return "", err
+	}
+	return updated.ResourceVersion, nil
 }
 
 // configMapDataPatchJSON builds the JSON merge patch body PatchConfigMapData

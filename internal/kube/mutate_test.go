@@ -1553,7 +1553,7 @@ func TestPatchSecretDataSetsAndRemovesKeys(t *testing.T) {
 	c, cs := newTestCluster(secret)
 	ctx := t.Context()
 
-	if err := c.PatchSecretData(ctx, "default", "nva-secrets", "1", "SMTP_PASSWORD", "hunter2-staging", false); err != nil {
+	if _, err := c.PatchSecretData(ctx, "default", "nva-secrets", "1", "SMTP_PASSWORD", "hunter2-staging", false); err != nil {
 		t.Fatalf("PatchSecretData add: %v", err)
 	}
 	got, err := cs.CoreV1().Secrets("default").Get(ctx, "nva-secrets", metav1.GetOptions{})
@@ -1567,7 +1567,7 @@ func TestPatchSecretDataSetsAndRemovesKeys(t *testing.T) {
 		t.Errorf("existing key data[DATABASE_URL] = %q, want unchanged", got.Data["DATABASE_URL"])
 	}
 
-	if err := c.PatchSecretData(ctx, "default", "nva-secrets", "1", "DATABASE_URL", "", true); err != nil {
+	if _, err := c.PatchSecretData(ctx, "default", "nva-secrets", "1", "DATABASE_URL", "", true); err != nil {
 		t.Fatalf("PatchSecretData remove: %v", err)
 	}
 	got, err = cs.CoreV1().Secrets("default").Get(ctx, "nva-secrets", metav1.GetOptions{})
@@ -1582,7 +1582,7 @@ func TestPatchSecretDataSetsAndRemovesKeys(t *testing.T) {
 func TestPatchSecretDataRejectsEmptyName(t *testing.T) {
 	t.Parallel()
 	c, _ := newTestCluster()
-	if err := c.PatchSecretData(t.Context(), "default", "", "1", "k", "v", false); err == nil {
+	if _, err := c.PatchSecretData(t.Context(), "default", "", "1", "k", "v", false); err == nil {
 		t.Fatal("expected an error for an empty secret name")
 	}
 }
@@ -1652,7 +1652,7 @@ func TestPatchConfigMapDataSetsAndRemovesKeys(t *testing.T) {
 	c, cs := newTestCluster(cm)
 	ctx := t.Context()
 
-	if err := c.PatchConfigMapData(ctx, "default", "nva-config", "1", "FEATURE_X", "on", false); err != nil {
+	if _, err := c.PatchConfigMapData(ctx, "default", "nva-config", "1", "FEATURE_X", "on", false); err != nil {
 		t.Fatalf("PatchConfigMapData add: %v", err)
 	}
 	got, err := cs.CoreV1().ConfigMaps("default").Get(ctx, "nva-config", metav1.GetOptions{})
@@ -1666,7 +1666,7 @@ func TestPatchConfigMapDataSetsAndRemovesKeys(t *testing.T) {
 		t.Errorf("existing key data[LOG_LEVEL] = %q, want unchanged", got.Data["LOG_LEVEL"])
 	}
 
-	if err := c.PatchConfigMapData(ctx, "default", "nva-config", "1", "LOG_LEVEL", "", true); err != nil {
+	if _, err := c.PatchConfigMapData(ctx, "default", "nva-config", "1", "LOG_LEVEL", "", true); err != nil {
 		t.Fatalf("PatchConfigMapData remove: %v", err)
 	}
 	got, err = cs.CoreV1().ConfigMaps("default").Get(ctx, "nva-config", metav1.GetOptions{})
@@ -1681,7 +1681,7 @@ func TestPatchConfigMapDataSetsAndRemovesKeys(t *testing.T) {
 func TestPatchConfigMapDataRejectsEmptyName(t *testing.T) {
 	t.Parallel()
 	c, _ := newTestCluster()
-	if err := c.PatchConfigMapData(t.Context(), "default", "", "1", "k", "v", false); err == nil {
+	if _, err := c.PatchConfigMapData(t.Context(), "default", "", "1", "k", "v", false); err == nil {
 		t.Fatal("expected an error for an empty configmap name")
 	}
 }
@@ -1701,16 +1701,20 @@ func TestPatchDataCarriesResourceVersionPrecondition(t *testing.T) {
 		remove bool
 	}{
 		{"secret set", func(c *Cluster, rv string) error {
-			return c.PatchSecretData(t.Context(), "default", "s", rv, "K", "v", false)
+			_, err := c.PatchSecretData(t.Context(), "default", "s", rv, "K", "v", false)
+			return err
 		}, false},
 		{"secret remove", func(c *Cluster, rv string) error {
-			return c.PatchSecretData(t.Context(), "default", "s", rv, "K", "", true)
+			_, err := c.PatchSecretData(t.Context(), "default", "s", rv, "K", "", true)
+			return err
 		}, true},
 		{"configmap set", func(c *Cluster, rv string) error {
-			return c.PatchConfigMapData(t.Context(), "default", "c", rv, "K", "v", false)
+			_, err := c.PatchConfigMapData(t.Context(), "default", "c", rv, "K", "v", false)
+			return err
 		}, false},
 		{"configmap remove", func(c *Cluster, rv string) error {
-			return c.PatchConfigMapData(t.Context(), "default", "c", rv, "K", "", true)
+			_, err := c.PatchConfigMapData(t.Context(), "default", "c", rv, "K", "", true)
+			return err
 		}, true},
 	}
 	for _, tt := range tests {
@@ -2020,5 +2024,48 @@ func TestRenewCertificateCommandStringNamesTheLiteralPatch(t *testing.T) {
 	}
 	if strings.Contains(got, "cmctl") {
 		t.Errorf("will-run line must not name the cmctl binary: %q", got)
+	}
+}
+
+// TestPatchDataReturnsServerResourceVersion: a 27a/27b data patch returns
+// the resourceVersion the API server answered with — the object after the
+// write — so the editor can precondition its next write on it before the
+// informer cache delivers this one. A reactor stands in for the server's
+// bump, which the fake clientset's tracker doesn't perform.
+func TestPatchDataReturnsServerResourceVersion(t *testing.T) {
+	t.Parallel()
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "default", ResourceVersion: "7"}}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "default", ResourceVersion: "7"}}
+	tests := []struct {
+		name     string
+		resource string
+		answer   runtime.Object
+		call     func(c *Cluster) (string, error)
+	}{
+		{"secret", "secrets",
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "default", ResourceVersion: "8"}},
+			func(c *Cluster) (string, error) {
+				return c.PatchSecretData(t.Context(), "default", "s", "7", "K", "v", false)
+			}},
+		{"configmap", "configmaps",
+			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "default", ResourceVersion: "8"}},
+			func(c *Cluster) (string, error) {
+				return c.PatchConfigMapData(t.Context(), "default", "c", "7", "K", "", true)
+			}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, cs := newTestCluster(secret.DeepCopy(), cm.DeepCopy())
+			cs.PrependReactor("patch", tt.resource, func(k8stesting.Action) (bool, runtime.Object, error) {
+				return true, tt.answer, nil
+			})
+			rv, err := tt.call(c)
+			if err != nil {
+				t.Fatalf("patch: %v", err)
+			}
+			if rv != "8" {
+				t.Fatalf("returned resourceVersion = %q, want the server's new 8", rv)
+			}
+		})
 	}
 }

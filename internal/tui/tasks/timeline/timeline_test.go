@@ -652,11 +652,11 @@ func (f *fakeRolloutMutator) SetResources(context.Context, kube.ResourceKind, st
 func (f *fakeRolloutMutator) PatchMeta(context.Context, kube.ResourceKind, string, string, bool, string, string, bool) error {
 	return nil
 }
-func (f *fakeRolloutMutator) PatchSecretData(context.Context, string, string, string, string, string, bool) error {
-	return nil
+func (f *fakeRolloutMutator) PatchSecretData(context.Context, string, string, string, string, string, bool) (string, error) {
+	return "", nil
 }
-func (f *fakeRolloutMutator) PatchConfigMapData(context.Context, string, string, string, string, string, bool) error {
-	return nil
+func (f *fakeRolloutMutator) PatchConfigMapData(context.Context, string, string, string, string, string, bool) (string, error) {
+	return "", nil
 }
 
 func (f *fakeRolloutMutator) SetFluxSuspend(_ context.Context, kind kube.ResourceKind, namespace, name string, suspend bool) error {

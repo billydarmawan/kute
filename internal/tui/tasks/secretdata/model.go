@@ -158,6 +158,12 @@ type Model struct {
 	// the latest resourceVersion, so ↵ again applies over it.
 	bufferRV        string
 	bufferRVFollows bool
+	// ownWrites remembers the resourceVersion this screen's last
+	// successful patch returned, so a buffer opened (or a removal begun)
+	// before the informer cache delivers that write preconditions on it
+	// instead of on the cached pre-write version — which would make the
+	// next commit a spurious 409 against the user's own change.
+	ownWrites tui.OwnWrites
 
 	// adding is non-nil while 'a'/insert's line-insert add row is showing.
 	adding *addKeyState
