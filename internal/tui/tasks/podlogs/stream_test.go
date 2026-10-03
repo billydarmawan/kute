@@ -682,3 +682,36 @@ func TestWaitForStreamReportsClosedChannel(t *testing.T) {
 		t.Fatalf("batch = %+v, want the final line plus a streamWaitMsg tail", batch)
 	}
 }
+
+// TestStreamContainerDropsHistoryOverlapFromFollow pins L6: the follow
+// connection opens with a one-second overlap after the history read, and
+// the lines that overlap replays must not be shown twice.
+func TestStreamContainerDropsHistoryOverlapFromFollow(t *testing.T) {
+	t.Parallel()
+
+	history := "2026-01-01T00:00:00.500000000Z a\n2026-01-01T00:00:01.000000000Z b\n"
+	follow := history + "2026-01-01T00:00:01.200000000Z c\n"
+	streamer := &fakeStreamer{connects: map[string][]string{"app": {history, follow}}}
+	model := testModel()
+	model.streamer = streamer
+
+	ctx, cancel := context.WithCancel(t.Context())
+	var got []string
+	err := model.streamContainer(ctx, "app", nil, func(e LogEntry) bool {
+		got = append(got, e.Message)
+		if e.Message == "c" {
+			cancel()
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatalf("streamContainer error = %v", err)
+	}
+	if strings.Join(got, ",") != "a,b,c" {
+		t.Fatalf("entries = %v, want a,b,c with no seam duplicates", got)
+	}
+	if streamer.requests[1].SinceSeconds != 1 || !streamer.requests[1].Follow {
+		t.Fatalf("second request should be the overlapping follow: %+v", streamer.requests[1])
+	}
+}

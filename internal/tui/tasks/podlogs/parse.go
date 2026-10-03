@@ -62,6 +62,17 @@ var rfc3339Prefix = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:
 // returning it reformatted as HH:MM:SS plus the remaining message. Returns
 // ("", line) when line has no such prefix (kube/fake's seeded lines don't
 // carry one, so demo mode shows no timestamp column — real clusters do).
+// lineTime is the kubelet timestamp prefix of a raw line at full
+// precision, for the history/follow seam's dedup (streamContainer).
+func lineTime(line string) (time.Time, bool) {
+	m := rfc3339Prefix.FindStringSubmatch(line)
+	if m == nil {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, m[1])
+	return t, err == nil
+}
+
 func splitTimestamp(line string) (timestamp, message string) {
 	m := rfc3339Prefix.FindStringSubmatch(line)
 	if m == nil {

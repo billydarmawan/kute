@@ -315,6 +315,10 @@ func (m Model) streamContainer(ctx context.Context, container string, onEmpty fu
 	// written between the two requests.
 	emptyHistory := false
 	liveStarted := false
+	// historyLast is the newest timestamp the history read showed; the
+	// first follow connection's one-second overlap replays lines up to it,
+	// so those are dropped (dedupUntil) until a newer line arrives.
+	var historyLast, dedupUntil time.Time
 	lastRestarts, tracking := m.containerRestartCount(ctx, container)
 	for {
 		initialRequest := first
@@ -340,6 +344,7 @@ func (m Model) streamContainer(ctx context.Context, container string, onEmpty fu
 			// viewer does not wait forever for an empty since-window. A one-second
 			// overlap avoids missing lines emitted between the two requests.
 			req.SinceSeconds = 1
+			dedupUntil = historyLast
 		}
 		fallbackAttempted = false
 		reader, err := m.streamer.StreamPodLogs(ctx, req)
@@ -369,6 +374,16 @@ func (m Model) streamContainer(ctx context.Context, container string, onEmpty fu
 			if isUnretrievableLogsLine(msg) {
 				unretrievable = msg
 				return false
+			}
+			if historyConnection || !dedupUntil.IsZero() {
+				if t, ok := lineTime(line); ok {
+					if historyConnection {
+						historyLast = t
+					} else if !t.After(dedupUntil) {
+						return true // the history read already showed it
+					}
+				}
+				dedupUntil = time.Time{}
 			}
 			connectionEntries++
 			return emit(LogEntry{Container: container, Timestamp: ts, Message: msg, Severity: parseSeverity(msg)})
