@@ -183,6 +183,38 @@ func TestResolveWhoCan_CurrentUserClosestMissExplainsTheGap(t *testing.T) {
 	}
 }
 
+func TestResolveWhoCan_ClosestMissSkipsNonResourceURLRules(t *testing.T) {
+	crs := []*rbacv1.ClusterRole{
+		clusterRole("healthz", rbacv1.PolicyRule{NonResourceURLs: []string{"/healthz"}, Verbs: []string{"list"}}),
+		clusterRole("view", rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list"}}),
+	}
+	crbs := []*rbacv1.ClusterRoleBinding{
+		clusterRoleBinding("health", "healthz", rbacv1.Subject{Kind: rbacv1.UserKind, Name: "dev"}),
+		clusterRoleBinding("viewers", "view", rbacv1.Subject{Kind: rbacv1.UserKind, Name: "dev"}),
+	}
+	result := ResolveWhoCan(WhoCanQuery{Verb: "list", Resource: "secrets"}, "dev", nil, crs, nil, crbs, nil)
+	want := "clusterrole/view grants get, list on pods — not secrets"
+	if result.CurrentUserVia != want {
+		t.Fatalf("CurrentUserVia = %q, want %q", result.CurrentUserVia, want)
+	}
+}
+
+func TestResolveWhoCan_SubresourceWildcardMatchesAnyResourcesSubresource(t *testing.T) {
+	crs := []*rbacv1.ClusterRole{
+		clusterRole("scaler", rbacv1.PolicyRule{APIGroups: []string{"apps"}, Resources: []string{"*/scale"}, Verbs: []string{"update"}}),
+	}
+	crbs := []*rbacv1.ClusterRoleBinding{
+		clusterRoleBinding("scalers", "scaler", rbacv1.Subject{Kind: rbacv1.UserKind, Name: "hpa"}),
+	}
+	got := ResolveWhoCan(WhoCanQuery{Verb: "update", Resource: "deployments/scale", Group: "apps"}, "", nil, crs, nil, crbs, nil)
+	if len(got.Subjects) != 1 {
+		t.Fatalf("*/scale should cover deployments/scale, got %+v", got.Subjects)
+	}
+	if got := ResolveWhoCan(WhoCanQuery{Verb: "update", Resource: "deployments", Group: "apps"}, "", nil, crs, nil, crbs, nil); len(got.Subjects) != 0 {
+		t.Fatalf("*/scale must not cover the deployments resource itself, got %+v", got.Subjects)
+	}
+}
+
 func TestResolveWhoCan_CurrentUserWithNoBindingsAtAll(t *testing.T) {
 	result := ResolveWhoCan(WhoCanQuery{Verb: "list", Resource: "secrets"}, "nobody", nil, nil, nil, nil, nil)
 	if result.CurrentUserGranted {

@@ -139,9 +139,14 @@ func matchesVerb(rule rbacv1.PolicyRule, verb string) bool {
 }
 
 // matchesResource reports whether rule grants resource ("*" matches
-// anything). ResourceNames is handled by matchRules, not here.
+// anything; "*/<sub>" matches that subresource of any resource, so it
+// covers a "deployments/scale" query, as the API server's own RBAC
+// authorizer does). ResourceNames is handled by matchRules, not here.
 func matchesResource(rule rbacv1.PolicyRule, resource string) bool {
-	return slices.ContainsFunc(rule.Resources, func(r string) bool { return r == "*" || r == resource })
+	_, sub, hasSub := strings.Cut(resource, "/")
+	return slices.ContainsFunc(rule.Resources, func(r string) bool {
+		return r == "*" || r == resource || (hasSub && r == "*/"+sub)
+	})
 }
 
 // matchesAPIGroup reports whether rule covers group ("*" matches any; ""
@@ -365,6 +370,12 @@ func closestMiss(
 		for i := range rules {
 			if best != nil {
 				return
+			}
+			// A nonResourceURLs rule has verbs but no resources, so
+			// it can't be a near miss on a resource query — it would
+			// print "grants get on  — not secrets".
+			if len(rules[i].Resources) == 0 {
+				continue
 			}
 			if matchesResource(rules[i], query.Resource) || matchesVerb(rules[i], query.Verb) {
 				best = &rules[i]
