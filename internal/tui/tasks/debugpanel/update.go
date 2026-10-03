@@ -62,6 +62,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.SetSize(msg.Width, msg.Height)
 	case kube.ConnStateMsg:
 		m.conn = kube.ConnState(msg)
+		m.actions.SetOffline(m.conn.Offline())
 	case launchResultMsg:
 		return m.handleLaunchResult(msg)
 	case nodeDebugPodLookupMsg:
@@ -103,6 +104,12 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return tui.BackMsg{} }
 	case "enter":
 		if m.accessState == accessChecking || m.accessState == accessDenied {
+			return m, nil
+		}
+		// The launch is Mutating: refused while offline, like every other
+		// mutating verb (docs/design README.md §52) — the keybar has
+		// already dropped the hint and says "mutating actions disabled".
+		if m.launchVerb().HiddenWhileOffline(m.conn.Offline()) {
 			return m, nil
 		}
 		return m, m.beginLaunch()
@@ -300,21 +307,30 @@ func (m *Model) cycleProfile() {
 // nodedetail/edit.go's beginEdit uses, since the actual launch is a
 // tea.ExecProcess handoff, never a Mutator call.
 func (m *Model) beginLaunch() tea.Cmd {
-	verb := verbs.PodDebug
-	if m.tgt == targetNode {
-		verb = verbs.NodeDebug
-	}
-	if verbs.Resolve(verb, verbs.Target{}, m.isProd()).Tier == verbs.TierNone {
+	if verbs.Resolve(m.launchVerb(), verbs.Target{}, m.isProd()).Tier == verbs.TierNone {
 		return m.launchCmd()
 	}
 	m.launchPending = true
 	return nil
 }
 
+// launchVerb is the target's own launch verb — verbs.NodeDebug for a node,
+// verbs.PodDebug for a pod.
+func (m Model) launchVerb() verbs.Verb {
+	if m.tgt == targetNode {
+		return verbs.NodeDebug
+	}
+	return verbs.PodDebug
+}
+
 func (m *Model) updateLaunchConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y":
 		m.launchPending = false
+		if m.launchVerb().HiddenWhileOffline(m.conn.Offline()) {
+			// The connection dropped while the PROD y/N was showing.
+			return m, nil
+		}
 		return m, m.launchCmd()
 	case "n", "esc":
 		m.launchPending = false

@@ -787,3 +787,38 @@ func TestBeginCleanupDeleteUsesCleanupNamespace(t *testing.T) {
 		t.Errorf("Scope = %+v, want namespace kube-system, name node-debugger-node-a-xyz", pending.Scope)
 	}
 }
+
+// TestOfflineRefusesLaunchAndCleanup pins L8: like every other mutating
+// verb, the debug launch and CLEAN UP's delete are refused while offline,
+// and the keybar drops their hints and says why.
+func TestOfflineRefusesLaunchAndCleanup(t *testing.T) {
+	t.Parallel()
+	m := New(Config{Session: nonProdSession(), Mutator: fakeMutator{}, Namespace: "default", Name: "api-0", Containers: podContainers()})
+	m.Update(kube.ConnStateMsg{Phase: kube.ConnReconnecting})
+
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil || m.launchPending {
+		t.Fatal("enter launched kubectl debug while offline")
+	}
+	kb := m.Keybar()
+	if kb.PillText != "OFFLINE" {
+		t.Fatalf("PillText = %q, want OFFLINE", kb.PillText)
+	}
+	for _, g := range kb.Groups {
+		for _, h := range g {
+			if h.Key == "↵" {
+				t.Fatal("keybar still offers ↵ start while offline")
+			}
+		}
+	}
+
+	m.cleanup = &cleanupPrompt{namespace: "default", name: "api-0-debug"}
+	m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if m.actions.Active() {
+		t.Fatal("ctrl-d staged the cleanup delete while offline")
+	}
+	for _, h := range m.Keybar().RightHints {
+		if h.Key == "ctrl-d" {
+			t.Fatal("CLEAN UP still offers ctrl-d while offline")
+		}
+	}
+}

@@ -48,14 +48,15 @@ func (m Model) Keybar() tui.Keybar {
 		}
 	}
 	if m.cleanup != nil {
+		hints := []tui.KeyHint{{Key: "ctrl-d", Label: "delete it"}, {Key: "esc", Label: "keep"}}
+		if verbs.Delete.HiddenWhileOffline(m.conn.Offline()) {
+			hints = hints[1:]
+		}
 		return tui.Keybar{
-			Pill:      tui.ModeBrowse,
-			PillText:  "CLEAN UP",
-			RightNote: m.cleanup.name + " still running",
-			RightHints: []tui.KeyHint{
-				{Key: "ctrl-d", Label: "delete it"},
-				{Key: "esc", Label: "keep"},
-			},
+			Pill:       tui.ModeBrowse,
+			PillText:   "CLEAN UP",
+			RightNote:  m.cleanup.name + " still running",
+			RightHints: hints,
 		}
 	}
 	return m.readyKeybar()
@@ -111,11 +112,18 @@ func (m Model) readyKeybar() tui.Keybar {
 			tui.KeyHint{Key: "s", Label: "processes"},
 		)
 	}
+	pill, pillText, rightNote := tui.ModeBrowse, "DEBUG", m.accessFeedback()
+	if m.launchVerb().HiddenWhileOffline(m.conn.Offline()) {
+		// The launch is refused while offline (updateKey) — drop its hint
+		// and say why, the same OFFLINE band every other screen shows.
+		group = group[1:]
+		pill, pillText, rightNote = tui.ModeOffline, "OFFLINE", "mutating actions disabled"
+	}
 	return tui.Keybar{
-		Pill:       tui.ModeBrowse,
-		PillText:   "DEBUG",
+		Pill:       pill,
+		PillText:   pillText,
 		Groups:     [][]tui.KeyHint{group},
-		RightNote:  m.accessFeedback(),
+		RightNote:  rightNote,
 		RightHints: []tui.KeyHint{{Key: "esc", Label: "cancel"}},
 	}
 }
