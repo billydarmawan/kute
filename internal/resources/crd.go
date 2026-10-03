@@ -394,6 +394,7 @@ func BuildDiscoveredRegistry(discovered []kube.DiscoveredKind, reader ClusterRea
 	// the closure that actually resolves Service/Pod backend health.
 	if ingressDesc, ok := registry.Descriptor(kube.KindIngress); ok {
 		ingressDesc.Project = projectIngress(reader)
+		ingressDesc.Batch = batchIngress(reader)
 		registry.Register(ingressDesc)
 	}
 	// Deployment stays in DefaultRegistry with a nil-safe Project (pre-connect
@@ -402,6 +403,7 @@ func BuildDiscoveredRegistry(discovered []kube.DiscoveredKind, reader ClusterRea
 	// image — same pattern as Ingress just above.
 	if deployDesc, ok := registry.Descriptor(kube.KindDeployment); ok {
 		deployDesc.Project = projectDeployment(reader)
+		deployDesc.Batch = batchDeployment(reader)
 		registry.Register(deployDesc)
 	}
 	var fluxKinds, argoKinds, customKinds []kube.ResourceKind

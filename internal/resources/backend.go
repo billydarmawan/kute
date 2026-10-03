@@ -13,6 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/kute-dev/kute/internal/kube"
 )
@@ -53,20 +54,62 @@ func (b BackendState) Glyph() (glyph string, class StatusClass) {
 // or empty name (no cluster connection yet, or an Ingress rule with no
 // Service backend) resolves to the zero BackendState (not Exists).
 func ResolveServiceBackend(ctx context.Context, lister RawLister, namespace, name string) BackendState {
-	if lister == nil || name == "" {
+	return newBackendResolver(ctx, lister).resolve(namespace, name)
+}
+
+// backendResolver is ResolveServiceBackend with its reads shared: each
+// namespace's Services and Pods are listed once, Services are indexed by
+// name, and each Service's answer is memoized — so a batch projection (an
+// Ingress list, many rules × paths, often naming the same Service) pays one
+// Service list and one Pod scan per namespace and per distinct backend,
+// instead of both per path.
+type backendResolver struct {
+	ctx      context.Context
+	lister   RawLister
+	services map[string]map[string]*corev1.Service // namespace → name; nil value = list failed
+	pods     map[string][]runtime.Object           // namespace → pods; nil value = list failed
+	memo     map[[2]string]BackendState
+}
+
+func newBackendResolver(ctx context.Context, lister RawLister) *backendResolver {
+	return &backendResolver{
+		ctx: ctx, lister: lister,
+		services: map[string]map[string]*corev1.Service{},
+		pods:     map[string][]runtime.Object{},
+		memo:     map[[2]string]BackendState{},
+	}
+}
+
+func (r *backendResolver) resolve(namespace, name string) BackendState {
+	if r.lister == nil || name == "" {
 		return BackendState{}
 	}
-	svcObjs, err := lister.ListRaw(ctx, kube.KindService, namespace)
-	if err != nil {
-		return BackendState{}
+	key := [2]string{namespace, name}
+	if state, ok := r.memo[key]; ok {
+		return state
 	}
-	var svc *corev1.Service
-	for _, obj := range svcObjs {
-		if s, ok := obj.(*corev1.Service); ok && s.Name == name {
-			svc = s
-			break
+	state := r.resolveUncached(namespace, name)
+	r.memo[key] = state
+	return state
+}
+
+func (r *backendResolver) resolveUncached(namespace, name string) BackendState {
+	byName, listed := r.services[namespace]
+	if !listed {
+		if objs, err := r.lister.ListRaw(r.ctx, kube.KindService, namespace); err == nil {
+			byName = make(map[string]*corev1.Service, len(objs))
+			for _, obj := range objs {
+				if s, ok := obj.(*corev1.Service); ok {
+					byName[s.Name] = s
+				}
+			}
 		}
+		r.services[namespace] = byName
 	}
+	if byName == nil {
+		return BackendState{}
+	}
+	svc := byName[name]
 	if svc == nil {
 		return BackendState{Exists: false}
 	}
@@ -74,8 +117,17 @@ func ResolveServiceBackend(ctx context.Context, lister RawLister, namespace, nam
 		return BackendState{Exists: true, Unresolvable: true}
 	}
 
-	podObjs, err := lister.ListRaw(ctx, kube.KindPod, namespace)
-	if err != nil {
+	podObjs, listed := r.pods[namespace]
+	if !listed {
+		if objs, err := r.lister.ListRaw(r.ctx, kube.KindPod, namespace); err == nil {
+			podObjs = objs
+			if podObjs == nil {
+				podObjs = []runtime.Object{}
+			}
+		}
+		r.pods[namespace] = podObjs
+	}
+	if podObjs == nil {
 		return BackendState{Exists: true}
 	}
 	sel := labels.SelectorFromSet(svc.Spec.Selector)

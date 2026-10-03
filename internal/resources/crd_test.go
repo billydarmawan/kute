@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	networkingv1 "k8s.io/api/networking/v1"
@@ -298,7 +299,7 @@ func TestIngressBackendsCountsDefaultBackend(t *testing.T) {
 			Service: &networkingv1.IngressServiceBackend{Name: "web", Port: networkingv1.ServiceBackendPort{Number: 80}},
 		}},
 	}
-	if text, status, _ := ingressBackendsCell(lister, "default", ing); text != "1 ok" || status != StatusOK {
+	if text, status, _ := ingressBackendsCell(newBackendResolver(t.Context(), lister), "default", ing); text != "1 ok" || status != StatusOK {
 		t.Fatalf("BACKENDS = %q/%s, want 1 ok", text, status)
 	}
 }
@@ -348,5 +349,73 @@ func TestBuildDiscoveredRegistryNoDiscoveredKindsOmitsGroup(t *testing.T) {
 		if g.ID == GroupCustomResources {
 			t.Fatalf("expected no GroupCustomResources group when nothing was discovered")
 		}
+	}
+}
+
+// countingLister counts ListRaw calls per kind and records whether each one
+// carried the caller's ctx.
+type countingLister struct {
+	fakeLister
+	calls     map[kube.ResourceKind]int
+	wantCtx   context.Context
+	strayCtxs int
+}
+
+func (c *countingLister) CountInstances(kube.ResourceKind) (int, bool) { return 0, true }
+
+func (c *countingLister) ListRaw(ctx context.Context, kind kube.ResourceKind, ns string) ([]runtime.Object, error) {
+	c.calls[kind]++
+	if ctx != c.wantCtx {
+		c.strayCtxs++
+	}
+	return c.fakeLister.ListRaw(ctx, kind, ns)
+}
+
+// TestIngressListResolvesBackendsOncePerNamespace: List over Ingresses reads
+// Services and Pods once for the whole batch — not once per path, which on
+// every Pod event re-scanned every pod per path — and on the read's own ctx.
+func TestIngressListResolvesBackendsOncePerNamespace(t *testing.T) {
+	sel := map[string]string{"app": "web"}
+	pathType := networkingv1.PathTypePrefix
+	backend := func(svc string) networkingv1.HTTPIngressPath {
+		return networkingv1.HTTPIngressPath{Path: "/" + svc, PathType: &pathType, Backend: networkingv1.IngressBackend{
+			Service: &networkingv1.IngressServiceBackend{Name: svc, Port: networkingv1.ServiceBackendPort{Number: 80}},
+		}}
+	}
+	var ings []runtime.Object
+	for i := range 4 {
+		ings = append(ings, &networkingv1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("ing-%d", i), Namespace: "default"},
+			Spec: networkingv1.IngressSpec{Rules: []networkingv1.IngressRule{{
+				IngressRuleValue: networkingv1.IngressRuleValue{HTTP: &networkingv1.HTTPIngressRuleValue{
+					Paths: []networkingv1.HTTPIngressPath{backend("web"), backend("api"), backend("missing")},
+				}},
+			}}},
+		})
+	}
+	ctx := t.Context()
+	lister := &countingLister{
+		fakeLister: fakeLister{objs: map[kube.ResourceKind][]runtime.Object{
+			kube.KindIngress: ings,
+			kube.KindService: {serviceWithSelector("web", "default", sel), serviceWithSelector("api", "default", sel)},
+			kube.KindPod:     {readyPod("web-1", "default", sel, true)},
+		}},
+		calls:   map[kube.ResourceKind]int{},
+		wantCtx: ctx,
+	}
+	reg, _ := BuildDiscoveredRegistry(nil, lister)
+	d, _ := reg.Descriptor(kube.KindIngress)
+	rows, err := List(ctx, lister, d, "default")
+	if err != nil || len(rows) != 4 {
+		t.Fatalf("rows=%d err=%v", len(rows), err)
+	}
+	if rows[0].Cells[4] != "2 ok · 1 broken" {
+		t.Fatalf("BACKENDS = %q, want 2 ok · 1 broken", rows[0].Cells[4])
+	}
+	if lister.calls[kube.KindService] != 1 || lister.calls[kube.KindPod] != 1 {
+		t.Fatalf("Service lists=%d Pod lists=%d, want 1 each for the whole batch", lister.calls[kube.KindService], lister.calls[kube.KindPod])
+	}
+	if lister.strayCtxs != 0 {
+		t.Fatalf("%d reads did not carry List's ctx", lister.strayCtxs)
 	}
 }

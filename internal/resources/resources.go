@@ -231,6 +231,13 @@ type Descriptor struct {
 	// Project converts a raw API object into a display Row. It must tolerate an
 	// unexpected type by returning a best-effort Row (see metaRow).
 	Project func(obj runtime.Object) Row
+	// Batch, when set, is what List projects a whole read with: called once
+	// per List with that read's ctx, it returns a projector whose cross-kind
+	// lookups (Ingress backends, a Deployment's previous ReplicaSet) are
+	// shared across the batch and parented on ctx, instead of repeated per
+	// object against context.Background(). Project stays the per-object form
+	// single-object callers use.
+	Batch func(ctx context.Context) func(obj runtime.Object) Row
 	// Health tallies a kind's rows for the browse health strip. Defaults to
 	// StatusHealth for every built-in descriptor; a kind can override it if
 	// its health signal isn't well captured by StatusClass alone.
@@ -355,6 +362,9 @@ func List(ctx context.Context, src RawLister, d Descriptor, namespace string) ([
 	if err != nil {
 		return nil, err
 	}
+	if d.Batch != nil {
+		return projectRows(d.Batch(ctx), objs), nil
+	}
 	return Project(d, objs), nil
 }
 
@@ -362,6 +372,10 @@ func List(ctx context.Context, src RawLister, d Descriptor, namespace string) ([
 // ordering List returns. Joins that need the raw objects can use it to avoid
 // reading the same informer cache twice.
 func Project(d Descriptor, objs []runtime.Object) []Row {
+	return projectRows(d.Project, objs)
+}
+
+func projectRows(project func(obj runtime.Object) Row, objs []runtime.Object) []Row {
 	// The informer cache returns objects in unstable map-iteration order, which
 	// makes lists visibly jump on every watch event. Sort into a stable ascending
 	// order (namespace, then case-insensitive name) so refreshes don't reshuffle.
@@ -373,7 +387,7 @@ func Project(d Descriptor, objs []runtime.Object) []Row {
 	// 5000-object namespace, against 10k now (see BenchmarkList).
 	sorted := make([]sortableRow, 0, len(objs))
 	for _, obj := range objs {
-		row := d.Project(obj)
+		row := project(obj)
 		sorted = append(sorted, sortableRow{row: row, name: strings.ToLower(row.Name)})
 	}
 	slices.SortStableFunc(sorted, func(a, b sortableRow) int {

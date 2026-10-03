@@ -253,6 +253,42 @@ func projectPod(obj runtime.Object) Row {
 // ingressDesc.Project already establishes.
 func projectDeployment(lister RawLister) func(obj runtime.Object) Row {
 	return func(obj runtime.Object) Row {
+		return projectDeploymentWith(newReplicaSetReader(context.Background(), lister))(obj)
+	}
+}
+
+// batchDeployment is the Deployment Descriptor's Batch: one ReplicaSet read
+// per namespace for the whole list, parented on the read's own ctx.
+func batchDeployment(lister RawLister) func(ctx context.Context) func(obj runtime.Object) Row {
+	return func(ctx context.Context) func(obj runtime.Object) Row {
+		return projectDeploymentWith(newReplicaSetReader(ctx, lister))
+	}
+}
+
+// replicaSetReader lists a namespace's ReplicaSets at most once per batch.
+// A nil reader (no lister) and a failed list both read as "none".
+type replicaSetReader func(namespace string) []runtime.Object
+
+func newReplicaSetReader(ctx context.Context, lister RawLister) replicaSetReader {
+	if lister == nil {
+		return nil
+	}
+	cache := map[string][]runtime.Object{}
+	return func(namespace string) []runtime.Object {
+		if objs, ok := cache[namespace]; ok {
+			return objs
+		}
+		objs, err := lister.ListRaw(ctx, kube.KindReplicaSet, namespace)
+		if err != nil {
+			objs = nil
+		}
+		cache[namespace] = objs
+		return objs
+	}
+}
+
+func projectDeploymentWith(replicaSets replicaSetReader) func(obj runtime.Object) Row {
+	return func(obj runtime.Object) Row {
 		d, ok := obj.(*appsv1.Deployment)
 		if !ok {
 			return metaRow(obj)
@@ -271,7 +307,7 @@ func projectDeployment(lister RawLister) func(obj runtime.Object) Row {
 		return Row{
 			Namespace: ns,
 			Name:      name,
-			Cells:     []string{name, readyLabel, rolloutText, deploymentImage(lister, d, rolloutStatus), shortAge(age)},
+			Cells:     []string{name, readyLabel, rolloutText, deploymentImage(replicaSets, d, rolloutStatus), shortAge(age)},
 			Status:    status,
 		}
 	}
@@ -323,7 +359,7 @@ const rolloutArrow = "▸"
 // mid-transition (docs/design README.md §9a) — rolloutStatus gates the
 // extra ReplicaSet lookup to only the "progressing" case, since a
 // stable/degraded Deployment has no "old" side to show.
-func deploymentImage(lister RawLister, d *appsv1.Deployment, rolloutStatus StatusClass) string {
+func deploymentImage(replicaSets replicaSetReader, d *appsv1.Deployment, rolloutStatus StatusClass) string {
 	containers := d.Spec.Template.Spec.Containers
 	if len(containers) == 0 {
 		return "–"
@@ -333,7 +369,7 @@ func deploymentImage(lister RawLister, d *appsv1.Deployment, rolloutStatus Statu
 		img += fmt.Sprintf(" +%d", len(containers)-1)
 	}
 	if rolloutStatus == StatusWarn {
-		if old := previousReplicaSetImage(lister, d, containers[0].Image); old != "" {
+		if old := previousReplicaSetImage(replicaSets, d, containers[0].Image); old != "" {
 			// The cell front-elides as a whole (columns.go's Image rule):
 			// the leftmost text is the new ref's registry path — the
 			// redundant part — so elision consumes it first, and only under
@@ -351,15 +387,11 @@ func deploymentImage(lister RawLister, d *appsv1.Deployment, rolloutStatus Statu
 // transition. Returns "" when there's no such ReplicaSet (lister is nil, no
 // old ReplicaSet is still scaling down, or the lookup fails) rather than
 // guessing.
-func previousReplicaSetImage(lister RawLister, d *appsv1.Deployment, currentImage string) string {
-	if lister == nil {
+func previousReplicaSetImage(replicaSets replicaSetReader, d *appsv1.Deployment, currentImage string) string {
+	if replicaSets == nil {
 		return ""
 	}
-	objs, err := lister.ListRaw(context.Background(), kube.KindReplicaSet, d.Namespace)
-	if err != nil {
-		return ""
-	}
-	for _, obj := range objs {
+	for _, obj := range replicaSets(d.Namespace) {
 		rs, ok := obj.(*appsv1.ReplicaSet)
 		if !ok || rs.Status.Replicas == 0 || !ownedByDeployment(rs.OwnerReferences, d.Name) {
 			continue
@@ -536,7 +568,25 @@ func projectService(obj runtime.Object) Row {
 // pre-connect fallback, never exercised against real rows since nothing can
 // be listed without a lister in the first place) makes every backend
 // resolve "not found" rather than lying about health.
+//
+// This per-object form resolves each object's backends afresh; List uses
+// batchIngress instead, which shares one backendResolver across the read.
 func projectIngress(lister RawLister) func(obj runtime.Object) Row {
+	return func(obj runtime.Object) Row {
+		return projectIngressWith(newBackendResolver(context.Background(), lister))(obj)
+	}
+}
+
+// batchIngress is the Ingress Descriptor's Batch: one backendResolver (and
+// so one Service and one Pod read per namespace) for the whole list,
+// parented on the read's own ctx.
+func batchIngress(lister RawLister) func(ctx context.Context) func(obj runtime.Object) Row {
+	return func(ctx context.Context) func(obj runtime.Object) Row {
+		return projectIngressWith(newBackendResolver(ctx, lister))
+	}
+}
+
+func projectIngressWith(resolver *backendResolver) func(obj runtime.Object) Row {
 	return func(obj runtime.Object) Row {
 		ing, ok := obj.(*networkingv1.Ingress)
 		if !ok {
@@ -562,7 +612,7 @@ func projectIngress(lister RawLister) func(obj runtime.Object) Row {
 			tls = "●"
 		}
 
-		backendsText, status, glyph := ingressBackendsCell(lister, ns, ing)
+		backendsText, status, glyph := ingressBackendsCell(resolver, ns, ing)
 		return Row{
 			Namespace: ns, Name: name,
 			Cells:      []string{name, class, hostText, tls, backendsText, shortAge(age)},
@@ -577,14 +627,13 @@ func projectIngress(lister RawLister) func(obj runtime.Object) Row {
 // ResolveServiceBackend and tallies ok vs. broken (not-found or 0-ready),
 // unhealthy-first (docs/design README.md §23a: "Strip counts unhealthy-
 // first") — any broken backend fails the whole row.
-func ingressBackendsCell(lister RawLister, namespace string, ing *networkingv1.Ingress) (text string, status StatusClass, glyph string) {
-	ctx := context.Background()
+func ingressBackendsCell(resolver *backendResolver, namespace string, ing *networkingv1.Ingress) (text string, status StatusClass, glyph string) {
 	var ok, broken int
 	tally := func(b networkingv1.IngressBackend) {
 		if b.Service == nil {
 			return
 		}
-		state := ResolveServiceBackend(ctx, lister, namespace, b.Service.Name)
+		state := resolver.resolve(namespace, b.Service.Name)
 		if g, _ := state.Glyph(); g == "●" {
 			ok++
 		} else {
