@@ -746,6 +746,56 @@ func TestGotoPaletteCountsWithoutReadingCaches(t *testing.T) {
 	}
 }
 
+// gatedCountLister blocks every CountLive until release closes, signalling
+// the first call on started.
+type gatedCountLister struct {
+	countOnlyLister
+	once    sync.Once
+	started chan struct{}
+	release chan struct{}
+	mu2     sync.Mutex
+	counted map[kube.ResourceKind]bool
+}
+
+func (l *gatedCountLister) CountLive(_ context.Context, kind kube.ResourceKind, _ string) (int, error) {
+	l.once.Do(func() { close(l.started) })
+	<-l.release
+	l.mu2.Lock()
+	l.counted[kind] = true
+	l.mu2.Unlock()
+	return 1, nil
+}
+
+// TestGotoCountsUseRegistryCapturedOnOpen: the count fan-out runs off the
+// Update loop, which may replace Session.Registry (a CRD discovery event)
+// while it's still going. The fan-out must keep reading the registry it
+// was started with, not the session's live field.
+func TestGotoCountsUseRegistryCapturedOnOpen(t *testing.T) {
+	lister := &gatedCountLister{started: make(chan struct{}), release: make(chan struct{}), counted: map[kube.ResourceKind]bool{}}
+	sess := gotoTestSession(lister)
+	want := len(sess.Registry.Kinds())
+
+	model := tui.NewWithSession(&screenTask{name: "browse"}, sess)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	_, cmd := updated.(tui.Model).Update(tea.KeyPressMsg{Text: "g"})
+	if cmd == nil {
+		t.Fatal("expected a background count fetch")
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd(); close(done) }()
+
+	<-lister.started
+	sess.Registry = resources.Registry{} // the Update loop's discovery rebuild
+	close(lister.release)
+	<-done
+
+	lister.mu2.Lock()
+	defer lister.mu2.Unlock()
+	if len(lister.counted) != want {
+		t.Fatalf("counted %d kinds, want all %d from the registry the palette opened on", len(lister.counted), want)
+	}
+}
+
 // countOnlyLister is what the real seam stack looks like once CountLive is
 // forwarded: it counts server-side and records any cache read, so a test can
 // prove the palette never falls back to measuring informer caches.

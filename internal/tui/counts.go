@@ -139,7 +139,10 @@ func fetchGotoCountsCmd(sess *Session, gen int) tea.Cmd {
 	if counter == nil {
 		return nil
 	}
-	kinds := sess.Registry.Kinds()
+	// Captured here, on the Update loop: a CRD discovery event replaces
+	// sess.Registry while the fan-out below is still running.
+	reg := sess.Registry
+	kinds := reg.Kinds()
 	ns := gotoNamespace(sess)
 	parent := sess.ClusterContext()
 	return func() tea.Msg {
@@ -155,7 +158,7 @@ func fetchGotoCountsCmd(sess *Session, gen int) tea.Cmd {
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(countFetchConcurrency)
 		for _, kind := range kinds {
-			desc, ok := sess.Registry.Descriptor(kind)
+			desc, ok := reg.Descriptor(kind)
 			if !ok {
 				continue
 			}
