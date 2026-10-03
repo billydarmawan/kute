@@ -1,7 +1,9 @@
 package fake
 
 import (
+	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -1241,5 +1243,72 @@ func TestCountLiveMatchesListRaw(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("CountLive(%s, %q) = %d, want %d", tc.kind, tc.namespace, got, tc.want)
 		}
+	}
+}
+
+// TestStreamPodLogsHonoursRequest pins L7: the fake answers per container,
+// trims to TailLines and SinceSeconds, and keeps a follow stream open until
+// its context is cancelled instead of replaying the log as a second copy.
+func TestStreamPodLogsHonoursRequest(t *testing.T) {
+	t.Parallel()
+	c := New("default", "dev")
+	old := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	recent := time.Now().UTC().Format(time.RFC3339)
+	c.SeedLogs("default", "api", []string{old + " one", recent + " two", recent + " three"})
+	c.SeedContainerLogs("default", "api", "sidecar", []string{"sidecar line"})
+
+	read := func(req kube.LogStreamRequest) string {
+		t.Helper()
+		rc, err := c.StreamPodLogs(t.Context(), req)
+		if err != nil {
+			t.Fatalf("StreamPodLogs: %v", err)
+		}
+		defer func() { _ = rc.Close() }()
+		b, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return string(b)
+	}
+	base := kube.LogStreamRequest{Namespace: "default", PodName: "api", Container: "app"}
+	if got := read(base); strings.Count(got, "\n") != 3 {
+		t.Fatalf("unfiltered = %q, want all three lines", got)
+	}
+	tail := base
+	tail.TailLines = 1
+	if got := read(tail); !strings.HasSuffix(got, " three\n") || strings.Count(got, "\n") != 1 {
+		t.Fatalf("TailLines=1 = %q, want only the last line", got)
+	}
+	since := base
+	since.SinceSeconds = 60
+	if got := read(since); strings.Contains(got, " one") || !strings.Contains(got, " two") {
+		t.Fatalf("SinceSeconds=60 = %q, want only the recent lines", got)
+	}
+	sidecar := base
+	sidecar.Container = "sidecar"
+	if got := read(sidecar); got != "sidecar line\n" {
+		t.Fatalf("sidecar container = %q, want its own lines", got)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	follow := base
+	follow.Follow = true
+	rc, err := c.StreamPodLogs(ctx, follow)
+	if err != nil {
+		t.Fatalf("StreamPodLogs follow: %v", err)
+	}
+	done := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(rc)
+		done <- string(b)
+	}()
+	select {
+	case <-done:
+		t.Fatal("a follow stream ended before its context was cancelled")
+	case <-time.After(50 * time.Millisecond):
+	}
+	cancel()
+	if got := <-done; strings.Count(got, "\n") != 3 {
+		t.Fatalf("follow = %q, want the three lines then EOF on cancel", got)
 	}
 }

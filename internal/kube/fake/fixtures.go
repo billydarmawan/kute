@@ -91,6 +91,17 @@ func NewDemo() *Cluster {
 		State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: age(2 * 24 * time.Hour)}},
 	})
 
+	// An ephemeral debug container someone attached earlier makes 5a's
+	// EPHEMERAL CONTAINERS section and its ↵ (§41e) reachable in --demo.
+	apiPod.Spec.EphemeralContainers = []corev1.EphemeralContainer{{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{Name: "debugger-x7k2p", Image: "busybox:1.36"},
+		TargetContainerName:      "api",
+	}}
+	apiPod.Status.EphemeralContainerStatuses = []corev1.ContainerStatus{{
+		Name:  "debugger-x7k2p",
+		State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: age(20 * time.Minute)}},
+	}}
+
 	workerPod := demoCrashLoopPod("worker-0", "default", age(14*time.Hour), "node-a")
 	workerPod.Labels = map[string]string{"app": "worker"}
 	workerPod.OwnerReferences = []metav1.OwnerReference{{Kind: "StatefulSet", Name: "worker"}}
@@ -369,6 +380,18 @@ func NewDemo() *Cluster {
 		demoEvent("node-b.pressure", "", "Node", "node-b", "Warning", "MemoryPressure",
 			"Node node-b status is now: MemoryPressure", 3, age(45*time.Minute)),
 	)
+
+	// apiPod's two containers each log their own lines (5b's container
+	// switch shows a different stream, as on a real cluster).
+	apiLogAt := func(ago time.Duration) string { return now.Add(-ago).UTC().Format(time.RFC3339) }
+	c.SeedContainerLogs("default", apiPod.Name, "api", []string{
+		apiLogAt(3*time.Minute) + " INF listening on :8080",
+		apiLogAt(2*time.Minute) + " INF GET /healthz 200 1ms",
+		apiLogAt(time.Minute) + " WRN slow query took 1.2s",
+	})
+	c.SeedContainerLogs("default", apiPod.Name, "metrics-sidecar", []string{
+		apiLogAt(2*time.Minute) + " INF scraping api:8080/metrics every 15s",
+	})
 
 	c.SeedLogs("default", "worker-0", []string{
 		"2024-01-01T00:00:00Z INF starting worker",

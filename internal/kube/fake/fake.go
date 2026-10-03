@@ -9,6 +9,7 @@ package fake
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -53,7 +54,7 @@ var (
 type Cluster struct {
 	mu      sync.Mutex
 	objects map[kube.ResourceKind][]runtime.Object
-	logs    map[string][]string // "namespace/pod" -> lines to stream
+	logs    map[string][]string // "namespace/pod" or "namespace/pod/container" -> lines to stream
 
 	// discovered is the fake counterpart of kube.Cluster's own discovery
 	// cache (discovery.go/dynamic.go) — seeded directly via SeedDiscovered
@@ -174,11 +175,21 @@ func (c *Cluster) Seed(kind kube.ResourceKind, objs ...runtime.Object) {
 	c.objects[kind] = append(c.objects[kind], objs...)
 }
 
-// SeedLogs registers the lines StreamPodLogs replays for namespace/pod.
+// SeedLogs registers the lines StreamPodLogs replays for every container of
+// namespace/pod that SeedContainerLogs doesn't override.
 func (c *Cluster) SeedLogs(namespace, pod string, lines []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.logs[namespace+"/"+pod] = lines
+}
+
+// SeedContainerLogs registers the lines StreamPodLogs replays for one
+// container of namespace/pod, so a multi-container pod's containers each
+// show their own logs.
+func (c *Cluster) SeedContainerLogs(namespace, pod, container string, lines []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.logs[namespace+"/"+pod+"/"+container] = lines
 }
 
 // --- resources.RawLister ---
@@ -1454,11 +1465,59 @@ func (c *Cluster) NodeMetrics(_ context.Context) (map[string]kube.NodeMetric, er
 
 // --- log streaming ---
 
-func (c *Cluster) StreamPodLogs(_ context.Context, req kube.LogStreamRequest) (io.ReadCloser, error) {
+// StreamPodLogs replays the seeded lines the way the kubelet would answer
+// req: the container's own lines (else the pod's), only those newer than
+// SinceSeconds when a line carries a timestamp, the last TailLines of them,
+// and — for Follow — a stream that stays open until ctx is cancelled rather
+// than ending (a real follow only ends when the container does), so a
+// history read followed by a follow shows each line once.
+func (c *Cluster) StreamPodLogs(ctx context.Context, req kube.LogStreamRequest) (io.ReadCloser, error) {
 	c.mu.Lock()
-	lines := c.logs[req.Namespace+"/"+req.PodName]
+	lines, ok := c.logs[req.Namespace+"/"+req.PodName+"/"+req.Container]
+	if !ok {
+		lines = c.logs[req.Namespace+"/"+req.PodName]
+	}
 	c.mu.Unlock()
-	return io.NopCloser(strings.NewReader(strings.Join(lines, "\n") + "\n")), nil
+	if req.SinceSeconds > 0 {
+		cutoff := time.Now().Add(-time.Duration(req.SinceSeconds) * time.Second)
+		kept := make([]string, 0, len(lines))
+		for _, line := range lines {
+			stamp, _, _ := strings.Cut(line, " ")
+			if t, err := time.Parse(time.RFC3339Nano, stamp); err == nil && t.Before(cutoff) {
+				continue
+			}
+			kept = append(kept, line)
+		}
+		lines = kept
+	}
+	if req.TailLines > 0 && int64(len(lines)) > req.TailLines {
+		lines = lines[int64(len(lines))-req.TailLines:]
+	}
+	body := ""
+	if len(lines) > 0 {
+		body = strings.Join(lines, "\n") + "\n"
+	}
+	var r io.Reader = strings.NewReader(body)
+	if req.Follow {
+		r = followReader{ctx: ctx, r: r}
+	}
+	return io.NopCloser(r), nil
+}
+
+// followReader serves r, then blocks at its end until ctx is cancelled —
+// a follow stream on a container that has nothing more to say.
+type followReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (f followReader) Read(p []byte) (int, error) {
+	n, err := f.r.Read(p)
+	if errors.Is(err, io.EOF) && n == 0 {
+		<-f.ctx.Done()
+		return 0, io.EOF
+	}
+	return n, err
 }
 
 // --- Switcher (home.Switcher successor) ---
