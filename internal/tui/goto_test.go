@@ -499,6 +499,29 @@ func TestRouteGotoBuildsFreshBrowseBeforeMutatingSessionLocation(t *testing.T) {
 	}
 }
 
+// A jump to a cluster-scoped object (9b's ↵ on a Node event, which lives in
+// "default") must not move the session's namespace: browse ignores the
+// namespace for a cluster-scoped kind, so Location would disagree with it.
+func TestGotoClusterScopedResourceKeepsSessionNamespace(t *testing.T) {
+	t.Parallel()
+	sess := &tui.Session{Theme: tui.Dark(), Registry: resources.DefaultRegistry(), Location: tui.Location{Context: "c", Kind: kube.KindEvent, Namespace: "shop"}}
+	detail := &screenTask{name: "events"}
+	browseTask := &pushableScreenTask{screenTask: screenTask{name: "browse"}, next: detail}
+	buildBrowse := func() tui.Task { return &screenTask{name: "browse"} }
+
+	model := tui.NewWithSession(browseTask, sess).WithRootFactories(nil, buildBrowse)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	updated, _ = updated.(tui.Model).Update(tea.KeyPressMsg{Text: "open"})
+	_, _ = updated.(tui.Model).Update(tui.GotoResourceMsg{Kind: kube.KindNode, Namespace: "default", Name: "node-a"})
+
+	if sess.Location.Kind != kube.KindNode || sess.Location.Resource != "node-a" {
+		t.Fatalf("Location = %+v, want the Node", sess.Location)
+	}
+	if sess.Location.Namespace != "shop" {
+		t.Fatalf("Location.Namespace = %q, want shop kept — a Node has no namespace to adopt", sess.Location.Namespace)
+	}
+}
+
 // TestRootModelGotoFromPushedScreenPushesFreshBrowseAndPreservesHistory pins
 // the fix for the goto palette discarding history from a pushed detail
 // screen (e.g. poddetail): GotoKindMsg/GotoResourceMsg are only handled by

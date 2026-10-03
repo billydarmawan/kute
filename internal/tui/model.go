@@ -803,7 +803,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd, pushed := m.routeGoto(msg)
 		if m.session != nil {
 			m.session.Location.Kind = msg.Kind
-			m.session.Location.Namespace = msg.Namespace
+			// A cluster-scoped object has no namespace to adopt: browse
+			// keeps the one it was on, and so must Location. A Node's
+			// events live in "default", so a jump from one would
+			// otherwise silently move the session there.
+			if d, ok := m.session.Registry.Descriptor(msg.Kind); !ok || !d.ClusterScoped {
+				m.session.Location.Namespace = msg.Namespace
+			}
 			m.session.Location.Resource = msg.Name
 		}
 		if pushed {
