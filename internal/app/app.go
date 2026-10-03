@@ -1821,6 +1821,8 @@ func run(cfg Config, opts ...tea.ProgramOption) error {
 		sess.SetContext(ctx)
 	}
 
+	quitOnHangup(ctx, program.Quit)
+
 	switch {
 	case cluster != nil:
 		defer cluster.Stop()
