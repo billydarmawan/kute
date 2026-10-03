@@ -34,7 +34,10 @@ func (m Model) Keybar() tui.Keybar {
 				groups = append(groups, hints)
 			}
 		case flavorIngress:
-			hints := []tui.KeyHint{verbs.CopyRouteURL.Hint()}
+			hints := []tui.KeyHint{}
+			if row, ok := m.selectedRouteRow(); ok && row.url != "" {
+				hints = append(hints, verbs.CopyRouteURL.Hint())
+			}
 			if len(m.tlsFacts) > 0 {
 				if m.tlsFocused {
 					hints = append(hints, verbs.OpenTLSSecret.Hint())
@@ -42,7 +45,9 @@ func (m Model) Keybar() tui.Keybar {
 					hints = append(hints, verbs.FocusTLSStrip.Hint())
 				}
 			}
-			groups = append(groups, hints)
+			if len(hints) > 0 {
+				groups = append(groups, hints)
+			}
 		}
 	}
 	// §23a/§23b's "Y copy yaml" — acts on the viewed object itself, so it's

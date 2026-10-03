@@ -22,6 +22,7 @@ import (
 	"github.com/kute-dev/kute/internal/kube"
 	"github.com/kute-dev/kute/internal/resources"
 	"github.com/kute-dev/kute/internal/tui"
+	"github.com/kute-dev/kute/internal/tui/verbs"
 )
 
 type fakeLister struct {
@@ -181,6 +182,34 @@ func TestLoadIngressWildcardTLSCoversSubdomainRule(t *testing.T) {
 	for _, r := range m.rows[1:] {
 		if !strings.HasPrefix(r.url, "http://") || r.tlsText != "" {
 			t.Fatalf("uncovered row = url %q tls %q, want plain http and no TLS cell", r.url, r.tlsText)
+		}
+	}
+}
+
+// TestLoadIngressHostlessRuleHasNoURL pins that a rule with no host (or a
+// wildcard host) offers no URL to copy rather than "http:///path", and the
+// keybar drops "y copy url" on it.
+func TestLoadIngressHostlessRuleHasNoURL(t *testing.T) {
+	for _, host := range []string{"", "*.example.com"} {
+		ing := testIngress()
+		ing.Spec.Rules[0].Host = host
+		lister := fakeLister{objs: map[kube.ResourceKind][]runtime.Object{kube.KindIngress: {ing}}}
+		m := New(Config{Session: newSession(), Lister: lister, Kind: kube.KindIngress, Namespace: "default", Name: "web"})
+		m.SetSize(120, 36)
+		m = step(t, m, m.Init()())
+
+		if len(m.rows) == 0 || m.rows[0].url != "" {
+			t.Fatalf("host %q: rows = %+v, want a row with no url", host, m.rows)
+		}
+		if _, ok := m.copySelectedURL(); ok {
+			t.Fatalf("host %q: expected no url copy", host)
+		}
+		for _, g := range m.Keybar().Groups {
+			for _, h := range g {
+				if h.Key == verbs.CopyRouteURL.Key {
+					t.Fatalf("host %q: keybar still offers %q", host, h.Key)
+				}
+			}
 		}
 	}
 }

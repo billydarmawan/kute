@@ -97,7 +97,11 @@ func (m Model) loadIngress() tea.Cmd {
 				}
 				row.match = hostText + " " + p.Path
 				row.tlsText, row.tlsClass = tlsText, tlsClass
-				row.url = scheme + "://" + host + p.Path
+				// A host-less or wildcard rule has no single URL to
+				// copy — "http:///path" would paste as nothing useful.
+				if host != "" && !strings.HasPrefix(host, "*") {
+					row.url = scheme + "://" + host + p.Path
+				}
 				rows = append(rows, row)
 			}
 		}
