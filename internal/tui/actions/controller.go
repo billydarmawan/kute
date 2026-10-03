@@ -522,7 +522,9 @@ func (c Controller) Prompt() string {
 		return ""
 	}
 	s := c.pending.Scope
-	target := s.ResourceKind
+	// The API Kind, never the registry key: a qualified or substituted key
+	// (Flux's HelmRelease, a colliding CRD) isn't a name the user knows.
+	target := kube.ResourceKind(s.ResourceKind).APIKind()
 	if s.Namespace != "" {
 		target += " " + s.Namespace + "/" + s.ResourceName
 	} else {

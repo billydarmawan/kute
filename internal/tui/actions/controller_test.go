@@ -241,6 +241,18 @@ func TestBeginRequiresConfirmationBeforeExecuting(t *testing.T) {
 	}
 }
 
+// TestPromptNamesTheAPIKind pins that Prompt prints the Kind the user
+// knows, not a qualified/substituted registry key.
+func TestPromptNamesTheAPIKind(t *testing.T) {
+	c := New(&fakeMutator{})
+	action := deleteAction()
+	action.Scope.ResourceKind = string(kube.KindFluxHelmRelease)
+	beginAt(&c, TierInline, action)
+	if got := c.Prompt(); !strings.HasPrefix(got, "Delete HelmRelease prod/api?") {
+		t.Fatalf("prompt = %q, want the API Kind HelmRelease", got)
+	}
+}
+
 func TestConfirmExecutesThroughMutator(t *testing.T) {
 	mut := &fakeMutator{}
 	c := New(mut)
