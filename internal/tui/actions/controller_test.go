@@ -610,6 +610,34 @@ func TestBeginTierModalRequiresNameMatch(t *testing.T) {
 	}
 }
 
+// TestBulkModalConfirmRequiresTypedCount pins that a marked-set
+// type-to-confirm modal gates Confirm itself on the typed count: neither
+// an empty buffer nor a target's own name runs it, only len(BulkTargets).
+func TestBulkModalConfirmRequiresTypedCount(t *testing.T) {
+	mut := &fakeMutator{}
+	c := New(mut)
+	beginAt(&c, TierModal, bulkSuspendAction(
+		tui.BulkTarget{Namespace: "default", ResourceName: "nightly"},
+		tui.BulkTarget{Namespace: "batch", ResourceName: "hourly"},
+	))
+	if cmd := c.Confirm(); cmd != nil {
+		t.Fatal("expected Confirm to no-op before the count is typed")
+	}
+	for _, r := range "nightly" {
+		typeRune(&c, r)
+	}
+	if c.NameMatches() || c.Confirm() != nil {
+		t.Fatal("a target's name must not satisfy the type-the-count gate")
+	}
+	c.typedInput.SetValue("2")
+	if !c.NameMatches() {
+		t.Fatal("expected the typed count to match")
+	}
+	if cmd := c.Confirm(); cmd == nil {
+		t.Fatal("expected Confirm to execute once the count matches")
+	}
+}
+
 func TestBackspaceRemovesLastRuneUnicodeSafe(t *testing.T) {
 	c := New(&fakeMutator{})
 	beginAt(&c, TierModal, deleteAction())

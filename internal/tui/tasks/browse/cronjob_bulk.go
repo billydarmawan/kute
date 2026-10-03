@@ -12,7 +12,6 @@ package browse
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -116,17 +115,6 @@ func (m *Model) bulkCountPasteTarget() tui.PasteTarget {
 func (m Model) pendingBulkCronJobSuspend() bool {
 	pending := m.actions.Pending()
 	return pending != nil && pending.Scope.Verb == "cronjob-suspend" && len(pending.Scope.BulkTargets) > 0
-}
-
-// bulkCountMatches reports whether the controller's typed buffer currently
-// equals the marked count — updateModalConfirmKey's enter gate for every
-// marked-set TierModal confirm (pendingBulkCount).
-func (m Model) bulkCountMatches() bool {
-	pending := m.actions.Pending()
-	if pending == nil {
-		return false
-	}
-	return m.actions.TypedName() == strconv.Itoa(len(pending.Scope.BulkTargets))
 }
 
 // bulkCountKeyIsDigit reports whether msg's Text is safe to forward into the

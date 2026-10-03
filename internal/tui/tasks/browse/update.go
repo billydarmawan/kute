@@ -1143,9 +1143,8 @@ func isSetResourcesActionID(id string) bool {
 //
 // A marked-set confirm (pendingBulkCount: 20a's delete or §36c's
 // cronjob-suspend) reuses this same routing but against the count grammar
-// instead: enter gates on the typed digits equalling the marked count
-// (bulkCountMatches) rather than Controller.NameMatches (which has no single
-// ResourceName to compare against a bulk action), and typing is
+// instead: enter's gate is still Controller.Confirm's own, which for a marked
+// set compares the typed digits with the marked count, and typing is
 // digit-filtered (bulkCountKeyIsDigit). ForceDelete.Key never escalates a
 // marked set (Controller.EscalateForceDelete refuses bulk targets), so it
 // reaches the count buffer like any other key.
@@ -1155,9 +1154,6 @@ func (m *Model) updateModalConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 	case "esc":
 		m.actions.Cancel()
 	case "enter":
-		if bulk && !m.bulkCountMatches() {
-			return m, nil
-		}
 		return m, m.actions.Confirm()
 	case verbs.ForceDelete.Key:
 		if m.actions.EscalateForceDelete(m.isProd()) {

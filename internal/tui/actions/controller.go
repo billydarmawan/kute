@@ -12,6 +12,7 @@ package actions
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -235,9 +236,17 @@ func (c Controller) TypedCursor() int { return c.typedInput.Position() }
 func (c Controller) TypedInput() textfield.Model { return c.typedInput }
 
 // NameMatches reports whether TypedName equals the pending action's target
-// resource name — the gate Confirm() checks for TierModal.
+// resource name — or, for a marked set (Scope.BulkTargets), the marked
+// count, the type-the-count grammar — the gate Confirm() checks for a
+// type-to-confirm modal.
 func (c Controller) NameMatches() bool {
-	return c.pending != nil && c.typedInput.Value() == c.pending.Scope.ResourceName
+	if c.pending == nil {
+		return false
+	}
+	if n := len(c.pending.Scope.BulkTargets); n > 0 {
+		return c.typedInput.Value() == strconv.Itoa(n)
+	}
+	return c.typedInput.Value() == c.pending.Scope.ResourceName
 }
 
 // Request names the verb an action runs and the facts verbs.Resolve needs
@@ -320,18 +329,15 @@ func (c *Controller) begin(p verbs.Policy, action tui.TaskAction) tea.Cmd {
 // typed name matches. Other TierModal verbs (Drain, PROD Argo sync) stay a
 // plain y/N card: verbs.Resolve decides which.
 //
-// The typed-name gate is skipped outright when BulkTargets is non-empty: a
-// marked-set TierModal confirm (20a's delete, §36c's cronjob-suspend) has no
-// single ResourceName to type (0.8.0 plan §3 Phase 5 task 8: "In PROD, use
-// the existing type-the-count bulk grammar") — the caller (browse's own
-// bulk-count modal/key routing, not this predicate) gates Confirm on the
-// typed digit count matching len(BulkTargets) before ever calling this
-// method.
+// A marked-set modal confirm (20a's delete, §36c's cronjob-suspend) has no
+// single ResourceName to type, so NameMatches gates it on the typed count
+// instead (0.8.0 plan §3 Phase 5 task 8: "In PROD, use the existing
+// type-the-count bulk grammar") — enforced here, not left to a caller.
 func (c *Controller) Confirm() tea.Cmd {
 	if c.state != tui.TaskStateConfirming || c.pending == nil {
 		return nil
 	}
-	if c.TypeToConfirm() && len(c.pending.Scope.BulkTargets) == 0 && !c.NameMatches() {
+	if c.TypeToConfirm() && !c.NameMatches() {
 		return nil
 	}
 	return c.execute()
