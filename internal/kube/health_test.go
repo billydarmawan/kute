@@ -562,6 +562,24 @@ func TestHealthStopsPollingWhileUnauthenticated(t *testing.T) {
 	}
 }
 
+// After re-authenticating, r's ping succeeds while the watches are still
+// re-attaching: the banner must stop quoting the expired-token error the user
+// just fixed.
+func TestHealthReauthenticatedPingDropsStaleCredentialError(t *testing.T) {
+	t.Parallel()
+	h := newHealth()
+	h.recordPing(0, unauthorized(), false, true, time.Now())
+	h.recordPing(5*time.Millisecond, nil, false, true, time.Now())
+
+	got := h.get()
+	if got.Phase != ConnReconnecting {
+		t.Fatalf("Phase = %v, want Reconnecting until the watches re-sync", got.Phase)
+	}
+	if got.Err != errReestablishingWatches {
+		t.Errorf("Err = %q, want %q rather than the expired credential's text", got.Err, errReestablishingWatches)
+	}
+}
+
 func TestHealthWatchErrorDoesNotChurnWhileUnauthenticated(t *testing.T) {
 	t.Parallel()
 	h := newHealth()

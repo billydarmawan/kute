@@ -422,6 +422,10 @@ func (c *Cluster) ping(probe healthProbeSnapshot) {
 // caches' sync state and reached whether this generation has ever had an
 // answer from the apiserver; both gate connectGrace (see its doc comment).
 // now is injected so the grace window is testable without sleeping.
+// errReestablishingWatches is ConnState.Err for the gap between a ping that
+// proves a re-authenticated credential works and the watches re-attaching.
+const errReestablishingWatches = "signed in · re-establishing watches"
+
 func (h *health) recordPing(latency time.Duration, err error, synced, reached bool, now time.Time) {
 	prev := h.get()
 
@@ -433,10 +437,17 @@ func (h *health) recordPing(latency time.Duration, err error, synced, reached bo
 			// expired NextRetryAt in place would reset the timer to zero and turn
 			// a healthy /livez plus broken WATCH into a tight probe loop.
 			attempt := prev.Attempt + 1
+			msg := prev.Err
+			if prev.Phase == ConnUnauthenticated {
+				// The credential works again; only the watches are still
+				// down. Carrying "Token has expired…" forward would tell
+				// the user the login they just did didn't take.
+				msg = errReestablishingWatches
+			}
 			h.set(ConnState{
 				Phase:       ConnReconnecting,
 				Latency:     latency,
-				Err:         prev.Err,
+				Err:         msg,
 				Attempt:     attempt,
 				NextRetryAt: now.Add(backoffDelay(attempt)),
 				FetchedAt:   prev.FetchedAt,
