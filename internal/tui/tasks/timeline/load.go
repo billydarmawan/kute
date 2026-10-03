@@ -510,9 +510,11 @@ func splitArgoSyncEvents(events []kube.Event) (argo, plain []kube.Event) {
 // events) Argo's OperationCompleted Event carries neither the revision nor
 // who/what triggered it.
 //
-// Reads only kinds already in the cache; an un-started Application informer
-// yields no rows rather than starting one from the update loop, the same
-// contract sourceRevisionOf follows for Flux's source kinds.
+// ListRaw starts the Application informer if nothing has read it yet — the
+// same deliberate, narrow read sourceRevisionOf makes for Flux's source
+// kinds: only when an Application's OperationCompleted event is in scope,
+// at most once per load, from this load's tea.Cmd rather than the update
+// loop. A cache still filling simply yields no sync row this load.
 func argoSyncStatusOf(ctx context.Context, lister resources.RawLister, namespace string) func(string) (kube.ArgoSyncStatus, bool) {
 	type cacheEntry struct {
 		status kube.ArgoSyncStatus
