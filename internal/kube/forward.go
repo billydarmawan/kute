@@ -699,6 +699,15 @@ func (m *ForwardManager) touchActivity(id string) {
 // healthy forward to a pod that is gone. API errors are ignored:
 // an outage is not evidence that the Pod disappeared, and closing a working
 // tunnel would only make the outage worse.
+//
+// Each check is a live Pods.Get through the forward's own resolver — one of
+// CLAUDE.md's sanctioned one-shot reads, not a poll: it runs once per
+// debounced Pod-event flush, and entry.checking keeps at most one in flight
+// per forward, so its rate is bounded by the event bridge's debounce rather
+// than by raw pod churn. The caller feeds it the current context's Pod
+// events only, so a forward started under a previous context is checked
+// only when this context's pods change; between those, its tunnel's Run
+// failing is what notices its pod is gone.
 func (m *ForwardManager) ReconcilePodTargets() {
 	type check struct {
 		id        string
