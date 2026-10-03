@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Release is the subset of a GitHub release the update-check flow needs.
@@ -117,7 +118,28 @@ func (c GitHubChecker) Changelog(ctx context.Context, rel Release) ([]ChangelogE
 	if err := getJSON(ctx, c.client(), rel.ChangelogURL, &entries); err != nil {
 		return nil, err
 	}
+	for i := range entries {
+		entries[i].Type = stripControls(entries[i].Type)
+		entries[i].Text = stripControls(entries[i].Text)
+	}
 	return entries, nil
+}
+
+// stripControls drops C0/C1 control characters (ESC among them) from text
+// fetched off a release asset before 28b renders it: changelog.json isn't
+// signed or verified, and a tampered one must not be able to write
+// terminal escape sequences. Whitespace controls become a space, since an
+// entry renders as one line.
+func stripControls(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\t' || r == '\n' || r == '\r':
+			return ' '
+		case unicode.IsControl(r):
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func getJSON(ctx context.Context, client *http.Client, url string, out any) error {

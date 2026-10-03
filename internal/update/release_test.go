@@ -133,3 +133,23 @@ func TestGitHubCheckerLatestBoundsTheBody(t *testing.T) {
 		t.Fatal("Latest decoded a body past maxResponseBytes, want an error")
 	}
 }
+
+// TestGitHubCheckerChangelogStripsControls: changelog.json is an unverified
+// release asset rendered straight into the terminal, so control characters
+// (an ESC starting a terminal escape sequence above all) never get through
+// (14 L13).
+func TestGitHubCheckerChangelogStripsControls(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"type": "fix\u001b[2J", "text": "stop\u001b]0;pwned\u0007 the\u009b31m crash\nnow"}]`))
+	}))
+	defer srv.Close()
+
+	c := GitHubChecker{Repo: "kute-dev/kute", BaseURL: srv.URL}
+	entries, err := c.Changelog(t.Context(), Release{ChangelogURL: srv.URL + "/changelog.json"})
+	if err != nil {
+		t.Fatalf("Changelog: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Type != "fix[2J" || entries[0].Text != "stop]0;pwned the31m crash now" {
+		t.Fatalf("entries = %q, want every control character stripped", entries)
+	}
+}
