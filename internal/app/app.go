@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -1994,6 +1995,11 @@ type eventCoalescer struct {
 type pendingEvent struct {
 	first time.Time // when the oldest unflushed event arrived
 	last  time.Time // when the newest one arrived
+	// columnsArrived survives coalescing: if any folded event carried
+	// kube.ResourceChangedMsg.ColumnsArrived, the delivered one must too, or
+	// the root shell never rebuilds the kind registry and a custom kind's
+	// list keeps rendering without its printer columns.
+	columnsArrived bool
 }
 
 func newEventCoalescer() *eventCoalescer {
@@ -2002,12 +2008,19 @@ func newEventCoalescer() *eventCoalescer {
 
 // observe records one event for kind at now.
 func (c *eventCoalescer) observe(kind kube.ResourceKind, now time.Time) {
-	p, ok := c.pending[kind]
+	c.observeMsg(kube.ResourceChangedMsg{Kind: kind}, now)
+}
+
+// observeMsg records one event at now, keeping any flag it carries that a
+// bare kind would lose.
+func (c *eventCoalescer) observeMsg(msg kube.ResourceChangedMsg, now time.Time) {
+	p, ok := c.pending[msg.Kind]
 	if !ok {
 		p.first = now
 	}
 	p.last = now
-	c.pending[kind] = p
+	p.columnsArrived = p.columnsArrived || msg.ColumnsArrived
+	c.pending[msg.Kind] = p
 }
 
 // due is when kind flushes: the trailing edge of its quiet window, or its
@@ -2035,16 +2048,27 @@ func (c *eventCoalescer) next() time.Time {
 // flush removes and returns every kind due at or before now, in a stable
 // order. A kind that keeps changing afterwards starts a fresh window.
 func (c *eventCoalescer) flush(now time.Time) []kube.ResourceKind {
-	var kinds []kube.ResourceKind
+	msgs := c.flushMsgs(now)
+	kinds := make([]kube.ResourceKind, len(msgs))
+	for i, msg := range msgs {
+		kinds[i] = msg.Kind
+	}
+	return kinds
+}
+
+// flushMsgs is flush returning the message each due kind delivers, with any
+// ColumnsArrived flag folded into it intact.
+func (c *eventCoalescer) flushMsgs(now time.Time) []kube.ResourceChangedMsg {
+	var msgs []kube.ResourceChangedMsg
 	for kind, p := range c.pending {
 		if p.due().After(now) {
 			continue
 		}
 		delete(c.pending, kind)
-		kinds = append(kinds, kind)
+		msgs = append(msgs, kube.ResourceChangedMsg{Kind: kind, ColumnsArrived: p.columnsArrived})
 	}
-	slices.Sort(kinds)
-	return kinds
+	slices.SortFunc(msgs, func(a, b kube.ResourceChangedMsg) int { return cmp.Compare(a.Kind, b.Kind) })
+	return msgs
 }
 
 func forwardEvents(ctx context.Context, src eventSource, program *tea.Program, forwards *kube.ForwardManager) {
@@ -2083,8 +2107,9 @@ func forwardEvents(ctx context.Context, src eventSource, program *tea.Program, f
 	}
 
 	flushDue := func(now time.Time) {
-		for _, kind := range pending.flush(now) {
-			program.Send(kube.ResourceChangedMsg{Kind: kind})
+		for _, msg := range pending.flushMsgs(now) {
+			kind := msg.Kind
+			program.Send(msg)
 			if kind == kube.KindPod && forwards != nil {
 				forwards.ReconcilePodTargets()
 			}
@@ -2111,7 +2136,7 @@ func forwardEvents(ctx context.Context, src eventSource, program *tea.Program, f
 				continue
 			}
 			now := time.Now()
-			pending.observe(ev.Kind, now)
+			pending.observeMsg(ev, now)
 			resetEventTimer(now)
 		case now := <-eventTimerC:
 			flushDue(now)

@@ -170,3 +170,27 @@ func TestEventCoalescerKeepsTrailingEdgeForAShortBurst(t *testing.T) {
 		t.Fatalf("next = %v after draining, want zero", got)
 	}
 }
+
+// TestEventCoalescerKeepsColumnsArrived: a custom kind's printer columns
+// landing is announced as a CRD event flagged ColumnsArrived, and it is the
+// only signal the root shell rebuilds the kind registry on. Folding it into
+// the CRD informer's ordinary events must not drop the flag, or a CRD's list
+// never gets its own columns.
+func TestEventCoalescerKeepsColumnsArrived(t *testing.T) {
+	c := newEventCoalescer()
+	start := time.Unix(0, 0)
+	c.observeMsg(kube.ResourceChangedMsg{Kind: kube.KindCustomResourceDefinition}, start)
+	c.observeMsg(kube.ResourceChangedMsg{Kind: kube.KindCustomResourceDefinition, ColumnsArrived: true}, start.Add(10*time.Millisecond))
+	c.observeMsg(kube.ResourceChangedMsg{Kind: kube.KindCustomResourceDefinition}, start.Add(20*time.Millisecond))
+
+	msgs := c.flushMsgs(start.Add(time.Minute))
+	if len(msgs) != 1 || msgs[0] != (kube.ResourceChangedMsg{Kind: kube.KindCustomResourceDefinition, ColumnsArrived: true}) {
+		t.Fatalf("flushed %+v, want one ColumnsArrived CRD event", msgs)
+	}
+
+	// The flag belongs to that turn only; the next ordinary event is plain.
+	c.observeMsg(kube.ResourceChangedMsg{Kind: kube.KindCustomResourceDefinition}, start.Add(2*time.Minute))
+	if msgs := c.flushMsgs(start.Add(3 * time.Minute)); len(msgs) != 1 || msgs[0].ColumnsArrived {
+		t.Fatalf("flushed %+v, want a plain CRD event", msgs)
+	}
+}
