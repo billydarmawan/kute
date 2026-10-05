@@ -29,7 +29,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
       - name: go vet
         run: go vet ./...
       - name: go test
@@ -49,7 +49,7 @@ jobs:
       # MISE_ENV=release is what pulls mise.release.toml's tools in on top
       # of mise.toml's — see that file for why they're split out.
       - name: Setup mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
         env:
           MISE_ENV: release
       - name: Generate changelog.json
