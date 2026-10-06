@@ -90,6 +90,16 @@ func NewDemo() *Cluster {
 		Name: "metrics-sidecar", Ready: true,
 		State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: age(2 * 24 * time.Hour)}},
 	})
+	// apiPod is --demo's *multi-port* port-forward subject (13a): three
+	// declared container ports, so the picker opens with a real list to move
+	// through, each row carries its own editable local port, and the
+	// free-port row below them is visibly an *addition* rather than the only
+	// thing on screen. One port would only ever demo a single row, and
+	// demoPod's single 8080 made the whole feature look like a one-liner. The
+	// api Deployment's own template declares the identical three, so `f` on
+	// the Deployment agrees with `f` on its Pod rather than the two fixtures
+	// quietly disagreeing.
+	apiPod.Spec.Containers[0].Ports = demoAPIPorts()
 
 	// An ephemeral debug container someone attached earlier makes 5a's
 	// EPHEMERAL CONTAINERS section and its ↵ (§41e) reachable in --demo.
@@ -139,10 +149,17 @@ func NewDemo() *Cluster {
 	// unlike apiPod/workerPod these don't need an owning-workload chain for
 	// anything this pair demonstrates, and staying unowned keeps them out of
 	// every other screen's captured backdrop.
+	//
+	// gatewayPod is also --demo's *portless* port-forward subject: its one
+	// container declares no ports at all (demoPod's default is cleared
+	// below), which is both a real Envoy deployment shape and the only way to
+	// reach 13a's free-port row in demo mode on its own — every other seeded
+	// pod carries a declared port, so `f` there always opens with a list.
 	gatewayPod := demoPod("gateway-6f9c8d7b4-h2n8k", "default", age(6*24*time.Hour), corev1.PodRunning, corev1.PodQOSGuaranteed, "node-a", true, 0, nil)
 	gatewayPod.Labels = map[string]string{"app": "gateway"}
 	gatewayPod.Spec.Containers[0].Name = "envoy-distroless"
 	gatewayPod.Spec.Containers[0].Image = "envoyproxy/envoy-distroless:v1.30.1"
+	gatewayPod.Spec.Containers[0].Ports = nil
 	gatewayPod.Status.ContainerStatuses[0].Name = "envoy-distroless"
 
 	// gatewayCanaryPod: same shell-less container, a newer image tag that
@@ -1153,9 +1170,11 @@ func demoPod(name, ns string, created metav1.Time, phase corev1.PodPhase, qos co
 			Containers: []corev1.Container{{
 				Name: "app", Image: "app:1.0",
 				// Every demo pod exposes a container port so 13a/13c's
-				// forward picker has something to offer — without this,
-				// every demo pod hit "no forwardable ports found" and no
-				// forward could ever actually be started in --demo mode.
+				// forward picker has something to offer. gatewayPod above
+				// deliberately takes its own away — it is --demo's
+				// free-port subject — and every other seeded pod keeps one
+				// because a single declared row is the cheapest way to reach
+				// the declared-port half of the picker at all.
 				Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}},
 				// Every demo pod carries a request/limit pair so 2a/5a/6a's
 				// CPU/MEM bars have a real denominator in --demo mode
@@ -1214,6 +1233,23 @@ func demoCompletedPod(name, ns string, created metav1.Time) *corev1.Pod {
 		&corev1.ContainerStateTerminated{ExitCode: 0, Reason: "Completed", FinishedAt: metav1.NewTime(created.Add(2 * time.Minute))})
 }
 
+// demoAPIPorts is the "api" container's declared port set — three ports, one
+// container, shared by apiPod and the api Deployment's own pod template so the
+// two fixtures can't drift into disagreeing about what `f` finds on each.
+// Declared in ascending order so 13a's list reads like it sorts. The numbers
+// are all non-privileged on purpose: 8080 has to stay the "http" port
+// demoService's targetPort resolves to, and inventing a port below 1024 here
+// would buy nothing — the privileged→8080 pre-fill branch is pinned by
+// TestPreferredLocalPort, and the busy→bump branch depends on whatever the
+// demo machine happens to be listening on, so neither belongs in a fixture.
+func demoAPIPorts() []corev1.ContainerPort {
+	return []corev1.ContainerPort{
+		{Name: "http", ContainerPort: 8080},
+		{Name: "admin", ContainerPort: 8081},
+		{Name: "metrics", ContainerPort: 9090},
+	}
+}
+
 func demoMidRolloutDeployment(name, ns string, created metav1.Time) *appsv1.Deployment {
 	replicas := int32(3)
 	return &appsv1.Deployment{
@@ -1223,6 +1259,10 @@ func demoMidRolloutDeployment(name, ns string, created metav1.Time) *appsv1.Depl
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{Containers: []corev1.Container{{
 					Name: "api", Image: "api:2.1",
+					// The same three ports apiPod's own "api" container
+					// declares, so 13a offers an identical list whether `f`
+					// was pressed on this Deployment or on its pod.
+					Ports: demoAPIPorts(),
 					// Same request/limit pair demoPod's generic container
 					// carries, so 25a's Set Resources CURRENT column isn't
 					// empty and its usage bar has a real denominator to

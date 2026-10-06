@@ -930,6 +930,75 @@ func TestPodAndNodeMetricsAreDeterministicNotNA(t *testing.T) {
 
 // findPod locates name among objs (runtime.Object values from ListRaw),
 // returning the underlying *corev1.Pod.
+// TestDemoCoversBothPortForwardShapes pins the two halves of 13a's picker are
+// both reachable in --demo, which is the only way anyone sees the feature
+// without a cluster of their own: the trailing free-port row needs a pod that
+// declares nothing at all, and the declared-port list needs one with more
+// than a single row. It asserts through kube.ForwardablePorts — the function
+// the picker actually calls — rather than counting ContainerPorts itself, and
+// through the Deployment template too, since `f` offers its ports rather than
+// the pod's.
+func TestDemoCoversBothPortForwardShapes(t *testing.T) {
+	t.Parallel()
+	c := NewDemo()
+	ctx := t.Context()
+	pods, err := c.ListRaw(ctx, kube.KindPod, "default")
+	if err != nil {
+		t.Fatalf("ListRaw(Pod): %v", err)
+	}
+
+	// The portless subject: `f` opens straight onto `+ other port`, the state
+	// that used to be unreachable and that a pod listening on an undeclared
+	// port is the real-world reason for.
+	portless, ok := findPod(pods, "gateway-6f9c8d7b4-h2n8k")
+	if !ok {
+		t.Fatal("gateway-6f9c8d7b4-h2n8k is not a --demo fixture pod")
+	}
+	if got := kube.ForwardablePorts(portless); len(got) != 0 {
+		t.Fatalf("gateway's ports = %+v, want none — it is --demo's free-port subject", got)
+	}
+
+	// The multi-port subject: three rows, and a spread of numbers so the
+	// local-port pre-fill makes three different decisions.
+	multi, ok := findPod(pods, "api-7d9f6c8-abcde")
+	if !ok {
+		t.Fatal("api-7d9f6c8-abcde is not a --demo fixture pod")
+	}
+	ports := kube.ForwardablePorts(multi)
+	if len(ports) != 3 {
+		t.Fatalf("api's forwardable ports = %+v, want three", ports)
+	}
+	want := map[int32]bool{8080: false, 8081: false, 9090: false}
+	for _, p := range ports {
+		if _, ok := want[p.Port]; !ok {
+			t.Fatalf("unexpected port %d in %+v", p.Port, ports)
+		}
+		want[p.Port] = true
+		if p.Container != "api" {
+			t.Fatalf("port %d = container %q, want the pod's api container", p.Port, p.Container)
+		}
+	}
+
+	// And the Deployment agrees with its own Pod, so `f` on either offers the
+	// same list rather than the two fixtures drifting apart.
+	deploys, err := c.ListRaw(ctx, kube.KindDeployment, "default")
+	if err != nil {
+		t.Fatalf("ListRaw(Deployment): %v", err)
+	}
+	for _, obj := range deploys {
+		dep, ok := obj.(*appsv1.Deployment)
+		if !ok || dep.Name != "api" {
+			continue
+		}
+		depPorts := kube.ForwardablePorts(dep)
+		if len(depPorts) != len(ports) {
+			t.Fatalf("api Deployment's ports = %+v, want the same %d its pod declares", depPorts, len(ports))
+		}
+		return
+	}
+	t.Fatal("the api Deployment is not a --demo fixture")
+}
+
 func findPod(objs []runtime.Object, name string) (*corev1.Pod, bool) {
 	for _, obj := range objs {
 		if pod, ok := obj.(*corev1.Pod); ok && pod.Name == name {
