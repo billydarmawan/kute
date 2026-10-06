@@ -50,11 +50,38 @@ func goldenForwardPickerModel(t *testing.T, width, height int) Model {
 	return m
 }
 
+// goldenFreePortModel is the state 13a's free-port row exists for: an object
+// that declares no ports at all, so the panel is that one row and it is
+// selected. It's the only fixture where the row's own tokens (accent `+`, the
+// dimmed label, the ghost "e.g." hint, the unassigned `localhost:-`) are on
+// screen, and — having no remote port to pre-fill against — the one render
+// with no `pickLocalPort` probe in it at all, so it can't drift with whatever
+// the test machine happens to be listening on.
+func goldenFreePortModel(t *testing.T, width, height int) Model {
+	t.Helper()
+	m := New(Config{
+		Session: &tui.Session{Theme: tui.Dark()},
+		Lister:  fakeLister{objs: []runtime.Object{goldenBarePod()}},
+		Target:  kube.ForwardTarget{Kind: kube.KindPod, Namespace: "nva-stage", Name: "nva-worker-9k2ss"},
+	})
+	m.SetSize(width, height)
+	return loadPorts(t, m)
+}
+
+func goldenBarePod() *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "nva-worker-9k2ss", Namespace: "nva-stage"},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "web"}}},
+	}
+}
+
 func goldenForwardPickerFixtures(t *testing.T) map[string]string {
 	t.Helper()
 	return map[string]string{
 		"120x36.golden": goldentest.Plain(goldenForwardPickerModel(t, 120, 36).Render()),
 		"80x24.golden":  goldentest.Plain(goldenForwardPickerModel(t, 80, 24).Render()),
+		"no-ports.golden": goldentest.Plain(
+			goldenFreePortModel(t, 120, 36).Render()),
 	}
 }
 
@@ -102,9 +129,14 @@ func truecolorGoldenFixtures(t *testing.T) map[string]string {
 	dark := goldenForwardPickerModel(t, 120, 36)
 	light := goldenForwardPickerModel(t, 120, 36)
 	light.session.Theme = tui.Light()
+	bareDark := goldenFreePortModel(t, 120, 36)
+	bareLight := goldenFreePortModel(t, 120, 36)
+	bareLight.session.Theme = tui.Light()
 	return map[string]string{
-		"120x36-dark.golden":  goldentest.Truecolor(dark.Render()),
-		"120x36-light.golden": goldentest.Truecolor(light.Render()),
+		"120x36-dark.golden":    goldentest.Truecolor(dark.Render()),
+		"120x36-light.golden":   goldentest.Truecolor(light.Render()),
+		"no-ports-dark.golden":  goldentest.Truecolor(bareDark.Render()),
+		"no-ports-light.golden": goldentest.Truecolor(bareLight.Render()),
 	}
 }
 

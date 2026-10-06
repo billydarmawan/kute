@@ -88,6 +88,46 @@ func TestServiceForwardRebindsToReplacementAndStopCancelsRetry(t *testing.T) {
 	assertTCPRemainsRefused(t, net.JoinHostPort("127.0.0.1", local), 4*time.Second)
 }
 
+// TestUndeclaredPortForwardsThroughTheFreeRow is the fixture's second httpd
+// (8081, deliberately absent from the Deployment's `ports`) and the row that
+// exists for it: `f`, ↓ to `+ other port`, type 8081, ↵ — real bytes back
+// through a port nothing on the object ever declared. Fetching, not the
+// screen, is the assertion: a panel can claim a forward started and still
+// carry nothing.
+func TestUndeclaredPortForwardsThroughTheFreeRow(t *testing.T) {
+	RequireCluster(t)
+	a := Launch(t)
+	a.WaitFor("api-", Connect)
+	a.selectAPIPod(t)
+	a.Press("f")
+	// The free-port row, not the header: a pod with no containerPorts at all
+	// would also render "no declared ports", and this api pod declares 8080.
+	frame := a.WaitFor("+ other port", Settle)
+	if !strings.Contains(frame, "8080/http") {
+		t.Fatalf("expected the declared port still listed:\n%s", frame)
+	}
+	a.Press("down")
+	a.Type("8081")
+	// "other port  8081" is the row's own render, and only the whole buffer
+	// matches it — an untyped row says "e.g. 8080:3000" instead. The last
+	// localhost: on the panel is the free row's derived local port (the
+	// declared row's own came first), which is what actually gets bound.
+	frame = a.WaitFor("other port  8081", Settle)
+	matches := localPortRe.FindAllStringSubmatch(frame, -1)
+	if len(matches) == 0 {
+		t.Fatalf("no local port in picker:\n%s", frame)
+	}
+	local := matches[len(matches)-1][1]
+	a.Enter()
+	a.WaitFor("⇄", Settle)
+	if body := fetchThrough(t, local); !strings.Contains(body, "KUTE-E2E-FORWARD-OK") {
+		t.Fatalf("forward to the undeclared 8081 returned %q", body)
+	}
+
+	a.gotoKind(t, "forwards", "Forwards")
+	a.WaitFor("localhost:"+local, Settle)
+}
+
 func startSelectedPodForward(t *testing.T, a *App) string {
 	t.Helper()
 	pod := a.selectAPIPod(t)

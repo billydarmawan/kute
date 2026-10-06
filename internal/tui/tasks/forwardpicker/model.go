@@ -51,10 +51,30 @@ type portRow struct {
 	// Port itself for a Pod/Deployment option, the Service targetPort
 	// resolved against resolvedPod for a Service — 0 when that couldn't be
 	// resolved (no backing pod, or a named port the pod doesn't declare).
-	podPort   int32
-	editing   bool
-	editInput textfield.Model
+	podPort int32
+	// manual marks the trailing free-entry row: the target declares no ports
+	// at all, or none of them is the one wanted. A declared port is only a
+	// hint — plenty of pods never declare the port they listen on, and
+	// kubectl will happily forward any port to any of them — so the panel
+	// always ends in a row that accepts one.
+	manual bool
+	// localEdited records that the local port was chosen deliberately (typed
+	// on a declared row, or spelled as the left half of a `local:remote`
+	// pair), so re-deriving the pre-fill from a newly typed remote port
+	// leaves it alone.
+	localEdited bool
+	// editing/editInput are the row's in-place buffer. editRemote says which
+	// half of the pair it writes: the local port on a declared row, whose
+	// remote half is already known, and the remote port on the manual row,
+	// which is the half that isn't.
+	editing    bool
+	editRemote bool
+	editInput  textfield.Model
 }
+
+// portPairLimit is the manual row's buffer width — kubectl's `local:remote`
+// spelling, both halves up to five digits plus the colon.
+const portPairLimit = 11
 
 type Model struct {
 	width, height int
@@ -214,4 +234,40 @@ func (m Model) heldLocalPorts() map[int]bool {
 		held[s.LocalPort] = true
 	}
 	return held
+}
+
+// declaredRows is how many ports came off the object itself. The trailing
+// free-entry row never counts as one: "no declared ports" is a claim about
+// the object, not about how many things the panel can forward.
+func (m Model) declaredRows() int {
+	n := 0
+	for _, row := range m.rows {
+		if !row.manual {
+			n++
+		}
+	}
+	return n
+}
+
+// row is the selected row, or the zero value when there's no selection.
+func (m Model) row() portRow {
+	if m.selected < 0 || m.selected >= len(m.rows) {
+		return portRow{}
+	}
+	return m.rows[m.selected]
+}
+
+// deriveLocal keeps the manual row's local port pre-fill tracking the remote
+// port typed so far (80 → 8080, 9090 → 9090, bumped when busy), unless the
+// local port was chosen deliberately. With no remote port typed there is
+// nothing to pre-fill for, and the row shows none.
+func (m *Model) deriveLocal(row *portRow) {
+	if row.localEdited {
+		return
+	}
+	if row.Port == 0 {
+		row.localPort, row.busyFrom = 0, 0
+		return
+	}
+	row.localPort, row.busyFrom = pickLocalPort(preferredLocalPort(row.Port), m.heldLocalPorts())
 }

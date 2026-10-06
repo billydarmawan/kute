@@ -144,3 +144,34 @@ func TestPasteDigits(t *testing.T) {
 		t.Error("PasteDigits(nil) must stay nil so a closed buffer reads as no target")
 	}
 }
+
+// TestPastePortPair is PasteDigits plus exactly the one separator the
+// `local:remote` spelling uses: two colons, or one at either end, is as wrong
+// as a letter — a half-written pair must never reach the buffer whole.
+func TestPastePortPair(t *testing.T) {
+	tests := []struct {
+		paste string
+		want  string
+	}{
+		{paste: "8080:3000", want: "8080:3000"},
+		{paste: " 8080:3000\n", want: "8080:3000"},
+		{paste: "3000", want: "3000"},
+		{paste: "80:80:80", want: ""},
+		{paste: ":3000", want: ""},
+		{paste: "8080:", want: ""},
+		{paste: "8080 3000", want: ""},
+		{paste: "-1", want: ""},
+		{paste: "   ", want: ""},
+	}
+	for _, tc := range tests {
+		in := textfield.New()
+		in.Focus()
+		PastePortPair(PasteInto(&in))(tc.paste)
+		if got := in.Value(); got != tc.want {
+			t.Errorf("paste %q -> %q, want %q", tc.paste, got, tc.want)
+		}
+	}
+	if PastePortPair(nil) != nil {
+		t.Error("PastePortPair(nil) must stay nil so a closed buffer reads as no target")
+	}
+}

@@ -101,8 +101,12 @@ func TestInitLoadsPortsAndResolvesPod(t *testing.T) {
 	if m.state != tui.TaskStateReady {
 		t.Fatalf("state = %s, want Ready", m.state)
 	}
-	if len(m.rows) != 1 || m.rows[0].Port != 80 {
+	// The one declared port, plus the trailing free-port row.
+	if m.declaredRows() != 1 || len(m.rows) != 2 || m.rows[0].Port != 80 {
 		t.Fatalf("rows = %+v", m.rows)
+	}
+	if !m.rows[1].manual {
+		t.Fatalf("last row = %+v, want the free-port row", m.rows[1])
 	}
 	if m.resolvedPod != "web-0" {
 		t.Fatalf("resolvedPod = %q, want web-0 (a Pod target resolves to itself)", m.resolvedPod)
@@ -281,6 +285,267 @@ func TestViewRendersPortsAndWillRunLine(t *testing.T) {
 	}
 }
 
+// newForwardingModel is the picker wired to a real ForwardManager and a dialer
+// that records what it was asked for, which is how these tests prove a forward
+// actually started on the port they typed.
+func newForwardingModel(t *testing.T, objs ...runtime.Object) (Model, *kube.ForwardManager, *recordingDialer) {
+	t.Helper()
+	mgr := kube.NewForwardManager()
+	t.Cleanup(mgr.StopAll)
+	dialer := &recordingDialer{}
+	m := New(Config{
+		Session:  &tui.Session{Theme: tui.Dark()},
+		Lister:   fakeLister{objs: objs},
+		Resolver: stubResolver{pod: "web-0"},
+		Dialer:   dialer,
+		Manager:  mgr,
+		Target:   kube.ForwardTarget{Kind: kube.KindPod, Namespace: "default", Name: "web-0"},
+	})
+	m.SetSize(120, 36)
+	return loadPorts(t, m), mgr, dialer
+}
+
+func typeOnRow(t *testing.T, m Model, typed string) Model {
+	t.Helper()
+	cur := &m
+	for _, r := range typed {
+		updated, _ := cur.Update(tea.KeyPressMsg{Text: string(r)})
+		next, ok := updated.(*Model)
+		if !ok {
+			t.Fatalf("expected *Model, got %T", updated)
+		}
+		cur = next
+	}
+	return *cur
+}
+
+// barePod declares no containerPorts at all — the ordinary case this whole
+// free-port row exists for, since a container listening on a port it never
+// declared is perfectly legal and used to leave the picker with nothing to
+// forward.
+func barePod(ns, name string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}},
+	}
+}
+
+// TestPodWithNoDeclaredPortsIsStillForwardable pins the reason this row
+// exists: an object that declares no ports used to render "no forwardable
+// ports found" and leave no way forward at all.
+func TestPodWithNoDeclaredPortsIsStillForwardable(t *testing.T) {
+	t.Parallel()
+	m := newModel(barePod("default", "web-0"))
+	m.SetSize(120, 36)
+	m = loadPorts(t, m)
+	if m.state != tui.TaskStateReady {
+		t.Fatalf("state = %s, want Ready — a pod declaring no ports is not an empty state", m.state)
+	}
+	if len(m.rows) != 1 || !m.rows[0].manual {
+		t.Fatalf("rows = %+v, want just the free-port row", m.rows)
+	}
+	out := plain(m.Render())
+	if !strings.Contains(out, "no declared ports") {
+		t.Errorf("header should say the object declares none:\n%s", out)
+	}
+	if !strings.Contains(out, "other port") {
+		t.Errorf("expected the free-port row in the panel:\n%s", out)
+	}
+	if !strings.Contains(out, "type a port the object doesn't declare") {
+		t.Errorf("expected the will-run line to ask for a port:\n%s", out)
+	}
+}
+
+// TestTypedPortOnTheFreeRowStartsAForward: one port derives the local one the
+// same way a declared port does (9090 → 9090) and dials what was typed.
+func TestTypedPortOnTheFreeRowStartsAForward(t *testing.T) {
+	t.Parallel()
+	m, mgr, dialer := newForwardingModel(t, barePod("default", "web-0"))
+	m = typeOnRow(t, m, "9090")
+	if got := m.rows[0].Port; got != 9090 {
+		t.Fatalf("row Port = %d, want the typed 9090", got)
+	}
+	if got := m.rows[0].localPort; got != 9090 {
+		t.Fatalf("localPort = %d, want 9090 (non-privileged ports pre-fill unchanged)", got)
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if cmd == nil {
+		t.Fatal("expected a Cmd from enter")
+	}
+	if _, ok := cmd().(tui.BackMsg); !ok {
+		t.Fatalf("expected tui.BackMsg after starting the forward, got %T", cmd())
+	}
+	if len(mgr.List()) != 1 {
+		t.Fatalf("List() = %+v, want one started session", mgr.List())
+	}
+	session := mgr.List()[0]
+	if session.RemotePort != 9090 || session.LocalPort != 9090 || session.ResolvedPod != "web-0" {
+		t.Fatalf("session = %+v, want 9090 → 9090 on web-0", session)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && dialer.first() == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := dialer.first(); got != 9090 {
+		t.Fatalf("dialed pod port %d, want the typed 9090", got)
+	}
+}
+
+// TestPortPairTypingSetsBothHalves pins kubectl's own `local:remote` spelling
+// on the free-port row: the left half is the local bind and wins over the
+// pre-fill — mid-type included, since the pair is live.
+func TestPortPairTypingSetsBothHalves(t *testing.T) {
+	t.Parallel()
+	m, mgr, _ := newForwardingModel(t, barePod("default", "web-0"))
+	m = typeOnRow(t, m, "8080:3000")
+	if m.rows[0].Port != 3000 || m.rows[0].localPort != 8080 {
+		t.Fatalf("row = remote %d local %d, want 3000 on 8080", m.rows[0].Port, m.rows[0].localPort)
+	}
+	if out := plain(m.Render()); !strings.Contains(out, "3000") {
+		t.Fatalf("the typed port should render on the free-port row:\n%s", out)
+	}
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if len(mgr.List()) != 1 {
+		t.Fatalf("List() = %+v, want one started session", mgr.List())
+	}
+	session := mgr.List()[0]
+	if session.LocalPort != 8080 || session.RemotePort != 3000 {
+		t.Fatalf("session = %+v, want localhost:8080 → pod 3000", session)
+	}
+}
+
+// TestHalfTypedPairNeverForwardsNothing: a local port with no remote behind it
+// — the `8080:` you can see mid-type and can commit — is refused rather than
+// forwarded, so no session can ever be left aimed at port 0.
+func TestHalfTypedPairNeverForwardsNothing(t *testing.T) {
+	t.Parallel()
+	m, mgr, _ := newForwardingModel(t, barePod("default", "web-0"))
+	m = typeOnRow(t, m, "8080:")
+	if m.rows[0].Port != 0 || m.rows[0].localPort != 8080 {
+		t.Fatalf("row = remote %d local %d, want the remote unset and 8080 kept", m.rows[0].Port, m.rows[0].localPort)
+	}
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if cmd != nil {
+		t.Fatalf("expected no Cmd, got %T", cmd())
+	}
+	if got := updated.(*Model).feedback; !strings.Contains(got, "type a port") {
+		t.Fatalf("feedback = %q, want it to ask for the remote port", got)
+	}
+	if len(mgr.List()) != 0 {
+		t.Fatalf("List() = %+v, want no session started", mgr.List())
+	}
+}
+
+// TestEnterOnAnUntypedFreeRowSaysSoInsteadOfForwardingPortZero: the refuse is
+// an inline note on the keybar, not a modal, and no session is started.
+func TestEnterOnAnUntypedFreeRowSaysSoInsteadOfForwardingPortZero(t *testing.T) {
+	t.Parallel()
+	m, mgr, _ := newForwardingModel(t, barePod("default", "web-0"))
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if cmd != nil {
+		t.Fatalf("expected no Cmd, got %T", cmd())
+	}
+	next := updated.(*Model)
+	if !strings.Contains(next.feedback, "type a port") {
+		t.Fatalf("feedback = %q, want it to ask for a port", next.feedback)
+	}
+	if len(mgr.List()) != 0 {
+		t.Fatalf("List() = %+v, want no session started", mgr.List())
+	}
+	// The note is stale the moment another key lands.
+	typed := typeOnRow(t, *next, "3")
+	if typed.feedback != "" {
+		t.Fatalf("feedback = %q, want it cleared by the next keypress", typed.feedback)
+	}
+}
+
+// TestStartRefusedWithoutABackingPod: a Service whose backing pod can't be
+// resolved has nothing to dial, and the manager would retry that forever — so
+// the will-run line's warning is also a refusal on enter.
+func TestStartRefusedWithoutABackingPod(t *testing.T) {
+	t.Parallel()
+	mgr := kube.NewForwardManager()
+	defer mgr.StopAll()
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "api"},
+			Ports:    []corev1.ServicePort{{Name: "http", Port: 80}},
+		},
+	}
+	m := New(Config{
+		Session:  &tui.Session{Theme: tui.Dark()},
+		Lister:   fakeLister{objs: []runtime.Object{svc}},
+		Resolver: stubResolver{}, // resolves to no pod
+		Dialer:   fake.NewForwardDialer(),
+		Manager:  mgr,
+		Target:   kube.ForwardTarget{Kind: kube.KindService, Namespace: "default", Name: "web"},
+	})
+	m.SetSize(120, 36)
+	m = loadPorts(t, m)
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if cmd != nil {
+		t.Fatalf("expected no Cmd, got %T", cmd())
+	}
+	if got := updated.(*Model).feedback; !strings.Contains(got, "backing pod") {
+		t.Fatalf("feedback = %q, want it to name the missing backing pod", got)
+	}
+	if len(mgr.List()) != 0 {
+		t.Fatalf("List() = %+v, want no session started", mgr.List())
+	}
+}
+
+// TestFreeRowSitsBelowDeclaredPorts: the escape hatch never displaces a real
+// candidate, and the header's port count still describes the object.
+func TestFreeRowSitsBelowDeclaredPorts(t *testing.T) {
+	t.Parallel()
+	m := newModel(podWithPort("default", "web-0", 80))
+	m = loadPorts(t, m)
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown, Text: "down"})
+	next := updated.(*Model)
+	if next.selected != len(next.rows)-1 || !next.rows[next.selected].manual {
+		t.Fatalf("selected = %d of %d rows, want the trailing free-port row", next.selected, len(next.rows))
+	}
+	if out := plain(next.Render()); !strings.Contains(out, "1 ports") {
+		t.Fatalf("header should count declared ports only:\n%s", out)
+	}
+	// A digit on the free-port row opens the remote-port buffer, not the local
+	// one the declared rows edit.
+	opened, _ := next.Update(tea.KeyPressMsg{Text: "5"})
+	row := opened.(*Model).rows[next.selected]
+	if !row.editing || !row.editRemote {
+		t.Fatalf("row = editing %v editRemote %v, want the remote-port buffer", row.editing, row.editRemote)
+	}
+	if row.editInput.CharLimit != portPairLimit {
+		t.Fatalf("CharLimit = %d, want %d (the `local:remote` spelling)", row.editInput.CharLimit, portPairLimit)
+	}
+}
+
+func TestParsePortPair(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in     string
+		local  int
+		remote int
+	}{
+		{in: "3000", local: 0, remote: 3000},
+		{in: "8080:3000", local: 8080, remote: 3000},
+		{in: "8080:", local: 8080, remote: 0},  // half-typed pair, remote unusable
+		{in: ":3000", local: 0, remote: 3000},  // likewise the other half
+		{in: "80:9090:", local: 80, remote: 0}, // Cut takes the first colon
+		{in: "", local: 0, remote: 0},
+		{in: "70000", local: 0, remote: 0}, // out of range, never a target
+	}
+	for _, tc := range tests {
+		local, remote := parsePortPair(tc.in)
+		if local != tc.local || remote != tc.remote {
+			t.Errorf("parsePortPair(%q) = (%d, %d), want (%d, %d)", tc.in, local, remote, tc.local, tc.remote)
+		}
+	}
+}
+
 type recordingDialer struct {
 	mu    sync.Mutex
 	dials []int32
@@ -333,8 +598,8 @@ func TestServiceForwardTargetsPodContainerPort(t *testing.T) {
 	})
 	m.SetSize(120, 36)
 	m = loadPorts(t, m)
-	if len(m.rows) != 1 || m.rows[0].Port != 80 {
-		t.Fatalf("rows = %+v, want the one Service port 80", m.rows)
+	if m.declaredRows() != 1 || m.rows[0].Port != 80 {
+		t.Fatalf("rows = %d declared, want the one Service port 80", m.declaredRows())
 	}
 	local := m.rows[0].localPort
 	out := plain(m.Render())

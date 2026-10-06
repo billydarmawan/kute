@@ -6,14 +6,20 @@ import (
 )
 
 // Keybar composes the bottom band from the panel's own key list (docs/design
-// README.md §13a: "↵ start · type local port · ↑↓ port · esc cancel").
+// README.md §13a: "↵ start · type local port · ↑↓ port · esc cancel"). The
+// digit hint says which half of the pair the selected row's buffer types: a
+// declared row already knows its remote port, the free-port row doesn't.
 func (m Model) Keybar() tui.Keybar {
+	typeHint := verbs.ForwardLocalPort.Hint()
+	if m.row().manual {
+		typeHint = verbs.ForwardLocalPort.HintAs("type port")
+	}
 	kb := tui.Keybar{
 		Pill:     tui.ModeBrowse,
 		PillText: "FORWARD",
 		Groups: [][]tui.KeyHint{{
 			verbs.Open.HintAs("start"),
-			verbs.ForwardLocalPort.Hint(),
+			typeHint,
 			verbs.Move.HintAs("port"),
 		}},
 		RightHints: []tui.KeyHint{verbs.Back.HintAs("cancel")},

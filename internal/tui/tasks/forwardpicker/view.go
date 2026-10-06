@@ -91,7 +91,14 @@ func (m Model) panelHeader(theme tui.Theme) string {
 	left := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("⇄ forward › ") +
 		lipgloss.NewStyle().Foreground(theme.TextPrimary).Render(m.target.Name)
 	kind := strings.ToLower(string(m.target.Kind))
-	right := lipgloss.NewStyle().Foreground(theme.TextFaint).Render(fmt.Sprintf("%s · %s · %d ports", kind, m.target.Namespace, len(m.rows)))
+	// The count is what the object declares — the free-port row at the bottom
+	// is not one of its ports, and "0 ports · no declared ports" would be
+	// reading the panel rather than the object.
+	declared := fmt.Sprintf("%d ports", m.declaredRows())
+	if m.declaredRows() == 0 {
+		declared = "no declared ports"
+	}
+	right := lipgloss.NewStyle().Foreground(theme.TextFaint).Render(fmt.Sprintf("%s · %s · %s", kind, m.target.Namespace, declared))
 	gap := max(panelWidth-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	return left + strings.Repeat(" ", gap) + right
 }
@@ -105,10 +112,17 @@ func (m Model) portLine(theme tui.Theme, i int, row portRow) string {
 	// background (palette's fillSpaces is the same convention).
 	var rowFill lipgloss.Style
 	marker := "  "
-	glyphStyle := lipgloss.NewStyle().Foreground(theme.Good)
+	glyph, glyphStyle := "●", lipgloss.NewStyle().Foreground(theme.Good)
 	nameStyle := lipgloss.NewStyle().Foreground(theme.Text)
 	containerStyle := lipgloss.NewStyle().Foreground(theme.TextFaint)
 	localStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+	if row.manual {
+		// The free-port row is an offer, not a discovered port: a "+" rather
+		// than the healthy-status dot, so nothing here reads as a port that
+		// exists.
+		glyph, glyphStyle = "+", lipgloss.NewStyle().Foreground(theme.Accent)
+		nameStyle = lipgloss.NewStyle().Foreground(theme.TextDim)
+	}
 	if selected {
 		rowFill = lipgloss.NewStyle().Background(theme.SelBg)
 		marker = lipgloss.NewStyle().Foreground(theme.Accent).Background(theme.SelBg).Render("▸ ")
@@ -127,32 +141,70 @@ func (m Model) portLine(theme tui.Theme, i int, row portRow) string {
 		return strings.Repeat(" ", n)
 	}
 
-	label := strconv.Itoa(int(row.Port))
-	if row.Name != "" {
-		label += "/" + row.Name
-	}
-	name := nameStyle.Render(label)
-	if row.Container != "" {
-		name += fill(2) + containerStyle.Render("container "+row.Container)
+	var name string
+	if row.manual {
+		// The dim hint carries the row's own background too, so a highlighted
+		// free-port row has no cell that falls back to the terminal's.
+		ghost := lipgloss.NewStyle().Foreground(theme.TextGhost)
+		if selected {
+			ghost = ghost.Background(theme.SelBg)
+		}
+		name = m.manualName(theme, row, fill, nameStyle, ghost)
+	} else {
+		label := strconv.Itoa(int(row.Port))
+		if row.Name != "" {
+			label += "/" + row.Name
+		}
+		name = nameStyle.Render(label)
+		if row.Container != "" {
+			name += fill(2) + containerStyle.Render("container "+row.Container)
+		}
 	}
 
-	local := m.localPortText(row)
-	localText := localStyle.Render(local)
-	if row.editing {
+	localText := localStyle.Render(m.localPortText(row))
+	if row.editing && !row.editRemote {
+		// The open buffer stands in for the whole `localhost:<port>` it is
+		// editing. The free-port row doesn't: its buffer types the *remote*
+		// port, which renders on the row's left, and the pre-filled local it
+		// drives stays in its own slot so the user can see what they got.
 		// CharLimit digits plus one cell for the trailing block cursor: a
-		// width of exactly CharLimit makes the field scroll a full-length
-		// port one digit off its left edge to make room for the cursor, so
-		// a typed 45678 renders as "localhost:5678".
+		// width of exactly CharLimit scrolls a full-length port one digit off
+		// its left edge to make room for the cursor, so a typed 45678 renders
+		// as "localhost:5678".
 		localText = lipgloss.NewStyle().Foreground(theme.Text).Background(theme.SelBg).Render("localhost:") +
 			row.editInput.ViewWidth(row.editInput.CharLimit+1)
 	}
 
-	left := marker + glyphStyle.Render("●") + fill(1) + name
+	left := marker + glyphStyle.Render(glyph) + fill(1) + name
 	gap := max(panelWidth-lipgloss.Width(left)-lipgloss.Width(localText)-1, 1)
 	return left + fill(gap) + localText
 }
 
+// manualName is the free-port row's NAME column: the literal `other port`, and
+// either the port typed so far or the open buffer in its place. It sits on the
+// left because the right column keeps showing the local port — the half the
+// pre-fill is deciding, and the half the `8080:3000` spelling overrides.
+func (m Model) manualName(theme tui.Theme, row portRow, fill func(int) string, label, ghost lipgloss.Style) string {
+	labelText := "other port"
+	switch {
+	case row.editing:
+		return label.Render(labelText) + fill(2) +
+			lipgloss.NewStyle().Foreground(theme.Text).Background(theme.SelBg).
+				Render(row.editInput.ViewWidth(row.editInput.CharLimit+1))
+	case row.Port > 0:
+		return label.Render(labelText) + fill(2) + label.Render(strconv.Itoa(int(row.Port)))
+	default:
+		// Nothing typed: dim, and a worked example of the buffer's shape is
+		// the whole affordance — the keybar's digit hint says which key opens
+		// it, the will-run line says why.
+		return label.Render(labelText) + fill(2) + ghost.Render("e.g. 8080:3000")
+	}
+}
+
 func (m Model) localPortText(row portRow) string {
+	if row.localPort == 0 {
+		return "localhost:-"
+	}
 	text := fmt.Sprintf("localhost:%d", row.localPort)
 	if row.busyFrom != 0 {
 		text = fmt.Sprintf("%d busy → %d", row.busyFrom, row.localPort)
@@ -177,8 +229,14 @@ func (m Model) willRunLine(theme tui.Theme) string {
 		return label + lipgloss.NewStyle().Foreground(theme.Bad).Render("could not resolve a backing pod")
 	}
 	row := m.rows[m.selected]
+	if row.manual && row.Port == 0 {
+		return label + lipgloss.NewStyle().Foreground(theme.TextGhost).
+			Render("type a port the object doesn't declare — one, or local:remote")
+	}
 	var cmdText string
 	if row.podPort > 0 {
+		// A free-port row lands here too: its podPort is the port typed, so the
+		// same line documents `kubectl port-forward pod/<pod> 3000:3000`.
 		cmdText = kube.PortForwardCommandString(m.target.Namespace, m.resolvedPod, row.localPort, row.podPort)
 	} else {
 		// A Service targetPort that couldn't be resolved against the pod:

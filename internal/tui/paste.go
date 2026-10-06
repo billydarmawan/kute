@@ -73,6 +73,36 @@ func PasteDigits(target PasteTarget) PasteTarget {
 	}
 }
 
+// PastePortPair wraps the port-pair field's PasteTarget (13a's free-port row,
+// whose buffer is kubectl's own `local:remote` spelling). PasteDigits' rule,
+// widened by exactly the one separator that spelling uses: digits, with at
+// most one colon and never leading or trailing, so a pasted "8080:3000" lands
+// whole and a pasted "kubectl port-forward …" is still thrown away.
+func PastePortPair(target PasteTarget) PasteTarget {
+	if target == nil {
+		return nil
+	}
+	return func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		colons := 0
+		for _, r := range s {
+			switch {
+			case r == ':':
+				colons++
+			case r < '0' || r > '9':
+				return
+			}
+		}
+		if colons > 1 || strings.HasPrefix(s, ":") || strings.HasSuffix(s, ":") {
+			return
+		}
+		target(s)
+	}
+}
+
 // RoutePaste routes msg into target when msg is one of the three ways a paste
 // reaches a screen:
 //

@@ -30,13 +30,18 @@ spec:
           # listener on 8080, so a port-forward can be checked by fetching
           # through it rather than by trusting the screen that says it
           # started — the entire reason the suite runs on kind rather than
-          # kwok. The stdout loop is what §5b asserts on: KUTE-E2E-LOG-MARKER
+          # kwok. The 8081 listener is the second one and is deliberately
+          # left out of `ports` below: it's the listener 13a's trailing
+          # `+ other port` row exists for, a port nothing declares that
+          # TestUndeclaredPortForwardsThroughTheFreeRow forwards to. The
+          # stdout loop is what §5b asserts on: KUTE-E2E-LOG-MARKER
           # is a token that cannot appear anywhere else in a frame.
           args:
             - |
               mkdir -p /www
               echo "KUTE-E2E-FORWARD-OK" > /www/index.html
               httpd -f -p 8080 -h /www &
+              httpd -f -p 8081 -h /www &
               i=0
               while true; do
                 i=$((i+1))

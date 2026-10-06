@@ -10,12 +10,12 @@
        │                                                                │       
        │  ▸ ● 80/http  container web                   localhost:8080   │       
        │    ● 9090/metrics  container worker           localhost:9090   │       
+       │    + other port  e.g. 8080:3000                  localhost:-   │       
        │                                                                │       
        │  will run  kubectl port-forward pod/nva-worker-9k2ss 8080:80   │       
        │            -n nva-stage                                        │       
        │                                                                │       
        ╰────────────────────────────────────────────────────────────────╯       
-                                                                                
                                                                                 
                                                                                 
                                                                                 

@@ -66,6 +66,64 @@ func TestPasteWithNoEditOpenIsIgnored(t *testing.T) {
 	}
 }
 
+// TestPasteIntoFreePortRowAcceptsAPortPair pins the free-port row's wider
+// value rule: kubectl's `local:remote` spelling lands whole, while a second
+// colon or a leading/trailing one is rejected the same way any non-port
+// character is — a half-typed pair must never become a forward's target.
+func TestPasteIntoFreePortRowAcceptsAPortPair(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		paste string
+		want  string
+	}{
+		{paste: "8080:3000", want: "8080:3000"},
+		{paste: " 8080:3000\n", want: "8080:3000"},
+		{paste: "80:80:80", want: ""},
+		{paste: ":8080", want: ""},
+		{paste: "8080:", want: ""},
+		{paste: "8080 3000", want: ""},
+	}
+	for _, tc := range tests {
+		m := newModel(barePod("default", "web-0"))
+		m = loadPorts(t, m)
+
+		updated, _ := m.Update(tea.KeyPressMsg{Text: "3"})
+		next := updated.(*Model)
+		if !next.rows[0].editing {
+			t.Fatal("expected a digit to begin the free-port row's edit")
+		}
+		next.rows[0].editInput.SetValue("")
+		updated, _ = next.Update(tea.PasteMsg{Content: tc.paste})
+		if got := updated.(*Model).rows[0].editInput.Value(); got != tc.want {
+			t.Errorf("paste %q -> %q, want %q", tc.paste, got, tc.want)
+		}
+	}
+}
+
+// TestPastedPairForwardsBothHalves: the colon-tolerant buffer is not cosmetic
+// — a pasted pair is what starts the forward on the local port the user asked
+// for, not the pre-filled one.
+func TestPastedPairForwardsBothHalves(t *testing.T) {
+	t.Parallel()
+	m, mgr, _ := newForwardingModel(t, barePod("default", "web-0"))
+	updated, _ := m.Update(tea.KeyPressMsg{Text: "3"})
+	next := updated.(*Model)
+	next.rows[0].editInput.SetValue("")
+	updated, _ = next.Update(tea.PasteMsg{Content: "18080:5432"})
+	m = *updated.(*Model)
+
+	m.commitEdit()
+	if m.rows[0].localPort != 18080 || m.rows[0].Port != 5432 {
+		t.Fatalf("row = local %d remote %d, want 18080 → 5432", m.rows[0].localPort, m.rows[0].Port)
+	}
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"}); cmd == nil {
+		t.Fatal("expected a Cmd from enter")
+	}
+	if len(mgr.List()) != 1 {
+		t.Fatalf("List() = %+v, want one started session", mgr.List())
+	}
+}
+
 // TestFullLengthLocalPortRendersWhole pins the edit field's render width: the
 // buffer holds the typed value either way, so only a rendered frame catches a
 // field one cell too narrow for its own trailing cursor.
