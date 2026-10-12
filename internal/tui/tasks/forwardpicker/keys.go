@@ -12,7 +12,7 @@ import (
 func (m Model) Keybar() tui.Keybar {
 	typeHint := verbs.ForwardLocalPort.Hint()
 	if m.row().manual {
-		typeHint = verbs.ForwardLocalPort.HintAs("type port")
+		typeHint = verbs.ForwardOtherPort.Hint()
 	}
 	kb := tui.Keybar{
 		Pill:     tui.ModeBrowse,

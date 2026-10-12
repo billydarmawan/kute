@@ -70,6 +70,13 @@ type portRow struct {
 	editing    bool
 	editRemote bool
 	editInput  textfield.Model
+	// beforeEdit is the free-port row as it stood when its buffer opened.
+	// That buffer drives the row live, so esc restores this rather than
+	// leaving a half-typed port behind as if it had been committed.
+	beforeEdit *portRow
+	// pairErr says why the free-port buffer can't name a forward (a half
+	// past 65535) — empty when it parses, or when nothing is typed yet.
+	pairErr string
 }
 
 // portPairLimit is the manual row's buffer width — kubectl's `local:remote`
@@ -258,15 +265,21 @@ func (m Model) row() portRow {
 }
 
 // deriveLocal keeps the manual row's local port pre-fill tracking the remote
-// port typed so far (80 → 8080, 9090 → 9090, bumped when busy), unless the
-// local port was chosen deliberately. With no remote port typed there is
-// nothing to pre-fill for, and the row shows none.
-func (m *Model) deriveLocal(row *portRow) {
+// port typed so far (80 → 8080, 9090 → 9090), unless the local port was
+// chosen deliberately. With no remote port typed there is nothing to pre-fill
+// for, and the row shows none. Only probe — on commit — walks past a busy
+// port: a bind probe per keystroke would run up to 128 net.Listen calls on
+// the update loop for intermediate values nobody asked for.
+func (m *Model) deriveLocal(row *portRow, probe bool) {
 	if row.localEdited {
 		return
 	}
 	if row.Port == 0 {
 		row.localPort, row.busyFrom = 0, 0
+		return
+	}
+	if !probe {
+		row.localPort, row.busyFrom = preferredLocalPort(row.Port), 0
 		return
 	}
 	row.localPort, row.busyFrom = pickLocalPort(preferredLocalPort(row.Port), m.heldLocalPorts())

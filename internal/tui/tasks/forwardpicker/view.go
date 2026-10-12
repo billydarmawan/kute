@@ -229,6 +229,9 @@ func (m Model) willRunLine(theme tui.Theme) string {
 		return label + lipgloss.NewStyle().Foreground(theme.Bad).Render("could not resolve a backing pod")
 	}
 	row := m.rows[m.selected]
+	if row.manual && row.pairErr != "" {
+		return label + lipgloss.NewStyle().Foreground(theme.Bad).Render(row.pairErr)
+	}
 	if row.manual && row.Port == 0 {
 		return label + lipgloss.NewStyle().Foreground(theme.TextGhost).
 			Render("type a port the object doesn't declare — one, or local:remote")

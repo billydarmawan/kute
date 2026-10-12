@@ -461,10 +461,11 @@ func TestEnterOnAnUntypedFreeRowSaysSoInsteadOfForwardingPortZero(t *testing.T) 
 	}
 }
 
-// TestStartRefusedWithoutABackingPod: a Service whose backing pod can't be
-// resolved has nothing to dial, and the manager would retry that forever — so
-// the will-run line's warning is also a refusal on enter.
-func TestStartRefusedWithoutABackingPod(t *testing.T) {
+// TestStartsWithoutABackingPodYet: a Service whose backing pod can't be
+// resolved yet (scaled to zero, or one transient resolve error) still starts —
+// the manager's reconnect loop re-resolves the pod each retry and connects
+// once one is Ready, rather than making the user reopen the picker.
+func TestStartsWithoutABackingPodYet(t *testing.T) {
 	t.Parallel()
 	mgr := kube.NewForwardManager()
 	defer mgr.StopAll()
@@ -485,15 +486,98 @@ func TestStartRefusedWithoutABackingPod(t *testing.T) {
 	})
 	m.SetSize(120, 36)
 	m = loadPorts(t, m)
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if cmd != nil {
-		t.Fatalf("expected no Cmd, got %T", cmd())
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if cmd == nil {
+		t.Fatal("expected enter to start the forward and pop back")
 	}
-	if got := updated.(*Model).feedback; !strings.Contains(got, "backing pod") {
-		t.Fatalf("feedback = %q, want it to name the missing backing pod", got)
+	if _, ok := cmd().(tui.BackMsg); !ok {
+		t.Fatalf("expected tui.BackMsg, got %T", cmd())
 	}
+	if len(mgr.List()) != 1 {
+		t.Fatalf("List() = %+v, want one session left to the reconnect loop", mgr.List())
+	}
+}
+
+// TestFreeRowAcceptsOneColonOnly: a second colon, or a leading one, is never
+// part of a port pair — `1:2:3` used to reach parsePort, which read ':' as the
+// digit 10 and forwarded to port 303.
+func TestFreeRowAcceptsOneColonOnly(t *testing.T) {
+	t.Parallel()
+	m, _, _ := newForwardingModel(t, barePod("default", "web-0"))
+	m = typeOnRow(t, m, "1:2:3")
+	if got := m.rows[0].editInput.Value(); got != "1:23" {
+		t.Fatalf("buffer = %q, want the second colon dropped", got)
+	}
+	if m.rows[0].Port != 23 || m.rows[0].localPort != 1 {
+		t.Fatalf("row = local %d remote %d, want 1 → 23", m.rows[0].localPort, m.rows[0].Port)
+	}
+}
+
+// TestEscOnFreeRowRestoresThePreviousPort: the buffer drives the row live, so
+// cancelling it must put back what was there — not leave the half-typed port
+// for a later enter to forward.
+func TestEscOnFreeRowRestoresThePreviousPort(t *testing.T) {
+	t.Parallel()
+	m, mgr, _ := newForwardingModel(t, barePod("default", "web-0"))
+	m = typeOnRow(t, m, "30")
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape, Text: "esc"})
+	m = *updated.(*Model)
+	if m.rows[0].editing || m.rows[0].Port != 0 || m.rows[0].localPort != 0 {
+		t.Fatalf("row = %+v, want the untyped free row back", m.rows[0])
+	}
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	if len(mgr.List()) != 0 {
-		t.Fatalf("List() = %+v, want no session started", mgr.List())
+		t.Fatalf("List() = %+v, want no forward to the cancelled port", mgr.List())
+	}
+
+	// And a committed port survives a cancelled edit of itself.
+	m = *updated.(*Model)
+	m = typeOnRow(t, m, "9000:3000")
+	m.commitEdit()
+	m = typeOnRow(t, m, "1")
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape, Text: "esc"})
+	m = *updated.(*Model)
+	if m.rows[0].Port != 3000 || m.rows[0].localPort != 9000 || !m.rows[0].localEdited {
+		t.Fatalf("row = local %d remote %d, want 9000 → 3000 restored", m.rows[0].localPort, m.rows[0].Port)
+	}
+}
+
+// TestTypingOnACommittedFreeRowEditsIt: a digit appends to the committed
+// spelling instead of starting over, so the local override isn't silently lost.
+func TestTypingOnACommittedFreeRowEditsIt(t *testing.T) {
+	t.Parallel()
+	m, _, _ := newForwardingModel(t, barePod("default", "web-0"))
+	m = typeOnRow(t, m, "9000:300")
+	m.commitEdit()
+	m = typeOnRow(t, m, "1")
+	if got := m.rows[0].editInput.Value(); got != "9000:3001" {
+		t.Fatalf("buffer = %q, want the committed pair with the digit appended", got)
+	}
+	if m.rows[0].localPort != 9000 || m.rows[0].Port != 3001 {
+		t.Fatalf("row = local %d remote %d, want 9000 → 3001", m.rows[0].localPort, m.rows[0].Port)
+	}
+}
+
+// TestOutOfRangePortSaysSo: a half past 65535 is an error the user can read,
+// not an untyped port or a silent fall back to the pre-fill.
+func TestOutOfRangePortSaysSo(t *testing.T) {
+	t.Parallel()
+	for _, typed := range []string{"99999", "70000:3000"} {
+		m, mgr, _ := newForwardingModel(t, barePod("default", "web-0"))
+		m = typeOnRow(t, m, typed)
+		if out := plain(m.Render()); !strings.Contains(out, "port must be 1-65535") {
+			t.Errorf("%s: will-run line should name the range:\n%s", typed, out)
+		}
+		updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+		if cmd != nil {
+			t.Fatalf("%s: expected no Cmd, got %T", typed, cmd())
+		}
+		if got := updated.(*Model).feedback; got != "port must be 1-65535" {
+			t.Errorf("%s: feedback = %q, want the range note", typed, got)
+		}
+		if len(mgr.List()) != 0 {
+			t.Fatalf("%s: List() = %+v, want no session", typed, mgr.List())
+		}
 	}
 }
 
@@ -529,19 +613,21 @@ func TestParsePortPair(t *testing.T) {
 		in     string
 		local  int
 		remote int
+		err    bool
 	}{
 		{in: "3000", local: 0, remote: 3000},
 		{in: "8080:3000", local: 8080, remote: 3000},
-		{in: "8080:", local: 8080, remote: 0},  // half-typed pair, remote unusable
-		{in: ":3000", local: 0, remote: 3000},  // likewise the other half
-		{in: "80:9090:", local: 80, remote: 0}, // Cut takes the first colon
+		{in: "8080:", local: 8080, remote: 0}, // half-typed pair, remote unusable
+		{in: ":3000", local: 0, remote: 3000}, // likewise the other half
+		{in: "80:9090:", err: true},           // a second colon is no port
 		{in: "", local: 0, remote: 0},
-		{in: "70000", local: 0, remote: 0}, // out of range, never a target
+		{in: "70000", err: true},      // out of range says so, never a target
+		{in: "70000:3000", err: true}, // and never falls back to the pre-fill
 	}
 	for _, tc := range tests {
-		local, remote := parsePortPair(tc.in)
-		if local != tc.local || remote != tc.remote {
-			t.Errorf("parsePortPair(%q) = (%d, %d), want (%d, %d)", tc.in, local, remote, tc.local, tc.remote)
+		local, remote, err := parsePortPair(tc.in)
+		if (err != nil) != tc.err || local != tc.local || remote != tc.remote {
+			t.Errorf("parsePortPair(%q) = (%d, %d, %v), want (%d, %d, err=%v)", tc.in, local, remote, err, tc.local, tc.remote, tc.err)
 		}
 	}
 }
@@ -616,5 +702,50 @@ func TestServiceForwardTargetsPodContainerPort(t *testing.T) {
 	}
 	if got := dialer.first(); got != 8080 {
 		t.Fatalf("dialed pod port %d, want 8080 (targetPort http), not service port 80", got)
+	}
+}
+
+// TestServiceFreeRowReadsAServicePort: on a Service, kubectl's `svc/<name>
+// local:remote` names a Service port — so a typed port the Service declares
+// dials its targetPort, exactly as that port's own row does.
+func TestServiceFreeRowReadsAServicePort(t *testing.T) {
+	t.Parallel()
+	cluster := fake.New("shop", "test")
+	cluster.Seed(kube.KindService, &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "shop"},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{"app": "api"},
+			Ports:    []corev1.ServicePort{{Name: "web", Port: 80, TargetPort: intstr.FromString("http")}},
+		},
+	})
+	pod := podWithPort("shop", "api-0", 8080)
+	pod.Labels = map[string]string{"app": "api"}
+	cluster.Seed(kube.KindPod, pod)
+
+	mgr := kube.NewForwardManager()
+	defer mgr.StopAll()
+	dialer := &recordingDialer{}
+	m := New(Config{
+		Session:  &tui.Session{Theme: tui.Dark()},
+		Lister:   cluster,
+		Resolver: fake.NewPodResolver(cluster),
+		Dialer:   dialer,
+		Manager:  mgr,
+		Target:   kube.ForwardTarget{Kind: kube.KindService, Namespace: "shop", Name: "api"},
+	})
+	m.SetSize(120, 36)
+	m = loadPorts(t, m)
+	m.moveSelection(1)
+	m = typeOnRow(t, m, "80")
+	if got := m.rows[1].podPort; got != 8080 {
+		t.Fatalf("podPort = %d, want Service port 80's targetPort 8080", got)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && dialer.first() == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := dialer.first(); got != 8080 {
+		t.Fatalf("dialed pod port %d, want 8080 (Service port 80's targetPort)", got)
 	}
 }

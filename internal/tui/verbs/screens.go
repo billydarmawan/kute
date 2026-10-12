@@ -58,6 +58,12 @@ var (
 		ID: "forward-local-port", Key: "0-9", Label: "type local port",
 		Presses: []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
 	}
+	// ForwardOtherPort starts typing the port itself into the free-port row
+	// — the remote half, or kubectl's whole `local:remote` pair.
+	ForwardOtherPort = Verb{
+		ID: "forward-other-port", Key: "0-9", Label: "type port",
+		Presses: []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
+	}
 )
 
 // 27a's ConfigMap Data view.
@@ -135,7 +141,7 @@ var (
 var screenVerbs = []Verb{
 	YAMLFold, YAMLUnfoldAll, YAMLCopy, SecretRevealToggle, SecretRevealAll, SecretCopyValue,
 	WarningsOnly, TimeWindow, TimelineFocusRail, CopyRevision,
-	MetaAddKey, ForwardLocalPort, ConfigMapBufferEdit,
+	MetaAddKey, ForwardLocalPort, ForwardOtherPort, ConfigMapBufferEdit,
 	DebugMode, DebugImage, DebugCopyName, DebugTarget, DebugContainer, DebugProfile,
 	DebugEntrypoint, DebugProcesses, DebugRecents,
 	SetupEditPath, SetupEnterPath,

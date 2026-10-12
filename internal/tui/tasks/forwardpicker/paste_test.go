@@ -142,3 +142,21 @@ func TestFullLengthLocalPortRendersWhole(t *testing.T) {
 		t.Errorf("a full-length local port did not render whole:\n%s", frame)
 	}
 }
+
+// TestPasteOntoFreeRowOpensItsBuffer: a paste is how a `local:remote` pair
+// usually arrives, so it opens the free-port row's buffer itself — it no
+// longer needs a throwaway digit first that turned 8080:3000 into 18080:3000.
+func TestPasteOntoFreeRowOpensItsBuffer(t *testing.T) {
+	t.Parallel()
+	m := newModel(barePod("default", "web-0"))
+	m = loadPorts(t, m)
+
+	updated, _ := m.Update(tea.PasteMsg{Content: "8080:3000"})
+	row := updated.(*Model).rows[0]
+	if !row.editing || row.editInput.Value() != "8080:3000" {
+		t.Fatalf("row editing=%v buffer=%q, want the pasted pair in an open buffer", row.editing, row.editInput.Value())
+	}
+	if row.localPort != 8080 || row.Port != 3000 {
+		t.Fatalf("row = local %d remote %d, want 8080 → 3000", row.localPort, row.Port)
+	}
+}

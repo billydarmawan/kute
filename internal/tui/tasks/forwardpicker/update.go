@@ -1,6 +1,8 @@
 package forwardpicker
 
 import (
+	"errors"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -18,6 +20,18 @@ import (
 // making a nonsense port.
 func (m *Model) pasteTarget() tui.PasteTarget {
 	if !m.editing() {
+		// A paste onto the free-port row opens its buffer, the same as a typed
+		// digit does — otherwise a pasted `8080:3000` would need a throwaway
+		// digit first, and land as `18080:3000`.
+		if m.state == tui.TaskStateReady && m.row().manual {
+			return tui.PastePortPair(func(s string) {
+				m.beginEdit("", true)
+				row := &m.rows[m.selected]
+				row.editInput.SetValue(s)
+				row.editInput.CursorEnd()
+				m.liveRemote(row, false)
+			})
+		}
 		return nil
 	}
 	into := tui.PasteInto(&m.rows[m.selected].editInput)
@@ -115,6 +129,15 @@ func (m Model) editing() bool {
 
 func (m *Model) beginEdit(firstDigit string, remote bool) {
 	row := &m.rows[m.selected]
+	seed := ""
+	if remote {
+		saved := *row
+		row.beforeEdit = &saved
+		// Typing onto a free-port row that already holds a port edits it,
+		// the way any text field does — a fresh buffer would throw away a
+		// committed `9000:3000` (and its local override) on the first digit.
+		seed = manualSpelling(*row)
+	}
 	row.editing = true
 	row.editRemote = remote
 	row.editInput = textfield.New()
@@ -130,16 +153,35 @@ func (m *Model) beginEdit(firstDigit string, remote bool) {
 	if remote {
 		row.editInput.CharLimit = portPairLimit
 	}
-	row.editInput.SetValue(firstDigit)
+	row.editInput.SetValue(seed + firstDigit)
 	row.editInput.CursorEnd()
 	row.editInput.Focus()
-	m.liveRemote(row)
+	m.liveRemote(row, false)
+}
+
+// manualSpelling is the free-port row's committed port as its buffer spells
+// it: `local:remote` when the local half was chosen, else the remote alone.
+func manualSpelling(row portRow) string {
+	switch {
+	case row.Port == 0:
+		return ""
+	case row.localEdited:
+		return strconv.Itoa(row.localPort) + ":" + strconv.Itoa(int(row.Port))
+	default:
+		return strconv.Itoa(int(row.Port))
+	}
 }
 
 func (m *Model) updateEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	row := &m.rows[m.selected]
 	switch msg.String() {
 	case "esc":
+		if row.beforeEdit != nil {
+			// The free-port buffer drove the row live; cancelling it puts back
+			// exactly what was there before it opened.
+			*row = *row.beforeEdit
+			return m, nil
+		}
 		row.editing = false
 		row.editRemote = false
 		row.editInput.Blur()
@@ -155,7 +197,9 @@ func (m *Model) updateEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// from pasteTarget's tui.PasteDigits/PastePortPair.
 		for _, r := range msg.Text {
 			if r == ':' {
-				if row.editRemote {
+				// One separator, after the local half — never a second one,
+				// and never leading, since neither spells a port pair.
+				if row.editRemote && row.editInput.Value() != "" && !strings.Contains(row.editInput.Value(), ":") {
 					continue
 				}
 				return m, nil
@@ -166,7 +210,7 @@ func (m *Model) updateEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		row.editInput, cmd = row.editInput.Update(msg)
-		m.liveRemote(row)
+		m.liveRemote(row, false)
 		return m, cmd
 	}
 	return m, nil
@@ -178,17 +222,40 @@ func (m *Model) updateEditKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // that commits them. A left half (`8080:3000`) is the user's own local port and
 // is taken as given — including that it may be busy, exactly like a local port
 // typed onto a declared row — while a bare number lets deriveLocal pre-fill.
-func (m *Model) liveRemote(row *portRow) {
+func (m *Model) liveRemote(row *portRow, probe bool) {
 	if !row.editRemote {
 		return
 	}
-	local, remote := parsePortPair(row.editInput.Value())
-	row.Port, row.podPort = int32(remote), int32(remote)
+	local, remote, err := parsePortPair(row.editInput.Value())
+	row.pairErr = ""
+	if err != nil {
+		row.pairErr = err.Error()
+	}
+	m.setManualRemote(row, remote)
 	row.localEdited = local > 0
 	if local > 0 {
 		row.localPort, row.busyFrom = local, 0
 	}
-	m.deriveLocal(row)
+	m.deriveLocal(row, probe)
+}
+
+// setManualRemote points the free-port row at remote. On a Service that's a
+// Service port, the way kubectl reads `svc/<name> local:remote`: a port the
+// Service declares takes that port's targetPort mapping, exactly as its own
+// row would. A port it doesn't declare has no mapping to borrow, so it is
+// dialled on the backing pod directly — the will-run line then names the pod,
+// not the Service, so it never claims kubectl's svc/ meaning.
+func (m *Model) setManualRemote(row *portRow, remote int) {
+	row.PortOption, row.podPort = kube.PortOption{Port: int32(remote)}, int32(remote)
+	if m.target.Kind != kube.KindService || remote == 0 {
+		return
+	}
+	for _, declared := range m.rows {
+		if !declared.manual && declared.Port == int32(remote) {
+			row.PortOption, row.podPort = declared.PortOption, declared.podPort
+			return
+		}
+	}
 }
 
 // commitEdit parses the in-progress edit buffer into the row's port state and
@@ -199,8 +266,9 @@ func (m *Model) commitEdit() {
 	row := &m.rows[m.selected]
 	if row.editRemote {
 		// The free-port row's buffer is its whole port state, so committing it
-		// is the same read the keystrokes were already doing live.
-		m.liveRemote(row)
+		// is the same read the keystrokes were already doing live — plus the
+		// bind probe they skipped.
+		m.liveRemote(row, true)
 	} else if n := parsePort(row.editInput.Value()); n > 0 {
 		row.localPort = n
 		row.localEdited = true
@@ -208,15 +276,15 @@ func (m *Model) commitEdit() {
 	}
 	row.editing = false
 	row.editRemote = false
+	row.beforeEdit = nil
 	row.editInput.Blur()
 }
 
+// parsePort reads a port number, 0 for anything that isn't one: empty, a
+// non-digit, or past 65535.
 func parsePort(s string) int {
-	n := 0
-	for _, r := range s {
-		n = n*10 + int(r-'0')
-	}
-	if n > 65535 {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 || n > 65535 || strings.ContainsAny(s, "+-") {
 		return 0
 	}
 	return n
@@ -225,13 +293,24 @@ func parsePort(s string) int {
 // parsePortPair reads the free-port row's buffer, which may be kubectl's own
 // `local:remote` spelling: one half is the remote port with the local derived
 // from it, two halves set both. Either half that isn't a usable port number
-// reads as 0 — an out-of-range or half-typed "8080:" never becomes a
-// forward's target.
-func parsePortPair(s string) (local, remote int) {
-	if l, r, ok := strings.Cut(s, ":"); ok {
-		return parsePort(l), parsePort(r)
+// reads as 0 — a half-typed "8080:" never becomes a forward's target — and a
+// half typed out of range says so, rather than reading as untyped or quietly
+// falling back to the pre-fill.
+func parsePortPair(s string) (local, remote int, err error) {
+	l, r, paired := strings.Cut(s, ":")
+	if !paired {
+		l, r = "", s
 	}
-	return 0, parsePort(s)
+	if outOfRange(l) || outOfRange(r) {
+		return 0, 0, errPortRange
+	}
+	return parsePort(l), parsePort(r), nil
+}
+
+var errPortRange = errors.New("port must be 1-65535")
+
+func outOfRange(s string) bool {
+	return s != "" && parsePort(s) == 0
 }
 
 func (m *Model) moveSelection(delta int) {
@@ -265,17 +344,16 @@ func (m *Model) startSelected() tea.Cmd {
 		row = m.rows[m.selected]
 	}
 	// A free-port row with nothing typed in it has no port to dial. Saying so
-	// beats starting a forward on port 0 that could never carry a byte.
-	if row.manual && row.Port == 0 {
-		m.feedback = "type a port to forward"
+	// beats starting a forward on port 0 that could never carry a byte. A
+	// Service/Deployment with no backing pod yet is *not* refused: the
+	// manager's reconnect loop re-resolves the pod each retry and connects
+	// once one is Ready.
+	if row.manual && row.pairErr != "" {
+		m.feedback = row.pairErr
 		return nil
 	}
-	// Likewise nothing to dial without a pod — a Service/Deployment whose
-	// backing pod couldn't be resolved, which the will-run line already says
-	// out loud, and which the manager would otherwise retry until the session
-	// is stopped.
-	if m.resolvedPod == "" {
-		m.feedback = "could not resolve a backing pod"
+	if row.manual && row.Port == 0 {
+		m.feedback = "type a port to forward"
 		return nil
 	}
 	// A local port another forward owns would leave this one looping in
